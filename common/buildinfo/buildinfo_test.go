@@ -26,7 +26,7 @@ func TestPackageVersionMatchesRootPackage(t *testing.T) {
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		t.Fatal(err)
 	}
-	if pkg.Version != PackageVersion {
-		t.Fatalf("package.json %s != PackageVersion %s; run node scripts/sync-version.mjs", pkg.Version, PackageVersion)
+	if pkg.Version != Version {
+		t.Fatalf("package.json %s != Version %s", pkg.Version, Version)
 	}
 }

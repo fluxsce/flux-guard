@@ -14,6 +14,7 @@
 - 仓库和安装包提供 `configs/*.yaml.example`。第一次启动时，若本机还没有对应的 `configs/*.yaml`，启动脚本从示例复制一份，已有文件不覆盖。
 
 ### 变更
+- 本地运行和测试直接读取仓库根 `package.json` 的版本。发行包仍用构建参数写入版本、提交号和构建时间。改版本只改 `package.json`。
 - 中央服务、主机代理、应用代理和 Java 代理只读取本机 `configs/*.yaml`。同目录的 example 不会被当作配置加载。
 - 本机 `configs/*.yaml` 留在本机，不进入 Git。
 
