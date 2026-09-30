@@ -5,6 +5,7 @@ import { useAiStore, useModuleAi } from '@/ai'
 import { messageOfCode } from '@/api/errorText'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
 import { useModuleI18n } from '@/locales/useModuleI18n'
+import { useProductVersion } from '@/productVersion'
 import { RsButton, RsCard, RsForm, RsFormItem, RsInput, useRsToast } from '@/ui'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { useSessionStore } from '@/stores/session'
@@ -14,6 +15,7 @@ const router = useRouter()
 const session = useSessionStore()
 const ai = useAiStore()
 const { t, locale } = useModuleI18n('login')
+const { version } = useProductVersion()
 const form = ref({
   userId: 'admin',
   password: '',
@@ -152,7 +154,10 @@ useModuleAi(() => ({
 
     <div class="fg-login-stage">
       <section class="fg-login-hero">
-        <p class="fg-login-kicker">FLUX GUARD</p>
+        <p class="fg-login-kicker">
+          <span>FLUX GUARD</span>
+          <span class="fg-login-ver">v{{ version }}</span>
+        </p>
         <h1>{{ t('title') }}</h1>
         <p class="fg-login-lead">{{ t('lead') }}</p>
         <ul class="fg-login-signals">
@@ -214,6 +219,7 @@ useModuleAi(() => ({
           <RsButton class="fg-login-submit" variant="primary" type="submit" :disabled="pending">
             {{ pending ? t('pending') : t('submit') }}
           </RsButton>
+          <p class="fg-login-build">v{{ version }}</p>
         </RsForm>
       </RsCard>
     </div>
@@ -302,10 +308,29 @@ useModuleAi(() => ({
 }
 
 .fg-login-kicker {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   margin: 0 0 12px;
-  letter-spacing: 0.22em;
   font-size: 12px;
   color: var(--rs-primary);
+}
+
+.fg-login-kicker > span:first-child {
+  letter-spacing: 0.22em;
+}
+
+.fg-login-ver,
+.fg-login-build {
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.fg-login-build {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--rs-text-tertiary);
 }
 
 .fg-login-hero h1 {

@@ -7,8 +7,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   publish:
+    if: ${{ !contains(github.event.head_commit.message, '[release notes]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,23 +36,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION=$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/' || true)
+          if git log -1 --format=%s | grep -F '[release notes]' >/dev/null; then
+            echo "release-notes commit; skip"
+            exit 0
+          fi
+          DATE=$(date -u +%Y-%m-%d)
+          PUBLISHED=$(git tag -l 'v[0-9]*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | paste -sd, -)
+          VERSION=$(python3 -c 'import json; print(json.load(open("package.json", encoding="utf-8"))["version"])')
+          VERSION=$(python3 .github/scripts/cut_changelog.py plan --version "${VERSION}" --published "${PUBLISHED}" --date "${DATE}" --notes release-notes.md)
           if [[ -z "${VERSION}" ]]; then
-            echo "CHANGELOG.md has no ## [x.y.z] heading; skip"
+            echo "no unpublished changelog notes; skip"
             exit 0
           fi
           if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
             echo "v${VERSION} already published"
             exit 0
           fi
-          awk -v ver="${VERSION}" '
-            $0 ~ "^## \\[" ver "\\]" { found=1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SHA=$(git rev-parse --short=12 HEAD)
-          LDFLAGS="-s -w -X fluxguard/common/buildinfo.Version=${VERSION} -X fluxguard/common/buildinfo.Commit=${SHA} -X fluxguard/common/buildinfo.Date=${DATE}"
+          LDFLAGS="-s -w -X fluxguard/common/buildinfo.Version=${VERSION} -X fluxguard/common/buildinfo.Commit=${SHA} -X fluxguard/common/buildinfo.Date=${STAMP}"
           mkdir -p dist
           while read -r goos goarch; do
             ext=""
@@ -70,8 +77,16 @@ jobs:
           darwin arm64
           EOF
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
+          python3 .github/scripts/cut_changelog.py apply --version "${VERSION}" --date "${DATE}" --notes release-notes.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "changelog already records v${VERSION}"
+          else
+            git commit -m "docs: 记录 v${VERSION} 版本说明 [release notes]"
+            git push origin HEAD:main
+          fi
           git tag -a "v${VERSION}" -m "v${VERSION}"
           git push origin "v${VERSION}"
           gh release create "v${VERSION}" --title "v${VERSION}" --notes-file release-notes.md dist/*.tar.gz dist/SHA256SUMS.txt

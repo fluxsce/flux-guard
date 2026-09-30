@@ -209,7 +209,7 @@ common/crypto       两边共用的 AES-GCM，前缀 ENCY_。不用于登录口�
 common/report       Go 代理共用的组批次和上报，不采集
 common/command      Go 代理的命令端口和长轮询。端口校验代理令牌
 common/shellrun     Go 主机代理的交互终端：主动连中央，本机拉起伪控制台
-common/buildinfo    编译时写入的产品版本。本地构建是 dev
+common/buildinfo    产品版本。默认来自仓库根 package.json，发行构建用 ldflags 覆盖
 web/                控制台，由 server 托管
 configs/            server.yaml、host.yaml、app.yaml、java.yaml
 scripts/db/mysql    中央库表，MySQL

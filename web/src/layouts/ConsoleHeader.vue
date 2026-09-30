@@ -7,6 +7,7 @@ import { useModuleI18n } from '@/locales/useModuleI18n'
 import { moduleIcon } from '@/router'
 import { modulePath, useSessionStore } from '@/stores/session'
 import { setTheme, theme, type AppTheme } from '@/layouts/theme'
+import { useProductVersion } from '@/productVersion'
 import { RsAvatar, RsBreadcrumb, RsIcon, RsPopover } from '@/ui'
 import type { Menu } from '@/views/login/api'
 import AccountProfileDialog from './AccountProfileDialog.vue'
@@ -15,6 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const { t, locale } = useModuleI18n('shell')
+const { version } = useProductVersion()
 const now = ref(new Date())
 const accountOpen = ref(false)
 const profileOpen = ref(false)
@@ -205,6 +207,7 @@ watch(
               <div class="fg-account-copy">
                 <strong>{{ userLabel }}</strong>
                 <span>{{ userAccount || t('consoleAccount') }}</span>
+                <span v-if="version">v{{ version }}</span>
               </div>
             </div>
             <div class="fg-account-prefs">

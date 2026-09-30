@@ -1,0 +1,6 @@
+{
+  "java.project.sourcePaths": [
+    "agents/java/src"
+  ],
+  "java.project.outputPath": "agents/java/build"
+}

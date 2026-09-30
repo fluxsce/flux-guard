@@ -1,8 +1,10 @@
 {
   "name": "flux-guard",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "node web/node_modules/concurrently/dist/bin/concurrently.js -k -s first -n GO,VITE -c yellow,cyan \"npm:dev:go\" \"npm:dev:vite\"",
+    "version:sync": "node scripts/sync-version.mjs",
+    "dev": "node scripts/sync-version.mjs && node web/node_modules/concurrently/dist/bin/concurrently.js -k -s first -n GO,VITE -c yellow,cyan \"npm:dev:go\" \"npm:dev:vite\"",
     "dev:go": "go run ./cmd/server",
     "dev:vite": "pnpm --dir web run dev",
     "dev:host": "go run ./cmd/host"

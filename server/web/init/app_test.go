@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"fluxguard/common/buildinfo"
 	"fluxguard/common/logger"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
@@ -141,7 +142,7 @@ func parseLog(line string) map[string]any {
 func TestHealthzReportsBuildVersion(t *testing.T) {
 	handler := New(nil)
 	res := call(t, handler, http.MethodGet, "/healthz", "", nil)
-	if res.Code != http.StatusOK || !bytes.Contains(res.Body.Bytes(), []byte(`"version":"dev"`)) {
+	if res.Code != http.StatusOK || !bytes.Contains(res.Body.Bytes(), []byte(`"version":"`+buildinfo.Version+`"`)) {
 		t.Fatalf("healthz %d %s", res.Code, res.Body.String())
 	}
 }
@@ -360,6 +361,17 @@ func signIn(t *testing.T, handler http.Handler, user, password string) string {
 		t.Fatal("empty token")
 	}
 	return wrapped.Data.Token
+}
+
+func TestVersionWithoutSession(t *testing.T) {
+	handler := New(nil)
+	res := call(t, handler, http.MethodGet, "/fluxguard/api/version", "", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("version %d %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"version"`) {
+		t.Fatal(res.Body.String())
+	}
 }
 
 func call(t *testing.T, handler http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {

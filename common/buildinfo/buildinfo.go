@@ -1,6 +1,7 @@
-// Package buildinfo 保存编译时写入的产品版本。
+// Package buildinfo 保存产品版本。
+// 默认号来自仓库根 package.json，见 PackageVersion。
+// 发行构建覆盖：go build -ldflags "-X fluxguard/common/buildinfo.Version=1.2.3 -X fluxguard/common/buildinfo.Commit=abc -X fluxguard/common/buildinfo.Date=2026-09-27T00:00:00Z"
 // 监听地址和数据库在 server/config，不在这里。
-// 覆盖方式：go build -ldflags "-X fluxguard/common/buildinfo.Version=1.2.3 -X fluxguard/common/buildinfo.Commit=abc -X fluxguard/common/buildinfo.Date=2026-09-27T00:00:00Z"
 package buildinfo
 
 import (
@@ -9,7 +10,7 @@ import (
 )
 
 var (
-	Version = "dev"
+	Version = PackageVersion
 	Commit  = "none"
 	Date    = "unknown"
 )

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useModuleI18n } from '@/locales/useModuleI18n'
+import { useProductVersion } from '@/productVersion'
 import { consoleMenu } from '@/router'
 import { useSessionStore } from '@/stores/session'
 import { RsIcon, RsMenu, RsSidebar, type RsMenuItem } from '@/ui'
@@ -14,6 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const { t } = useModuleI18n('shell')
+const { version } = useProductVersion()
 
 function readOpenKeys() {
   try {
@@ -59,7 +61,7 @@ watch(openKeys, (keys) => {
         </span>
         <span v-if="!collapsed" class="fg-brand-copy">
           <strong>Flux Guard</strong>
-          <span><i class="fg-live" />{{ t('product') }}</span>
+          <span><i class="fg-live" />{{ t('product') }}<template v-if="version"> · v{{ version }}</template></span>
         </span>
       </button>
     </template>

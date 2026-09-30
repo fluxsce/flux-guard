@@ -1,8 +1,11 @@
 import { defineConfig, type PluginOption } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { niumaUiHost } from 'niuma-ui/vite-plugins/niuma-ui-host'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
+
+const productVersion = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8')).version as string
 
 const require = createRequire(import.meta.url)
 const uiRoot = dirname(require.resolve('niuma-ui/package.json'))
@@ -27,6 +30,9 @@ function redirectWebRoot(): PluginOption {
 
 export default defineConfig({
   base: '/fluxguard/',
+  define: {
+    __FLUX_GUARD_VERSION__: JSON.stringify(productVersion),
+  },
   plugins: [vue(), ...(niumaUiHost() as PluginOption[]), redirectWebRoot()],
   resolve: {
     alias: {
