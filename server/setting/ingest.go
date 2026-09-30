@@ -148,9 +148,10 @@ func hintOf(plain string) string {
 	return plain[len(plain)-4:]
 }
 
-// installDevIngest 在开发进程里补上种子令牌。已有开发令牌只补密文，不换摘要。
+// installDevIngest 在本地和测试里补上种子令牌。已有开发令牌只补密文，不换摘要。
+// 发行构建会写入 Commit，不再安装 agt_dev_local。
 func installDevIngest(ctx context.Context, db *dbx.DB) error {
-	if buildinfo.Version != "dev" {
+	if buildinfo.Commit != "none" {
 		return nil
 	}
 	var count int

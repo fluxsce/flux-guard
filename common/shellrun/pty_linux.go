@@ -51,7 +51,8 @@ func openTerm(cols, rows int) (terminal, error) {
 	cmd.Stdin = slave
 	cmd.Stdout = slave
 	cmd.Stderr = slave
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: int(slave.Fd())}
+	// Ctty 是子进程里的描述符序号。标准输入就是从端，所以是 0。
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {
 		_ = slave.Close()
 		_ = ptmx.Close()
