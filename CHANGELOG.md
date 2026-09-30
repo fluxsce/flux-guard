@@ -15,4 +15,4 @@
 - 日志写入 `log.file`，按大小和天数轮转，并限制旧文件份数。
 - 数据库配置挂在 `db` 下。`dsn` 仍可直接填写；留空时用主机、端口、账号、口令和库名拼连接串。
 - 产品版本记在仓库根 `package.json`，并同步到 `common/buildinfo`。本地构建、`-version` 和主机代理上报使用这个号；发行包再用 ldflags 写入提交号和构建时间。控制台登录页、侧栏和账号菜单显示当前服务版本。
-- GitHub 流水线：拉取请求跑 `go test`。`package.json` 的版本尚未发布且 `## [Unreleased]` 有条目时，构建完成后写入该版本，打标签 `vX.Y.Z`，并发布 server、host、app 安装包。
+- GitHub 流水线：推送到 `master` 或拉取请求时跑 `go test`。`package.json` 的版本尚未发布且更新日志里有对应条目时，构建完成后打标签 `vX.Y.Z`，并发布 server、host、app 安装包。
