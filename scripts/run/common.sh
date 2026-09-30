@@ -83,6 +83,191 @@ pid_file() {
   echo "${ROOT}/data/${1}.pid"
 }
 
+service_name() {
+  binary_name "$1"
+}
+
+unit_file() {
+  echo "/etc/systemd/system/$(service_name "$1").service"
+}
+
+plist_file() {
+  echo "/Library/LaunchDaemons/$(service_name "$1").plist"
+}
+
+boot_managed() {
+  case "$(uname)" in
+    Linux) [ -f "$(unit_file "$1")" ] ;;
+    Darwin) [ -f "$(plist_file "$1")" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+boot_active() {
+  label="$(service_name "$1")"
+  case "$(uname)" in
+    Linux)
+      systemctl is-active --quiet "${label}.service"
+      ;;
+    Darwin)
+      launchctl print "system/${label}" 2>/dev/null | grep -q 'state = running'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+boot_start() {
+  label="$(service_name "$1")"
+  case "$(uname)" in
+    Linux) systemctl start "${label}.service" ;;
+    Darwin) launchctl kickstart "system/${label}" ;;
+  esac
+  echo "$1 已由开机服务启动"
+}
+
+boot_stop() {
+  label="$(service_name "$1")"
+  case "$(uname)" in
+    Linux) systemctl stop "${label}.service" ;;
+    Darwin) launchctl kill SIGTERM "system/${label}" ;;
+  esac
+  echo "$1 已停止"
+}
+
+boot_restart() {
+  label="$(service_name "$1")"
+  case "$(uname)" in
+    Linux) systemctl restart "${label}.service" ;;
+    Darwin) launchctl kickstart -k "system/${label}" ;;
+  esac
+  echo "$1 已重启"
+}
+
+require_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "请用 root 执行，例如 sudo $0" >&2
+    exit 1
+  fi
+}
+
+write_systemd_unit() {
+  bin="$(resolve_bin "$1")"
+  label="$(service_name "$1")"
+  cat > "$(unit_file "$1")" <<EOF
+[Unit]
+Description=${label}
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=${ROOT}
+ExecStart=${bin}
+Restart=on-failure
+RestartSec=3
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+write_launchd_plist() {
+  bin="$(resolve_bin "$1")"
+  label="$(service_name "$1")"
+  cat > "$(plist_file "$1")" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${label}</string>
+  <key>WorkingDirectory</key>
+  <string>${ROOT}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${bin}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>/dev/null</string>
+</dict>
+</plist>
+EOF
+}
+
+install_boot() {
+  name="${1:-}"
+  if [ -z "${name}" ]; then
+    name="$(detect_name)" || return 1
+  fi
+  check_name "${name}"
+  require_root
+  ensure_config "${name}"
+  if is_running "${name}"; then
+    stop_one "${name}"
+  fi
+  label="$(service_name "${name}")"
+  case "$(uname)" in
+    Linux)
+      if ! command -v systemctl >/dev/null 2>&1; then
+        echo "未找到 systemctl，无法登记开机启动" >&2
+        return 1
+      fi
+      write_systemd_unit "${name}"
+      systemctl daemon-reload
+      systemctl enable "${label}.service"
+      systemctl restart "${label}.service"
+      ;;
+    Darwin)
+      write_launchd_plist "${name}"
+      launchctl bootout "system/${label}" >/dev/null 2>&1 || true
+      launchctl bootstrap system "$(plist_file "${name}")"
+      ;;
+    *)
+      echo "当前系统请使用 scripts/run/install.ps1" >&2
+      return 1
+      ;;
+  esac
+  echo "${name} 已登记开机启动：${ROOT}"
+}
+
+uninstall_boot() {
+  name="${1:-}"
+  if [ -z "${name}" ]; then
+    name="$(detect_name)" || return 1
+  fi
+  check_name "${name}"
+  require_root
+  label="$(service_name "${name}")"
+  case "$(uname)" in
+    Linux)
+      systemctl disable --now "${label}.service" >/dev/null 2>&1 || true
+      rm -f "$(unit_file "${name}")"
+      systemctl daemon-reload
+      ;;
+    Darwin)
+      launchctl bootout "system/${label}" >/dev/null 2>&1 || true
+      rm -f "$(plist_file "${name}")"
+      ;;
+    *)
+      echo "当前系统请使用 scripts/run/uninstall.ps1" >&2
+      return 1
+      ;;
+  esac
+  echo "${name} 已取消开机启动"
+}
+
 is_running() {
   file="$(pid_file "$1")"
   if [ ! -f "${file}" ]; then
@@ -99,6 +284,15 @@ start_one() {
   fi
   check_name "${name}"
   set -- "${name}"
+  if boot_managed "$1"; then
+    if boot_active "$1"; then
+      echo "$1 已在运行"
+      return 1
+    fi
+    ensure_config "$1"
+    boot_start "$1"
+    return 0
+  fi
   if is_running "$1"; then
     echo "$1 已在运行 (pid $(cat "$(pid_file "$1")"))"
     return 1
@@ -107,9 +301,18 @@ start_one() {
   bin="$(resolve_bin "$1")"
   mkdir -p "${ROOT}/data" "${ROOT}/logs"
   cd "${ROOT}"
-  nohup "${bin}" >> "${ROOT}/logs/${1}.stdout.log" 2>&1 &
-  echo "$!" > "$(pid_file "$1")"
-  echo "$1 已启动 (pid $(cat "$(pid_file "$1")"))"
+  log="${ROOT}/logs/${1}.stdout.log"
+  nohup "${bin}" >> "${log}" 2>&1 &
+  pid="$!"
+  echo "${pid}" > "$(pid_file "$1")"
+  sleep 1
+  if ! kill -0 "${pid}" 2>/dev/null; then
+    rm -f "$(pid_file "$1")"
+    echo "$1 没有保持运行。最近输出：" >&2
+    tail -n 30 "${log}" >&2 || true
+    return 1
+  fi
+  echo "$1 已启动 (pid ${pid})"
 }
 
 stop_one() {
@@ -119,6 +322,10 @@ stop_one() {
   fi
   check_name "${name}"
   set -- "${name}"
+  if boot_managed "$1"; then
+    boot_stop "$1"
+    return 0
+  fi
   file="$(pid_file "$1")"
   if ! is_running "$1"; then
     rm -f "${file}"
@@ -139,4 +346,19 @@ stop_one() {
   done
   rm -f "${file}"
   echo "$1 已停止"
+}
+
+restart_one() {
+  name="${1:-}"
+  if [ -z "${name}" ]; then
+    name="$(detect_name)" || return 1
+  fi
+  check_name "${name}"
+  if boot_managed "${name}"; then
+    ensure_config "${name}"
+    boot_restart "${name}"
+    return 0
+  fi
+  stop_one "${name}"
+  start_one "${name}"
 }

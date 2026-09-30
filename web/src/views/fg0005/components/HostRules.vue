@@ -14,7 +14,6 @@ import {
   metricOptions,
   opOptions,
   ruleColumns,
-  ruleFormFields,
   ruleMenuItems,
   ruleSearchFields,
   statusOptions,
@@ -25,6 +24,8 @@ const moduleId = 'fg0005'
 const {
   page,
   pageSize,
+  formFields,
+  agentOptions,
   error,
   formOpen,
   formMode,
@@ -42,7 +43,6 @@ const {
   onReset,
 } = useHostRules()
 
-const formFields = ruleFormFields
 const formTitle = computed(() => {
   if (formMode.value === 'create') return '新增预警规则'
   if (formMode.value === 'edit') return '修改预警规则'
@@ -110,6 +110,9 @@ function onMenu(payload: { key: string; row: Rule | null }) {
         @row-dblclick="openView"
         @menu-click="onMenu"
       >
+        <template #agentId="{ row }">
+          {{ flagLabel(agentOptions, String((row as Rule).agentId ?? '')) }}
+        </template>
         <template #metricCode="{ row }">
           {{ flagLabel(metricOptions, String((row as Rule).metricCode ?? '')) }}
         </template>

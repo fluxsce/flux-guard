@@ -8,7 +8,7 @@
 
 ---
 
-**目录：** [架构](#架构概览) · [功能](#功能) · [快速开始](#快速开始) · [文档](#文档)
+**目录：** [架构](#架构概览) · [功能](#功能) · [快速开始](#快速开始) · [本地开发](#本地开发) · [安装运行](#安装运行) · [文档](#文档)
 
 ---
 
@@ -67,28 +67,48 @@
 
 ## 快速开始
 
+需要 **Go 1.25+**、**Node.js 20+**、**pnpm 9+**。安装包的启动方式见 [安装运行](#安装运行)。
+
 | 项 | 值 |
 |----|----|
 | 控制台 | http://127.0.0.1:5174/fluxguard/ |
 | 管理员 | `admin` / `fluxguard` |
 | 只读账号 | `viewer` / `fluxguard` |
-| 服务端口 | `8080` |
 | 数据库 | 默认 SQLite，文件 `data/flux_guard.db` |
-| 开发上报令牌 | `agt_dev_local`（上线前在环境设置中更换） |
 
-需要 **Go 1.25+**、**Node.js 20+**、**pnpm 9+**。请把数据库组件 `dbx` 和界面组件 `niuma-ui` 放在本仓库的同级目录。
+### 本地开发
 
-在本仓库根目录执行：
+数据库组件和界面组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`，控制台依赖 `../niuma-ui`。
 
-```powershell
-pnpm --dir ..\niuma-ui install
+| 组件 | 仓库 |
+|------|------|
+| dbx | https://github.com/fluxsce/dbx |
+| niuma-ui | https://github.com/Blair-Shang/niuma-ui |
+
+在 `flux-guard` 根目录执行：
+
+```bash
+git clone https://github.com/fluxsce/dbx.git ../dbx
+git clone https://github.com/Blair-Shang/niuma-ui.git ../niuma-ui
+cp -n configs/server.yaml.example configs/server.yaml
+pnpm --dir ../niuma-ui install
 pnpm --dir web install
 pnpm dev
 ```
 
-首次启动会创建本地数据库并写入上面的账号。服务重新启动后需要再次登录。
+`pnpm dev` 启动中央服务（`:8080`，读 `configs/server.yaml`）和 Vite（`5174`，`/fluxguard/api` 转到 `8080`）。打开上面的控制台地址登录。首次启动写入数据库和账号。本机 `configs/*.yaml` 留在本机。
 
-本地预览时，可以同时运行主机代理和应用代理，或把 Java 代理挂进要观察的 Java 进程。正式环境只在中央部署服务，代理安装在被监控机器上。
+Windows 下复制配置：
+
+```powershell
+if (-not (Test-Path configs\server.yaml)) { Copy-Item configs\server.yaml.example configs\server.yaml }
+```
+
+要看本机上报时，另开终端。先从对应的 `configs/*.yaml.example` 复制出 `host.yaml` 或 `app.yaml`，再执行 `go run ./cmd/host` 或 `go run ./cmd/app`。开发上报令牌是 `agt_dev_local`。Java 代理源码在 `agents/java`，配置是 `configs/java.yaml`。
+
+`go test ./...` 跑后端测试。`pnpm --dir web run typecheck` 检查控制台。监听地址和数据库写在 `configs/server.yaml`，也可用前缀 `FLUX_GUARD` 的环境变量覆盖。
+
+### 安装运行
 
 安装包解开后是 `flux-guard/`。中央服务在根目录，用 `scripts/run` 启动和停止。三个代理已经各自打成压缩包，放在 `agents/` 里，拷到目标机器再解压：
 
@@ -99,6 +119,10 @@ pnpm dev
 | `agents/flux-guard-agent-java.tar.gz` | `flux-guard-agent-java/` |
 
 主机代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理只有配置示例，用 `-javaagent` 挂进目标进程。第一次启动时，若还没有本机 `configs/*.yaml`，脚本会从示例复制一份。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
+
+中央服务、主机代理和应用代理要在机器重启后自动起来，在各自目录执行一次 `scripts/run/install.sh`（Windows 用管理员执行 `install.ps1`）。这会登记成系统服务并立即启动：Linux 是 systemd，macOS 是 launchd，Windows 是开机任务。服务不把程序输出送进系统日志，日志仍写在安装目录的 `logs/` 里并按大小轮转。重启用同目录的 `restart.sh` 或 `restart.ps1`。取消开机启动用 `uninstall.sh` 或 `uninstall.ps1`。Java 代理不登记。
+
+安装包带有控制台页面。浏览器打开 `http://主机:listen端口/fluxguard/`，例如 `listen` 为 `:8080` 时是 `http://127.0.0.1:8080/fluxguard/`。根路径会转到这个地址。
 
 监听地址和数据库可以在服务配置中修改，也可以用前缀为 `FLUX_GUARD` 的环境变量覆盖。
 

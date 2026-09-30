@@ -5,8 +5,8 @@ import type { FgFormField, FgFormMode, FgSearchField } from '@/components/form/t
 import { placeSavedRow } from '@/components/grid/placeRow'
 import type { FgGridMenuItem } from '@/components/grid/types'
 import { rsConfirm, useRsToast } from '@/ui'
-import { getDefaultPageSize, listParams, pageSizePolicy, type PageData } from '@/api/pagination'
-import { createRule, deleteRule, queryRules, updateRule, type Rule, type RuleInput } from '../api'
+import { getDefaultPageSize, listParams, PAGE_SIZE_CEILING, pageSizePolicy, type PageData } from '@/api/pagination'
+import { createRule, deleteRule, queryHosts, queryRules, updateRule, type HostMonitor, type Rule, type RuleInput } from '../api'
 
 export type FlagOption = { label: string; value: string }
 
@@ -42,7 +42,7 @@ export const ruleColumns = [
   { key: 'thresholdValue', title: '阈值', width: 90 },
   { key: 'durationSec', title: '持续秒', width: 90 },
   { key: 'levelCode', title: '级别', width: 88 },
-  { key: 'agentId', title: '代理', minWidth: 120 },
+  { key: 'agentId', title: '主机', minWidth: 160 },
   { key: 'channelId', title: '渠道', minWidth: 120 },
   { key: 'waitMinutes', title: '升级分钟', width: 100 },
   { key: 'statusFlag', title: '状态', width: 88 },
@@ -55,32 +55,41 @@ export const ruleMenuItems: FgGridMenuItem[] = [
   { key: 'delete', label: '删除', icon: 'trash' },
 ]
 
-export const ruleFormFields: FgFormField[] = [
-  ...tabOf(basicTab, [
-    fieldset('identity', '规则', [
-      { field: 'ruleId', label: '编码', primary: true, placeholder: '留空则自动生成', tips: '留空自动生成，保存后不能修改。' },
-      { field: 'ruleName', label: '名称', required: true },
-      { field: 'levelCode', label: '级别', type: 'select', options: levelOptions, tips: '写入预警日志的级别。未选时按警告。' },
-      { field: 'statusFlag', label: '状态', type: 'select', options: statusOptions, tips: '停用后不再检查这条规则。' },
-      { field: 'noteText', label: '备注', type: 'textarea', span: 24 },
+export function ruleFormFields(agents: FlagOption[]): FgFormField[] {
+  return [
+    ...tabOf(basicTab, [
+      fieldset('identity', '规则', [
+        { field: 'ruleId', label: '编码', primary: true, placeholder: '留空则自动生成', tips: '留空自动生成，保存后不能修改。' },
+        { field: 'ruleName', label: '名称', required: true },
+        { field: 'levelCode', label: '级别', type: 'select', options: levelOptions, tips: '写入预警日志的级别。未选时按警告。' },
+        { field: 'statusFlag', label: '状态', type: 'select', options: statusOptions, tips: '停用后不再检查这条规则。' },
+        { field: 'noteText', label: '备注', type: 'textarea', span: 24 },
+      ]),
+      fieldset('condition', '判定', [
+        { field: 'metricCode', label: '指标', type: 'select', required: true, options: metricOptions, tips: '使用率按百分比。1 分钟负载是负载值，代理离线按分钟。' },
+        { field: 'compareOp', label: '比较', type: 'select', required: true, options: opOptions },
+        { field: 'thresholdValue', label: '阈值', type: 'number', required: true, tips: '和指标同一单位。使用率一般填 0 到 100。' },
+        { field: 'durationSec', label: '持续秒数', type: 'number', tips: '0 表示一越阈就触发。大于 0 时要连续达到这么多秒才触发。' },
+        { field: 'agentId', label: '主机', type: 'select', options: agents, placeholder: '全部主机', tips: '保存的是这台主机的机器编号，同一租户内唯一。不选则检查全部已上报主机。' },
+      ], { tips: '一条规则只判断一个指标和一个阈值。' }),
+      fieldset('notify', '通知', [
+        { field: 'channelId', label: '通知渠道', placeholder: '留空只记录，不发送', tips: '填写渠道编码。留空只记录，不按渠道发送。' },
+        { field: 'silenceStart', label: '静默开始', type: 'datetime', tips: '和静默结束要一起填。这段时间内不发送。' },
+        { field: 'silenceEnd', label: '静默结束', type: 'datetime' },
+        { field: 'waitMinutes', label: '升级等待分钟', type: 'number', tips: '触发后仍未恢复，超过这么多分钟再发一次。0 表示不升级。' },
+        { field: 'escalateChannelId', label: '升级渠道', placeholder: '留空则仍用通知渠道', tips: '留空时升级仍发到通知渠道。' },
+      ]),
     ]),
-    fieldset('condition', '判定', [
-      { field: 'metricCode', label: '指标', type: 'select', required: true, options: metricOptions, tips: '使用率按百分比。1 分钟负载是负载值，代理离线按分钟。' },
-      { field: 'compareOp', label: '比较', type: 'select', required: true, options: opOptions },
-      { field: 'thresholdValue', label: '阈值', type: 'number', required: true, tips: '和指标同一单位。使用率一般填 0 到 100。' },
-      { field: 'durationSec', label: '持续秒数', type: 'number', tips: '0 表示一越阈就触发。大于 0 时要连续达到这么多秒才触发。' },
-      { field: 'agentId', label: '代理编码', placeholder: '留空表示全部主机', tips: '留空检查全部主机。填写后只检查这一台。' },
-    ], { tips: '一条规则只判断一个指标和一个阈值。' }),
-    fieldset('notify', '通知', [
-      { field: 'channelId', label: '通知渠道', placeholder: '留空只记录，不发送', tips: '填写渠道编码。留空只记录，不按渠道发送。' },
-      { field: 'silenceStart', label: '静默开始', type: 'datetime', tips: '和静默结束要一起填。这段时间内不发送。' },
-      { field: 'silenceEnd', label: '静默结束', type: 'datetime' },
-      { field: 'waitMinutes', label: '升级等待分钟', type: 'number', tips: '触发后仍未恢复，超过这么多分钟再发一次。0 表示不升级。' },
-      { field: 'escalateChannelId', label: '升级渠道', placeholder: '留空则仍用通知渠道', tips: '留空时升级仍发到通知渠道。' },
-    ]),
-  ]),
-  ...auditFields,
-]
+    ...auditFields,
+  ]
+}
+
+function hostLabel(host: HostMonitor) {
+  const name = host.hostName.trim() || host.reportName.trim()
+  const ip = host.ipAddress.trim()
+  if (name && ip && ip !== name) return `${name} · ${ip}`
+  return name || host.agentId.trim()
+}
 
 export const ruleSearchFields: FgSearchField[] = [
   { field: 'ruleName', label: '名称', placeholder: '请输入名称' },
@@ -131,6 +140,7 @@ function toUtcText(value: string) {
 export function useHostRules() {
   const toast = useRsToast()
   const rows = ref<Rule[]>([])
+  const hosts = ref<HostMonitor[]>([])
   const page = ref(1)
   const pageSize = ref(getDefaultPageSize())
   const total = ref(0)
@@ -142,6 +152,33 @@ export function useHostRules() {
   const active = ref<Rule | null>(null)
 
   const pageRows = computed(() => rows.value)
+
+  const agentOptions = computed<FlagOption[]>(() => {
+    const options: FlagOption[] = [{ label: '全部主机', value: '' }]
+    const byId = new Map<string, HostMonitor>()
+    for (const host of hosts.value) {
+      const id = host.agentId.trim()
+      if (id && !byId.has(id)) byId.set(id, host)
+    }
+    const labelCount = new Map<string, number>()
+    for (const host of byId.values()) {
+      const label = hostLabel(host)
+      labelCount.set(label, (labelCount.get(label) ?? 0) + 1)
+    }
+    for (const [id, host] of byId) {
+      const label = hostLabel(host)
+      const text = (labelCount.get(label) ?? 0) > 1 && label !== id ? `${label} · ${id}` : label
+      options.push({ label: text, value: id })
+    }
+    for (const row of rows.value) {
+      const id = row.agentId.trim()
+      if (!id || byId.has(id)) continue
+      options.push({ label: id, value: id })
+    }
+    return options
+  })
+
+  const formFields = computed(() => ruleFormFields(agentOptions.value))
 
   function fill(row: Rule) {
     return {
@@ -227,6 +264,27 @@ export function useHostRules() {
       statusFlag: str(values.statusFlag) || 'Y',
       activeFlag: 'Y',
       noteText: str(values.noteText).trim(),
+    }
+  }
+
+  async function loadHosts() {
+    const collected: HostMonitor[] = []
+    let pageNo = 1
+    let totalCount = 0
+    try {
+      do {
+        const result = await queryHosts(listParams(pageNo, PAGE_SIZE_CEILING, {}))
+        if (!isApiSuccess(result)) break
+        const data = parseApiData<PageData<HostMonitor>>(result)
+        const items = data?.items ?? []
+        collected.push(...items)
+        totalCount = data?.total ?? collected.length
+        if (items.length === 0) break
+        pageNo += 1
+      } while (collected.length < totalCount && pageNo <= 20)
+      hosts.value = collected
+    } catch {
+      hosts.value = collected
     }
   }
 
@@ -335,6 +393,7 @@ export function useHostRules() {
   })
 
   onMounted(async () => {
+    void loadHosts()
     try {
       await reload()
     } catch (err) {
@@ -346,6 +405,8 @@ export function useHostRules() {
   return {
     page,
     pageSize,
+    formFields,
+    agentOptions,
     total,
     error,
     formOpen,
