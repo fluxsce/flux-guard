@@ -18,13 +18,13 @@
   <img src="docs/images/system.svg" alt="Flux Guard 系统架构" width="90%">
 </p>
 
-<p align="center"><sub>图 1　系统架构：控制台、中央服务、数据库、被监控机器与通知渠道</sub></p>
+<p align="center"><sub>图 1　部署视图：中央节点、被监控主机与外部通知</sub></p>
 
 <p align="center">
   <img src="docs/images/architecture.svg" alt="Flux Guard 分层架构" width="90%">
 </p>
 
-<p align="center"><sub>图 2　分层架构：使用层、控制层、数据层与采集层，以及六条交互</sub></p>
+<p align="center"><sub>图 2　逻辑分层：使用层调用控制层，控制层读写数据层，采集层向控制层上报</sub></p>
 
 控制台只访问中央服务。中央服务全局一份，负责保存数据、投递预警，并与各台机器上的代理通信。
 

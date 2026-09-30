@@ -25,7 +25,6 @@ import (
 	"fluxguard/server/job/tenant"
 	"fluxguard/server/limits"
 	_ "fluxguard/server/plugin/examplealert"
-	exdao "fluxguard/server/plugin/examplealert/dao"
 	"fluxguard/server/retention"
 	"fluxguard/server/setting"
 	"fluxguard/server/shell"
@@ -91,13 +90,11 @@ func run() error {
 		return err
 	}
 	login.Open(db, cfg.TenantID)
-	// 示例告警扩展在 init 里登记，菜单由它自己的 dao 写入，不自动授权。
-	exdao.Ensure(db, cfg.TenantID)
-	if _, err := command.Open(context.Background(), db, cfg.TenantID); err != nil {
+	if _, err := command.Open(db); err != nil {
 		return err
 	}
 	alertSvc := alert.Open(db)
-	// 各预警页自己的菜单在挂载路由时补上。扫描循环要等 HTTP 装配完再启动。
+	// 扫描循环要等 HTTP 装配完再启动。菜单和授权只在 scripts/db 的种子里。
 	handler := webinit.New(db)
 	// 有构建产物才挂控制台页面，接口本身不依赖它。
 	if info, statErr := os.Stat("web/dist"); statErr == nil && info.IsDir() {

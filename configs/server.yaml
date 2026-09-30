@@ -1,6 +1,6 @@
 # 中央服务器。环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_LISTEN 覆盖 listen，FLUX_GUARD_DB_HOST 覆盖 db.host。
 listen: ":8080" # 本程序监听的地址。:8080 表示本机 8080 端口
-tenant_id: default # 本服务器所属租户。插件菜单写进这个租户，须与库里的 tenantId 一致
+tenant_id: default # 本服务器所属租户。登录没有会话租户时用它，须与脚本种子里的 tenantId 一致
 
 # HTTPS。启用后须提供 PEM 证书与私钥；会话 Cookie 默认随之带 Secure。
 enable_https: false

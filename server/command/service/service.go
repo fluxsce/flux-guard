@@ -31,21 +31,14 @@ func Current() *Service {
 	return current
 }
 
-// Open 打开命令服务，并补上已有库缺少的下发按钮。tenantID 是本进程所属租户。
+// Open 打开命令服务。下发按钮在 FG_AUTH_RESOURCE.sql，启动时不再补行。
 // 同一条库连接再次打开时返回已有实例，下发和长轮询共用唤醒。
-func Open(ctx context.Context, db *dbx.DB, tenantID string) (*Service, error) {
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		tenantID = "default"
-	}
+func Open(db *dbx.DB) (*Service, error) {
 	if db == nil {
 		return nil, errors.New("命令服务缺少库连接")
 	}
 	if current != nil && current.db == db {
 		return current, nil
-	}
-	if err := ensureButton(ctx, db, tenantID); err != nil {
-		return nil, err
 	}
 	current = &Service{db: db}
 	return current, nil

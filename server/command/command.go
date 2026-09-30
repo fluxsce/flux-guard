@@ -4,8 +4,6 @@
 package command
 
 import (
-	"context"
-
 	"fluxguard/server/agent"
 	"fluxguard/server/command/models"
 	commandroutes "fluxguard/server/command/routes"
@@ -23,9 +21,9 @@ type DispatchInput = models.DispatchInput
 // View 是控制台看到的一行命令。
 type View = models.View
 
-// Open 打开命令服务，并补上已有库缺少的下发按钮。
-func Open(ctx context.Context, db *dbx.DB, tenantID string) (*Service, error) {
-	return cmdsvc.Open(ctx, db, tenantID)
+// Open 打开命令服务。
+func Open(db *dbx.DB) (*Service, error) {
+	return cmdsvc.Open(db)
 }
 
 // Current 返回本进程命令服务。尚未 Open 时为 nil。

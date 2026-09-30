@@ -13,12 +13,7 @@ type module struct{}
 func (module) Code() string { return "examplealert" }
 func (module) Name() string { return "示例告警" }
 
-// Declared 与 FG_AUTH_RESOURCE 里的 fg0100 种子一致。本扩展的 dao 按这份声明写入。
-func Declared() []plugin.ResourceDecl {
-	return module{}.Resources()
-}
-
-// Resources 与 FG_AUTH_RESOURCE 里的 fg0100 种子一致。
+// Resources 与 FG_AUTH_RESOURCE.sql 里的 fg0100 种子一致。目录行由脚本写入，启动时不再补。
 func (module) Resources() []plugin.ResourceDecl {
 	return []plugin.ResourceDecl{
 		{

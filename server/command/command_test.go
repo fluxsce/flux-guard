@@ -29,7 +29,7 @@ func TestDispatchPushAndPull(t *testing.T) {
 	if err := setting.Load(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	svc, err := Open(context.Background(), db, "default")
+	svc, err := Open(db)
 	if err != nil {
 		t.Fatal(err)
 	}

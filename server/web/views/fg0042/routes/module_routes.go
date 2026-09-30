@@ -4,11 +4,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/server/alert"
-	"fluxguard/server/config"
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/routes"
 	"fluxguard/server/web/views/fg0042/controllers"
-	"fluxguard/server/web/views/fg0042/dao"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -23,7 +21,6 @@ func init() {
 
 // Init 挂载通知渠道。渠道关联模板，正文在模板上维护。
 func Init(router *gin.Engine, db *dbx.DB) {
-	dao.NewMenuDAO(db).Ensure(config.TenantID())
 	ctrl := controllers.NewChannelController(alert.Open(db))
 	router.GET(APIPrefix+"/queryChannels", middleware.RequireButton("fg0042:view", ctrl.QueryChannels))
 	router.POST(APIPrefix+"/createChannel", middleware.RequireButton("fg0042:edit", ctrl.CreateChannel))
