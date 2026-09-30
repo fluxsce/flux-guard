@@ -65,7 +65,7 @@ jobs:
           corepack prepare pnpm@9.15.9 --activate
           pnpm install --dir "$GITHUB_WORKSPACE/../niuma-ui"
           pnpm install --dir web --frozen-lockfile
-          pnpm --dir web exec vite build
+          NODE_OPTIONS=--max-old-space-size=4096 pnpm --dir web exec vite build
           test -f web/dist/index.html
           STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SHA=$(git rev-parse --short=12 HEAD)
