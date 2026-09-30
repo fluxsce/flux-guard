@@ -10,6 +10,7 @@ import (
 )
 
 // Read 把 path 的 YAML 解到 dst。path 为空或文件不存在时返回 nil。
+// 只读本机 yaml，不读同名 example。
 // 环境变量前缀为 FLUX_GUARD，键中的点换成下划线，可覆盖文件里已经写出的键。
 func Read(path string, dst any) error {
 	if path == "" {

@@ -78,7 +78,7 @@ func (c Server) TLSConfig() (*tls.Config, error) {
 	})
 }
 
-// Load 读取配置。path 为空时使用 configs/server.yaml。
+// Load 读取配置。path 为空时使用 configs/server.yaml。只读本机 yaml。
 func Load(path string) (Server, error) {
 	cfg := Server{Listen: ":8080", TenantID: "default"}
 	cfg.DB.Driver = "sqlite"

@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-30
+
+### 新增
+- 安装包的下载文件名仍带版本和平台。解开后的目录固定为 `flux-guard/`，目录名不带版本号。中央服务放在这个根目录，并用 `scripts/run` 启动和停止。Linux、macOS 使用 shell，Windows 使用 PowerShell。目录里只有一个程序时，直接执行脚本即可。
+- 主机、应用和 Java 代理各自再打成压缩包，放在 `agents/`，整包拷到目标机器后再解压。文件是 `flux-guard-agent-host.tar.gz`、`flux-guard-agent-app.tar.gz`、`flux-guard-agent-java.tar.gz`。解开后的目录分别是 `flux-guard-agent-host/`、`flux-guard-agent-app/`、`flux-guard-agent-java/`，同样不带版本号。主机包和应用包内含程序、配置示例和同一套启动停止脚本。Java 包只有配置示例，用 `-javaagent` 挂进目标进程。
+- 仓库和安装包提供 `configs/*.yaml.example`。第一次启动时，若本机还没有对应的 `configs/*.yaml`，启动脚本从示例复制一份，已有文件不覆盖。
+
+### 变更
+- 中央服务、主机代理、应用代理和 Java 代理只读取本机 `configs/*.yaml`。同目录的 example 不会被当作配置加载。
+- 本机 `configs/*.yaml` 留在本机，不进入 Git。
+
 ## [1.0.0] - 2026-09-30
 
 ### 新增

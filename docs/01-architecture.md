@@ -211,7 +211,8 @@ common/command      Go 代理的命令端口和长轮询。端口校验代理令
 common/shellrun     Go 主机代理的交互终端：主动连中央，本机拉起伪控制台
 common/buildinfo    产品版本。默认来自仓库根 package.json，发行构建用 ldflags 覆盖
 web/                控制台，由 server 托管
-configs/            server.yaml、host.yaml、app.yaml、java.yaml
+configs/            示例配置 *.yaml.example。本机 *.yaml 由启动脚本复制，不提交
+scripts/run         当前目录里那个程序的启动与停止。发行包里代理在 agents/*.tar.gz，解开后各自成目录
 scripts/db/mysql    中央库表，MySQL
 scripts/db/sqlite   同一套表的 SQLite 脚本，不含部门
 ```

@@ -1,0 +1,17 @@
+# 示例配置。复制为 configs/host.yaml 后再改。host.yaml 是本机文件，不要提交。
+# 主机代理。环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_SERVER_URL 覆盖 server_url。
+server_url: http://127.0.0.1:8080 # 中央地址
+agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
+interval_sec: 15 # 上报间隔（秒）
+report_name: 本机主机 # 上报名称，写入 FG_HOST.reportName，并更新 FG_AGENT.agentName
+command_listen: 127.0.0.1:7700 # 命令端口。留空或没有 agent_token 时不监听，只拉取。校验与上报同一把令牌
+shell_enabled: false # 生产环境保持 false。本机调试交互终端时再改为 true
+
+# 日志。写到文件里，单个文件到大小就换新的，旧文件只留有限份和天数。
+log:
+  file: logs/host.log
+  level: info # 最低级别：debug、info、warn、error。低于此级别的不写
+  max_size_mb: 20
+  max_backups: 5
+  max_age_days: 14
+  console: true

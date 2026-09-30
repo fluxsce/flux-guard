@@ -20,7 +20,7 @@ type Config struct {
 	Log           logger.Config `mapstructure:"log"`
 }
 
-// Load 读取配置。path 为空时使用 fallback。
+// Load 读取配置。path 为空时使用 fallback。只读本机 yaml。
 func Load(path, fallback string) (Config, error) {
 	cfg := Config{
 		ServerURL:   "http://127.0.0.1:8080",

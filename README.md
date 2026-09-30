@@ -90,6 +90,16 @@ pnpm dev
 
 本地预览时，可以同时运行主机代理和应用代理，或把 Java 代理挂进要观察的 Java 进程。正式环境只在中央部署服务，代理安装在被监控机器上。
 
+安装包解开后是 `flux-guard/`。中央服务在根目录，用 `scripts/run` 启动和停止。三个代理已经各自打成压缩包，放在 `agents/` 里，拷到目标机器再解压：
+
+| 压缩包 | 解开后的目录 |
+|---|---|
+| `agents/flux-guard-agent-host.tar.gz` | `flux-guard-agent-host/` |
+| `agents/flux-guard-agent-app.tar.gz` | `flux-guard-agent-app/` |
+| `agents/flux-guard-agent-java.tar.gz` | `flux-guard-agent-java/` |
+
+主机代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理只有配置示例，用 `-javaagent` 挂进目标进程。第一次启动时，若还没有本机 `configs/*.yaml`，脚本会从示例复制一份。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
+
 监听地址和数据库可以在服务配置中修改，也可以用前缀为 `FLUX_GUARD` 的环境变量覆盖。
 
 ---

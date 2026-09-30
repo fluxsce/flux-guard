@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+func TestReadIgnoresExample(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/host.yaml.example", []byte("listen: \":9090\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := struct {
+		Listen string `mapstructure:"listen"`
+	}{Listen: ":8080"}
+	if err := Read(dir+"/host.yaml", &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Listen != ":8080" {
+		t.Fatalf("listen = %q", cfg.Listen)
+	}
+}
+
 func TestReadMissingKeepsDefault(t *testing.T) {
 	cfg := struct {
 		Listen string `mapstructure:"listen"`

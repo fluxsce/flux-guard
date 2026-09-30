@@ -2,6 +2,7 @@
 /web/dist/
 /bin/
 /data/
+/configs/*.yaml
 /logs/
 /certs/
 /agents/java/build/
