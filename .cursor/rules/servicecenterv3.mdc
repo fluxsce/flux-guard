@@ -1,0 +1,32 @@
+---
+description: 服务中心 v3：Node / 中心实例 / 网关进程 的 ID 边界，节点走库+本机 Cache，集群事件通知。
+globs:
+  - internal/servicecenterv3/**/*
+  - internal/gateway/handler/proxy/proxy-utils/**/*
+alwaysApply: false
+---
+
+# 服务中心 v3
+
+内嵌注册发现配置。数据面只有 `ServiceCenterStream.Connect`。管理面走网关 HTTP。订阅只推名单，不代理；A 调 B 直连业务 ip:port。不引入 Distro/Raft。
+
+开关字面量、改名纪律见全局 Go/TS 规范。本包读写用 `model.IsY` / `model.YN` / `model.ExtYN`。
+
+## ID
+
+- `NodeID`：服务下的业务节点。等于 proto `nodeId`、`HUB_SERVICE_NODE.nodeId`。类型是 `model.Node`，挂在 `Service.Nodes`，变更事件字段是 `ChangedNode`。契约方法是 `RegisterNode` / `DeregisterNode` / `UpdateNode` / `ListNodes`，不要再叫 Instance。
+- `CenterInstanceName`：中心运行时（一张监听卡片）。进程内键是 `InstanceName + Environment`。INTERNAL 元数据的 `instanceName` 指这个，可空。概览计数是 `NodeCount` / `HealthyNodes`，不要再用 InstanceCount。
+- `LocalGatewayID` / `OwnerGatewayID` / `ReplicaGatewayIDs`：网关进程。接到 SDK 流、负责心跳与驱逐的是 Owner。JSON：`ownerGatewayId`、`replicaGatewayIds`。
+- `HUB_CLUSTER_EVENT.sourceNodeId`：网关集群事件发布端，不是 `NodeID`。
+
+## 数据
+
+临时和持久 Node 都写 `HUB_SERVICE_NODE`，发现读本机 Cache。REGISTER_NODE 隐含的空服务只在 Cache。集群变更走 `HUB_CLUSTER_EVENT`（`SERVICE_CENTER_INSTANCE`：生命周期 + NAMING/CONFIG），不依赖 Redis。心跳只回写 LastBeatTime，不发事件。
+
+已发布 Config 只在库，Get/Watch 按次读。草稿也在库（HISTORY `changeType=DRAFT`），不进 Cache、不推 SDK。界面添加/发布/删除走 `config.App`：本机 Watch + 集群事件通知其它网关读库再推。
+
+写入只在 `naming.App` / `config.App`。命名 `ApplyRemote` 只改本机 Cache；配置 `ApplyRemote` 读库后推本机 Watch。
+
+心跳：缓存已有该 `NodeID` 则只 `Touch` 续期；没有则回源库，再没有才按快照 `REGISTER`。
+
+`discoveryType=INTERNAL` 读 `servicecenterv3.InProcess()`。视图未就绪或健康名单暂时为空时，沿用 45s last-good。

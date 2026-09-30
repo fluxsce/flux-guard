@@ -1,0 +1,2 @@
+fg0023	资源	/resources
+fg0023:view	查看	None

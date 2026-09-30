@@ -1,0 +1,30 @@
+---
+description: 控制台 AI 以工具目录接入，页面只提供当前场景
+globs: web/src/**/*.{vue,ts}
+alwaysApply: false
+---
+
+# 控制台 AI 接入
+
+工具和页面场景分开。后期助手读 `window.__fgAi.tools()` 的参数说明，用 `invoke` 调用，用 `context` 看当前页。
+
+## 工具
+
+写在模块目录的 `ai.ts`，用 `defineTools` 登记，再在 `web/src/ai/modules.ts` 加一行引入。扩展包也调用 `defineTools`，不要改主机里的判断分支。
+
+- 名称是 `模块.动作`，全平台唯一，例如 `fg0002.register`。
+- 参数写明类型、说明、是否必填、枚举。口令参数标 `secret: true`。
+- `resourceCode` 用按钮码，例如 `fg0002:edit`。
+- `risk: 'write'` 的调用必须带 `{ confirm: true }`。
+- `scope: 'platform'` 调用模块已有接口，页面关闭也能执行。
+- `scope: 'scene'` 没有执行函数，页面用 `useModuleAi` 的第二个参数绑定。页面没打开时调用会失败。
+
+执行函数只转调该模块 `api`，不另写一套业务。返回值不要带口令、令牌明文、环境变量的值。
+
+## 场景
+
+页面 `useModuleAi` 只提供 `moduleId`、`title`、`snapshot`。快照里不放口令、令牌和环境变量值。
+
+## 权限
+
+目录按当前用户已有的模块过滤。服务端按钮鉴权仍然生效。按钮码进入会话后，用 `registerAiPermission` 替换客户端过滤。

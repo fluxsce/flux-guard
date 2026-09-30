@@ -1,0 +1,90 @@
+/* 暗色报表皮肤。只写令牌，选择器在 chrome.css。后期加皮肤复制本文件改值。 */
+[data-rs-theme='dark'] {
+  --fg-aurora-a: #3ec6ff;
+  --fg-aurora-b: #6d7cff;
+  --fg-aurora-c: #f5c451;
+  --fg-aurora-d: #3dd68c;
+  --fg-aurora-e: #7a5cff;
+
+  --rs-primary: #3ec6ff;
+  --rs-primary-hover: #7ad7ff;
+  --rs-primary-foreground: #041018;
+  --rs-primary-container: #123044;
+  --rs-on-primary-container: #d6f4ff;
+  --rs-bg: #070d18;
+  --rs-surface: #0e1728;
+  --rs-surface-elevated: #152238;
+  --rs-surface-hover: #1c2d4a;
+  --rs-item-hover: #1c2d4a;
+  --rs-input-bg: #0b1322;
+  --rs-input-border: #2a4368;
+  --rs-input-border-hover: #3d6a9a;
+  --rs-border: #2a4368;
+  --rs-border-subtle: #1c3050;
+  --rs-text-primary: #e7f2ff;
+  --rs-text-secondary: #93a8c4;
+  --rs-text-tertiary: #6d82a0;
+  --rs-text-disabled: #516480;
+  --rs-text-inverse: #ffffff;
+  --rs-success: #3dd68c;
+  --rs-success-container: #123328;
+  --rs-on-success-container: #c8f5df;
+  --rs-warning: #f5c451;
+  --rs-warning-container: #3a2e12;
+  --rs-on-warning-container: #ffe7b0;
+  --rs-danger: #ff6b81;
+  --rs-danger-container: #3a1a24;
+  --rs-on-danger-container: #ffd0d8;
+  --rs-info: #3ec6ff;
+  --rs-info-container: #123044;
+  --rs-on-info-container: #d6f4ff;
+
+  --rs-dropdown-border: #2a4368;
+  --rs-popover-border: rgb(62 198 255 / 0.28);
+  --rs-popover-bg: #152238;
+  --rs-popover-shadow: 0 24px 60px rgb(0 0 0 / 50%), 0 0 0 1px rgb(42 67 104 / 0.9);
+  --rs-radius-xs: 0.125rem;
+  --rs-radius-sm: 0.25rem;
+  --rs-radius: 0.25rem;
+  --rs-radius-lg: 0.375rem;
+  --rs-card-radius: 0.25rem;
+
+  --rs-menu-item-active-fg: #d6f4ff;
+  --rs-menu-item-active-bg: rgb(62 198 255 / 0.2);
+  --rs-menu-item-active-parent-fg: #d6f4ff;
+
+  --rs-dialog-overlay-blur: 0px;
+  --rs-dialog-overlay-bg: rgb(4 8 16 / 0.72);
+  --rs-dialog-border: rgb(62 198 255 / 0.32);
+  --rs-dialog-separator: #1c3050;
+  --rs-dialog-body-bg: #0e1728;
+  --rs-dialog-shadow:
+    inset 0 1px 0 rgb(245 196 81 / 0.45),
+    0 24px 48px rgb(0 0 0 / 0.55);
+  --rs-table-header-bg: #102033;
+  --rs-table-header-fg: #b7dcff;
+
+  --fg-grid-line: rgb(42 67 104 / 0.45);
+  --fg-grid-line-v: rgb(42 67 104 / 0.32);
+  --fg-content-glow: radial-gradient(ellipse 80% 36% at 50% 0%, rgb(62 198 255 / 0.1), transparent 62%);
+  --fg-sider-bg: linear-gradient(180deg, rgb(62 198 255 / 0.16), transparent 160px), #070d18;
+  --fg-workspace-bg:
+    radial-gradient(ellipse 50% 42% at 8% 0%, rgb(62 198 255 / 16%), transparent 70%),
+    radial-gradient(ellipse 42% 36% at 92% 0%, rgb(245 196 81 / 10%), transparent 68%),
+    var(--rs-bg);
+  --fg-bar-bg:
+    linear-gradient(90deg, rgb(62 198 255 / 18%), rgb(109 124 255 / 10%) 42%, rgb(245 196 81 / 12%)),
+    #070d18;
+  --fg-bar-shadow: inset 0 -1px 0 rgb(62 198 255 / 0.35);
+  --fg-clock-fg: #7ad7ff;
+  --fg-mark-bg: conic-gradient(from 0deg, #3ec6ff, #6d7cff, #f5c451, #3dd68c, #7a5cff, #3ec6ff);
+  --fg-mark-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.35), 0 0 14px rgb(62 198 255 / 0.45);
+  --fg-live-bg: #3dd68c;
+  --fg-live-shadow: 0 0 8px #3dd68c;
+  --fg-menu-active-shadow: inset 2px 0 0 rgb(245 196 81 / 0.45);
+  --fg-table-head-shadow: inset 0 -1px 0 rgb(62 198 255 / 0.35);
+  --fg-panel-bg: linear-gradient(180deg, rgb(62 198 255 / 0.1), transparent 36px), #0e1728;
+  --fg-panel-border: rgb(62 198 255 / 0.28);
+  --fg-panel-shadow: inset 0 1px 0 rgb(245 196 81 / 0.55);
+  --fg-dialog-bg: linear-gradient(180deg, rgb(62 198 255 / 0.14), transparent 42px), #0e1728;
+}

@@ -1,0 +1,32 @@
+-- 系统任务最近一次执行。每个租户每个任务一行，重启后据此恢复调度与控制台状态。
+CREATE TABLE IF NOT EXISTS FG_JOB (
+  tenantId TEXT NOT NULL,
+  jobCode TEXT NOT NULL,
+  title TEXT NOT NULL,
+  enabledFlag TEXT NOT NULL DEFAULT 'Y',
+  lastTrigger TEXT,
+  lastStart TEXT,
+  lastEnd TEXT,
+  nextStart TEXT,
+  lastDurationMs INTEGER NOT NULL DEFAULT 0,
+  lastOk TEXT NOT NULL DEFAULT 'N',
+  lastResult TEXT,
+  lastError TEXT,
+  ranFlag TEXT NOT NULL DEFAULT 'N',
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, jobCode)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_JOB_ADD ON FG_JOB(tenantId, addTime);

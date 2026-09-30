@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@v5
+        with:
+          repository: fluxsce/dbx
+          path: .ci/dbx
+          ref: main
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Use checked-out dbx
+        run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Publish changelog version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/' || true)
+          if [[ -z "${VERSION}" ]]; then
+            echo "CHANGELOG.md has no ## [x.y.z] heading; skip"
+            exit 0
+          fi
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "v${VERSION} already published"
+            exit 0
+          fi
+          awk -v ver="${VERSION}" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SHA=$(git rev-parse --short=12 HEAD)
+          LDFLAGS="-s -w -X fluxguard/common/buildinfo.Version=${VERSION} -X fluxguard/common/buildinfo.Commit=${SHA} -X fluxguard/common/buildinfo.Date=${DATE}"
+          mkdir -p dist
+          while read -r goos goarch; do
+            ext=""
+            if [[ "${goos}" == "windows" ]]; then
+              ext=".exe"
+            fi
+            dir="dist/flux-guard-${VERSION}-${goos}-${goarch}"
+            mkdir -p "${dir}"
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags "${LDFLAGS}" -o "${dir}/flux-guard-server${ext}" ./cmd/server
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags "${LDFLAGS}" -o "${dir}/flux-guard-agent-host${ext}" ./cmd/host
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build -trimpath -ldflags "${LDFLAGS}" -o "${dir}/flux-guard-agent-app${ext}" ./cmd/app
+            cp -a configs scripts "${dir}/"
+            tar -C dist -czf "dist/flux-guard-${VERSION}-${goos}-${goarch}.tar.gz" "flux-guard-${VERSION}-${goos}-${goarch}"
+            rm -rf "${dir}"
+          done <<'EOF'
+          linux amd64
+          linux arm64
+          windows amd64
+          darwin amd64
+          darwin arm64
+          EOF
+          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" --title "v${VERSION}" --notes-file release-notes.md dist/*.tar.gz dist/SHA256SUMS.txt

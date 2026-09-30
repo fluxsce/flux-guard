@@ -1,0 +1,37 @@
+-- 传输层连接滚动记录。每次上报只插入，供曲线查询。网卡字节流量在 FG_HOST_NET。
+CREATE TABLE IF NOT EXISTS FG_HOST_TCP (
+  agentId TEXT NOT NULL,
+  tenantId TEXT NOT NULL,
+  pointId TEXT NOT NULL,
+  batchId TEXT NOT NULL,
+  establishedCount INTEGER NOT NULL DEFAULT 0,
+  listenCount INTEGER NOT NULL DEFAULT 0,
+  timeWaitCount INTEGER NOT NULL DEFAULT 0,
+  closeWaitCount INTEGER NOT NULL DEFAULT 0,
+  synSentCount INTEGER NOT NULL DEFAULT 0,
+  synRecvCount INTEGER NOT NULL DEFAULT 0,
+  finWaitCount INTEGER NOT NULL DEFAULT 0,
+  lastAckCount INTEGER NOT NULL DEFAULT 0,
+  closingCount INTEGER NOT NULL DEFAULT 0,
+  tcpInUseCount INTEGER NOT NULL DEFAULT 0,
+  udpInUseCount INTEGER NOT NULL DEFAULT 0,
+  retransmitCount INTEGER NOT NULL DEFAULT 0,
+  observedTime TEXT NOT NULL,
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, pointId)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_TCP_TIME ON FG_HOST_TCP(tenantId, agentId, observedTime);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_TCP_ADD ON FG_HOST_TCP(tenantId, addTime);

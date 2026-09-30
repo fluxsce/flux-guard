@@ -1,0 +1,90 @@
+/* 亮色报表皮肤。键与 dark.css 对齐，只换浅底上的青辉和金色弱强调。 */
+[data-rs-theme='light'] {
+  --fg-aurora-a: #0878ad;
+  --fg-aurora-b: #5b6cff;
+  --fg-aurora-c: #c49212;
+  --fg-aurora-d: #1a9a62;
+  --fg-aurora-e: #6a4dff;
+
+  --rs-primary: #0878ad;
+  --rs-primary-hover: #06648f;
+  --rs-primary-foreground: #ffffff;
+  --rs-primary-container: #d7f2fb;
+  --rs-on-primary-container: #08445e;
+  --rs-bg: #e7f2f8;
+  --rs-surface: #f7fbfe;
+  --rs-surface-elevated: #ffffff;
+  --rs-surface-hover: #e3eef6;
+  --rs-item-hover: #e3eef6;
+  --rs-input-bg: #ffffff;
+  --rs-input-border: #b7cfe0;
+  --rs-input-border-hover: #7aa8c4;
+  --rs-border: #c5d6e4;
+  --rs-border-subtle: #d7e4ee;
+  --rs-text-primary: #102033;
+  --rs-text-secondary: #4d647c;
+  --rs-text-tertiary: #6d82a0;
+  --rs-text-disabled: #93a4b8;
+  --rs-text-inverse: #ffffff;
+  --rs-success: #1a9a62;
+  --rs-success-container: #dff6ea;
+  --rs-on-success-container: #0d5c38;
+  --rs-warning: #c49212;
+  --rs-warning-container: #fff4d6;
+  --rs-on-warning-container: #7a5608;
+  --rs-danger: #e23b55;
+  --rs-danger-container: #ffe4e8;
+  --rs-on-danger-container: #8f1d30;
+  --rs-info: #0878ad;
+  --rs-info-container: #d7f2fb;
+  --rs-on-info-container: #08445e;
+
+  --rs-dropdown-border: #c5d6e4;
+  --rs-popover-border: rgb(8 120 173 / 0.28);
+  --rs-popover-bg: #ffffff;
+  --rs-popover-shadow: 0 18px 40px rgb(16 40 64 / 0.12), 0 0 0 1px rgb(197 214 228 / 0.9);
+  --rs-radius-xs: 0.125rem;
+  --rs-radius-sm: 0.25rem;
+  --rs-radius: 0.25rem;
+  --rs-radius-lg: 0.375rem;
+  --rs-card-radius: 0.25rem;
+
+  --rs-menu-item-active-fg: #08445e;
+  --rs-menu-item-active-bg: rgb(8 120 173 / 0.14);
+  --rs-menu-item-active-parent-fg: #08445e;
+
+  --rs-dialog-overlay-blur: 0px;
+  --rs-dialog-overlay-bg: rgb(16 32 51 / 0.28);
+  --rs-dialog-border: rgb(8 120 173 / 0.32);
+  --rs-dialog-separator: #d7e4ee;
+  --rs-dialog-body-bg: #f7fbfe;
+  --rs-dialog-shadow:
+    inset 0 1px 0 rgb(196 146 18 / 0.7),
+    0 18px 40px rgb(16 40 64 / 0.12);
+  --rs-table-header-bg: #e7f3fb;
+  --rs-table-header-fg: #0a5f86;
+
+  --fg-grid-line: rgb(8 120 173 / 0.16);
+  --fg-grid-line-v: rgb(8 120 173 / 0.1);
+  --fg-content-glow: radial-gradient(ellipse 80% 36% at 50% 0%, rgb(8 120 173 / 0.14), transparent 62%);
+  --fg-sider-bg: linear-gradient(180deg, rgb(8 120 173 / 0.14), transparent 160px), #f3f8fc;
+  --fg-workspace-bg:
+    radial-gradient(ellipse 50% 42% at 8% 0%, rgb(8 120 173 / 0.16), transparent 70%),
+    radial-gradient(ellipse 42% 36% at 92% 0%, rgb(196 146 18 / 0.12), transparent 68%),
+    var(--rs-bg);
+  --fg-bar-bg:
+    linear-gradient(90deg, rgb(8 120 173 / 0.16), rgb(91 108 255 / 0.08) 42%, rgb(196 146 18 / 0.14)),
+    #f3f8fc;
+  --fg-bar-shadow: inset 0 -1px 0 rgb(8 120 173 / 0.28);
+  --fg-clock-fg: #06648f;
+  --fg-mark-bg: conic-gradient(from 0deg, #0878ad, #5b6cff, #c49212, #1a9a62, #6a4dff, #0878ad);
+  --fg-mark-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.55), 0 0 12px rgb(8 120 173 / 0.28);
+  --fg-live-bg: #1a9a62;
+  --fg-live-shadow: 0 0 8px rgb(26 154 98 / 0.55);
+  --fg-menu-active-shadow: inset 2px 0 0 rgb(196 146 18 / 0.7);
+  --fg-table-head-shadow: inset 0 -1px 0 rgb(8 120 173 / 0.28);
+  --fg-panel-bg: linear-gradient(180deg, rgb(8 120 173 / 0.1), transparent 36px), #f7fbfe;
+  --fg-panel-border: rgb(8 120 173 / 0.28);
+  --fg-panel-shadow: inset 0 1px 0 rgb(196 146 18 / 0.7);
+  --fg-dialog-bg: linear-gradient(180deg, rgb(8 120 173 / 0.12), transparent 42px), #f7fbfe;
+}

@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" role="img">
+  <title>Flux Guard 系统架构</title>
+  <desc>运维人员通过控制台访问唯一的中央服务。中央服务保存到数据库，向通知渠道投递预警，并与各台机器上的主机代理、应用代理和 Java 代理通信。</desc>
+  <defs>
+    <marker id="s-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#334155"/>
+    </marker>
+    <marker id="s-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#1d4ed8"/>
+    </marker>
+    <marker id="s-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#6d28d9"/>
+    </marker>
+    <marker id="s-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#0f766e"/>
+    </marker>
+    <marker id="s-rose" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#be123c"/>
+    </marker>
+    <filter id="s-shadow" x="-6%" y="-6%" width="112%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.4" flood-color="#0f172a" flood-opacity="0.05"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="760" fill="#eef2f6"/>
+
+  <g filter="url(#s-shadow)">
+    <rect x="36" y="28" width="220" height="96" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  </g>
+  <text x="146" y="72" text-anchor="middle" fill="#0f172a" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="600">运维人员</text>
+  <text x="146" y="96" text-anchor="middle" fill="#64748b" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">查看、处置与授权</text>
+
+  <line x1="256" y1="76" x2="300" y2="76" stroke="#334155" stroke-width="1.75" marker-end="url(#s-slate)"/>
+  <text x="278" y="66" text-anchor="middle" fill="#334155" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">使用</text>
+
+  <g filter="url(#s-shadow)">
+    <rect x="308" y="28" width="936" height="96" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  </g>
+  <text x="332" y="62" fill="#0f172a" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="600">控制台</text>
+  <text x="400" y="62" fill="#64748b" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">浏览器</text>
+  <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" fill="#334155">
+    <rect x="332" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="360" y="96" text-anchor="middle">总览</text>
+    <rect x="396" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="424" y="96" text-anchor="middle">主机</text>
+    <rect x="460" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="488" y="96" text-anchor="middle">Java</text>
+    <rect x="524" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="552" y="96" text-anchor="middle">代理</text>
+    <rect x="588" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="616" y="96" text-anchor="middle">预警</text>
+    <rect x="652" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="680" y="96" text-anchor="middle">权限</text>
+    <rect x="716" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="744" y="96" text-anchor="middle">任务</text>
+    <rect x="780" y="78" width="56" height="26" rx="13" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="808" y="96" text-anchor="middle">日志</text>
+  </g>
+
+  <line x1="776" y1="124" x2="776" y2="176" stroke="#334155" stroke-width="1.75" marker-end="url(#s-slate)"/>
+  <text x="792" y="156" fill="#334155" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">管理</text>
+
+  <g filter="url(#s-shadow)">
+    <rect x="160" y="176" width="960" height="196" rx="16" fill="#f8fafc" stroke="#bfdbfe"/>
+  </g>
+  <circle cx="184" cy="208" r="5" fill="#1d4ed8"/>
+  <text x="198" y="213" fill="#1d4ed8" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="600">中央服务</text>
+  <text x="290" y="213" fill="#64748b" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">全局只部署一份</text>
+  <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    <rect x="184" y="236" width="200" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="284" y="278" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">上报接入</text>
+    <text x="284" y="304" text-anchor="middle" fill="#64748b" font-size="12">接收指标与身份</text>
+    <rect x="404" y="236" width="200" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="504" y="278" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">权限与观测</text>
+    <text x="504" y="304" text-anchor="middle" fill="#64748b" font-size="12">登录、曲线与审计</text>
+    <rect x="624" y="236" width="200" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="724" y="278" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">远程操作</text>
+    <text x="724" y="304" text-anchor="middle" fill="#64748b" font-size="12">命令与交互终端</text>
+    <rect x="844" y="236" width="252" height="112" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="970" y="278" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">预警与任务</text>
+    <text x="970" y="304" text-anchor="middle" fill="#64748b" font-size="12">规则、投递与归档</text>
+  </g>
+
+  <line x1="250" y1="372" x2="250" y2="468" stroke="#6d28d9" stroke-width="1.75" marker-end="url(#s-purple)"/>
+  <text x="262" y="424" fill="#6d28d9" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">读写</text>
+
+  <line x1="640" y1="468" x2="640" y2="372" stroke="#1d4ed8" stroke-width="1.75" marker-end="url(#s-blue)"/>
+  <text x="652" y="424" fill="#1d4ed8" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">指标上报</text>
+
+  <line x1="700" y1="372" x2="700" y2="468" stroke="#0f766e" stroke-width="1.75" marker-end="url(#s-teal)"/>
+  <text x="712" y="448" fill="#0f766e" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">命令与终端</text>
+
+  <line x1="1030" y1="372" x2="1030" y2="468" stroke="#be123c" stroke-width="1.75" marker-end="url(#s-rose)"/>
+  <text x="1042" y="424" fill="#be123c" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">投递</text>
+
+  <g filter="url(#s-shadow)">
+    <rect x="36" y="468" width="300" height="260" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  </g>
+  <circle cx="60" cy="504" r="5" fill="#6d28d9"/>
+  <text x="74" y="509" fill="#6d28d9" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="15" font-weight="600">数据库</text>
+  <text x="186" y="560" text-anchor="middle" fill="#0f172a" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="600">SQLite / MySQL</text>
+  <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13" fill="#334155">
+    <rect x="60" y="584" width="252" height="34" rx="8" fill="#faf5ff" stroke="#e9d5ff"/>
+    <text x="186" y="606" text-anchor="middle">账号与权限</text>
+    <rect x="60" y="628" width="252" height="34" rx="8" fill="#faf5ff" stroke="#e9d5ff"/>
+    <text x="186" y="650" text-anchor="middle">主机与应用指标</text>
+    <rect x="60" y="672" width="252" height="34" rx="8" fill="#faf5ff" stroke="#e9d5ff"/>
+    <text x="186" y="694" text-anchor="middle">预警、任务与审计</text>
+  </g>
+
+  <g filter="url(#s-shadow)">
+    <rect x="360" y="468" width="560" height="260" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  </g>
+  <circle cx="384" cy="504" r="5" fill="#0f766e"/>
+  <text x="398" y="509" fill="#0f766e" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="15" font-weight="600">被监控机器</text>
+  <text x="510" y="509" fill="#64748b" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13">可部署多台</text>
+  <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    <rect x="384" y="536" width="160" height="164" rx="12" fill="#f0fdfa" stroke="#99f6e4"/>
+    <text x="464" y="578" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">主机代理</text>
+    <text x="464" y="606" text-anchor="middle" fill="#475569" font-size="12">CPU、内存、磁盘</text>
+    <text x="464" y="626" text-anchor="middle" fill="#475569" font-size="12">网卡与进程</text>
+    <text x="464" y="662" text-anchor="middle" fill="#0f766e" font-size="12">命令 · 终端</text>
+    <rect x="560" y="536" width="160" height="164" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="640" y="578" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">应用代理</text>
+    <text x="640" y="606" text-anchor="middle" fill="#475569" font-size="12">进程自身</text>
+    <text x="640" y="626" text-anchor="middle" fill="#475569" font-size="12">的运行状况</text>
+    <rect x="736" y="536" width="160" height="164" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="816" y="578" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="600">Java 代理</text>
+    <text x="816" y="606" text-anchor="middle" fill="#475569" font-size="12">挂在进程内</text>
+    <text x="816" y="626" text-anchor="middle" fill="#475569" font-size="12">堆、GC 与线程</text>
+  </g>
+
+  <g filter="url(#s-shadow)">
+    <rect x="944" y="468" width="300" height="260" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  </g>
+  <circle cx="968" cy="504" r="5" fill="#be123c"/>
+  <text x="982" y="509" fill="#be123c" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="15" font-weight="600">通知渠道</text>
+  <g font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="13" fill="#334155">
+    <rect x="968" y="536" width="252" height="34" rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+    <text x="1094" y="558" text-anchor="middle">邮件</text>
+    <rect x="968" y="580" width="252" height="34" rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+    <text x="1094" y="602" text-anchor="middle">企业微信 · 钉钉 · 飞书</text>
+    <rect x="968" y="624" width="252" height="34" rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+    <text x="1094" y="646" text-anchor="middle">Webhook</text>
+  </g>
+  <text x="1094" y="692" text-anchor="middle" fill="#94a3b8" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" font-size="12">由中央服务送出</text>
+</svg>

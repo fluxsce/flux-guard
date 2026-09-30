@@ -1,0 +1,9 @@
+/web/node_modules/
+/web/dist/
+/bin/
+/data/
+/logs/
+/agents/java/build/
+/agents/java/*.jar
+*.exe
+.DS_Store

@@ -1,0 +1,36 @@
+-- 网卡流量滚动记录。每次上报只插入，供曲线查询。
+CREATE TABLE IF NOT EXISTS FG_HOST_NET (
+  agentId TEXT NOT NULL,
+  tenantId TEXT NOT NULL,
+  pointId TEXT NOT NULL,
+  batchId TEXT NOT NULL,
+  nicName TEXT NOT NULL,
+  receiveBytes INTEGER NOT NULL DEFAULT 0,
+  transmitBytes INTEGER NOT NULL DEFAULT 0,
+  receivePackets INTEGER NOT NULL DEFAULT 0,
+  transmitPackets INTEGER NOT NULL DEFAULT 0,
+  receiveErrs INTEGER NOT NULL DEFAULT 0,
+  transmitErrs INTEGER NOT NULL DEFAULT 0,
+  receiveDrop INTEGER NOT NULL DEFAULT 0,
+  transmitDrop INTEGER NOT NULL DEFAULT 0,
+  receiveBytesPerSec REAL NOT NULL DEFAULT 0,
+  transmitBytesPerSec REAL NOT NULL DEFAULT 0,
+  observedTime TEXT NOT NULL,
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, pointId)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_NET_TIME ON FG_HOST_NET(tenantId, agentId, observedTime);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_NET_ADD ON FG_HOST_NET(tenantId, addTime);

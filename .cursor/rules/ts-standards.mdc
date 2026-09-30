@@ -1,0 +1,135 @@
+---
+description: TypeScript/Vue 编码规范：TSDoc 注释、类型说明、复杂逻辑行注释
+globs: **/*.{ts,tsx,vue}
+alwaysApply: false
+---
+
+# TypeScript 编码规范
+
+## 1. 注释不得包含 emoji 或图标
+
+所有注释只使用纯文本，不得包含 emoji 或特殊图标字符。
+
+```ts
+// 坏：包含图标
+// UserService 用户服务 🚀
+
+// 好：纯文本
+// UserService 用户服务，负责用户注册、登录及权限校验。
+```
+
+---
+
+## 2. 导出函数/方法必须有 TSDoc 注释
+
+所有导出的函数、方法使用 TSDoc 格式，说明用途、参数和返回值。
+非导出函数逻辑不直观时也应添加简短说明。
+
+```ts
+// 坏：缺少注释
+export function formatDate(date: Date, fmt: string): string { ... }
+
+// 好：TSDoc 格式
+/**
+ * 将日期格式化为指定字符串。
+ * @param date - 要格式化的日期对象
+ * @param fmt  - 格式模板，如 "YYYY-MM-DD"
+ * @returns 格式化后的日期字符串
+ */
+export function formatDate(date: Date, fmt: string): string { ... }
+```
+
+---
+
+## 3. 新增 class/interface/type 必须有类型说明注释
+
+新建的 `class`、`interface`、`type` 必须在定义前写 TSDoc，说明职责和使用场景。
+
+```ts
+// 坏：缺少类型注释
+interface UserRepository {
+  findById(id: string): Promise<User>
+}
+
+// 好：说明职责与使用场景
+/**
+ * 用户数据访问接口，定义用户持久化的标准操作。
+ * 业务层通过此接口依赖注入，与具体存储实现解耦。
+ */
+interface UserRepository {
+  findById(id: string): Promise<User>
+}
+
+// 好：class 同样需要说明
+/**
+ * 订单业务服务，封装订单创建、查询、取消等核心流程。
+ * 所有方法均返回 Promise，调用方需处理异常。
+ */
+class OrderService {
+  constructor(private readonly repo: OrderRepository) {}
+}
+```
+
+---
+
+## 4. 异步函数的错误处理必须完整
+
+`async/await` 调用必须有 `try/catch` 或在调用处处理 rejected Promise，
+不得使用空 catch 块吞掉错误。
+
+```ts
+// 坏：空 catch 吞掉错误
+try {
+  await fetchUser(id)
+} catch (e) {}
+
+// 坏：未处理 Promise 拒绝
+fetchUser(id)
+
+// 好：捕获并处理错误
+try {
+  const user = await fetchUser(id)
+  return user
+} catch (e) {
+  logger.error('获取用户失败', { id, error: e })
+  throw new ServiceError('用户查询失败', { cause: e })
+}
+```
+
+---
+
+## 5. 复杂逻辑需要行注释
+
+条件分支、循环、响应式副作用等不直观的代码需要行注释说明意图。
+
+```ts
+// 坏：注释只重复了代码
+count++ // count 加 1
+
+// 好：注释解释意图
+// 首次加载完成后才启用提交按钮，避免重复提交
+const canSubmit = computed(() => !loading.value && formValid.value)
+
+// 好：副作用说明监听目的
+// 监听路由变化，切换页面时重置分页状态
+watch(() => route.path, () => {
+  pagination.page = 1
+})
+```
+
+---
+
+## 6. 开关字面量只有 Y / N
+
+表单 switch、接口 JSON、与库表对齐的布尔开关，`checkedValue` / `uncheckedValue` 必须是 `'Y'` / `'N'`。
+不要用 `true` / `false` / `1` / `0`。
+
+```ts
+// 坏
+props: { checkedValue: true, uncheckedValue: false }
+
+// 好
+props: { checkedValue: 'Y', uncheckedValue: 'N' }
+type EnableFlag = 'Y' | 'N'
+```
+

@@ -1,0 +1,37 @@
+-- 一台主机代理的当前身份。每次上报更新同一行。曲线在分类记录表里只插入。
+CREATE TABLE IF NOT EXISTS FG_AGENT_HOST (
+  agentId TEXT NOT NULL,
+  tenantId TEXT NOT NULL,
+  hostName TEXT NOT NULL,
+  osName TEXT NOT NULL,
+  osVersion TEXT,
+  archName TEXT NOT NULL,
+  cpuCount INTEGER NOT NULL DEFAULT 0,
+  memTotalBytes INTEGER NOT NULL DEFAULT 0,
+  ipAddress TEXT,
+  bootTime TEXT,
+  reportName TEXT,
+  machineId TEXT,
+  kernelVersion TEXT,
+  agentVersion TEXT,
+  ipList TEXT,
+  commandAddress TEXT,
+  reportedTime TEXT NOT NULL,
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, agentId)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_HOST_NAME ON FG_AGENT_HOST(tenantId, hostName);
+CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_HOST_ADD ON FG_AGENT_HOST(tenantId, addTime);

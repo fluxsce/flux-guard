@@ -1,0 +1,139 @@
+:root {
+  --fg-header-h: 48px;
+  --fg-footer-h: 40px;
+  --fg-line: 1px;
+  --fg-sider-w: 216px;
+  --fg-sider-collapsed: 48px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: var(--rs-bg);
+  color: var(--rs-text-primary);
+}
+
+#app,
+.fg-app,
+.fg-app-frame {
+  height: 100%;
+  min-height: 0;
+}
+
+.fg-app-frame {
+  display: flex;
+  flex-direction: column;
+}
+
+.fg-app-frame > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fg-shell {
+  display: grid;
+  grid-template-columns: var(--fg-sider-w) minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+  background: var(--rs-bg);
+  color: var(--rs-text-primary);
+  --rs-sidebar-width-md: var(--fg-sider-w);
+  --rs-sidebar-width-collapsed: var(--fg-sider-collapsed);
+}
+
+.fg-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fg-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--rs-bg);
+}
+
+.fg-content--flush {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.fg-page {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fg-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fg-row {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.fg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  color: var(--rs-text-secondary);
+  font-size: 13px;
+}
+
+.fg-field select {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--rs-border, #d0d5dd);
+  border-radius: 6px;
+  background: var(--rs-surface, #fff);
+  color: inherit;
+}
+
+.fg-error {
+  margin: 0;
+  color: var(--rs-danger);
+}
+
+.fg-token {
+  word-break: break-all;
+  font-family: var(--rs-font-mono, ui-monospace, monospace);
+}
+
+.rs-popover__content.rs-popover__content.fg-account-pop {
+  --rs-popover-pad: 0px;
+  --rs-popover-radius: 10px;
+  width: 280px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.fg-account-pop .rs-popover__body {
+  padding: 0;
+}
+
+@media (max-width: 960px) {
+  .fg-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

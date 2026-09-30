@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: fluxsce/dbx
+          path: .ci/dbx
+          ref: main
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Use checked-out dbx
+        run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
+      - name: Test
+        run: go test -count=1 ./...

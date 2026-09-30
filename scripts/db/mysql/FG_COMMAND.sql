@@ -1,0 +1,28 @@
+-- 一条命令一行。拨入和拉取共用这一行，控制台只看状态和结果。
+CREATE TABLE IF NOT EXISTS `FG_COMMAND` (
+  `commandId` VARCHAR(32) NOT NULL COMMENT '命令号，联合主键',
+  `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
+  `agentId` VARCHAR(32) NOT NULL COMMENT '代理ID',
+  `actionName` VARCHAR(64) NOT NULL COMMENT '动作名，固定名单',
+  `intervalSec` INT DEFAULT NULL COMMENT '上报间隔秒数，仅间隔动作使用',
+  `statusFlag` VARCHAR(1) NOT NULL COMMENT '状态(D拨号中,W待取,R执行中,Y完成,N失败)',
+  `deliverMode` VARCHAR(8) DEFAULT NULL COMMENT '投递方式(push拨入,pull拉取)',
+  `resultText` VARCHAR(255) DEFAULT NULL COMMENT '执行结果',
+  `addTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `addWho` VARCHAR(32) NOT NULL COMMENT '创建人ID',
+  `editTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
+  `editWho` VARCHAR(32) NOT NULL COMMENT '最后修改人ID',
+  `oprSeqFlag` VARCHAR(32) NOT NULL COMMENT '操作序列标识',
+  `currentVersion` INT NOT NULL DEFAULT 1 COMMENT '当前版本号',
+  `activeFlag` VARCHAR(1) NOT NULL DEFAULT 'Y' COMMENT '活动状态标记(N非活动,Y活动)',
+  `noteText` VARCHAR(500) DEFAULT NULL COMMENT '备注信息',
+  `extProperty` TEXT DEFAULT NULL COMMENT '扩展属性，JSON格式',
+  `reserved1` VARCHAR(64) DEFAULT NULL COMMENT '预留字段1',
+  `reserved2` VARCHAR(64) DEFAULT NULL COMMENT '预留字段2',
+  `reserved3` VARCHAR(100) DEFAULT NULL COMMENT '预留字段3',
+  `reserved4` VARCHAR(100) DEFAULT NULL COMMENT '预留字段4',
+  `reserved5` VARCHAR(255) DEFAULT NULL COMMENT '预留字段5',
+  PRIMARY KEY (`tenantId`, `commandId`),
+  KEY `IDX_FG_COMMAND_AGENT` (`tenantId`, `agentId`, `statusFlag`),
+  KEY `IDX_FG_COMMAND_ADD` (`tenantId`, `addTime`)
+) ENGINE=InnoDB COMMENT='命令执行记录';

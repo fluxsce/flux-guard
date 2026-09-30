@@ -1,0 +1,155 @@
+---
+description: Go 编码规范：godoc、context cancel、Y/N 开关、按调用点改名、脚本初始化在库
+globs: **/*.go
+alwaysApply: false
+---
+
+# Go 编码规范
+
+## 1. 注释不得包含图标或 emoji
+
+所有注释（godoc、行注释、块注释）只使用纯文本，不得包含 emoji 或特殊图标字符。
+
+```go
+// 坏：包含图标
+// UserService 用户服务 🚀
+
+// 好：纯文本
+// UserService 用户服务，负责用户注册、登录及权限校验。
+```
+
+---
+
+## 2. 新增 struct/interface 类型必须有类型说明注释
+
+新建的 `struct` 或 `interface` 必须在定义前写 godoc，说明该类型的职责和使用场景。
+
+```go
+// 坏：缺少类型注释
+type OrderService struct {
+    db database.Database
+}
+
+// 好：说明职责与使用场景
+// OrderService 订单业务服务，封装订单的创建、查询、取消等核心流程。
+// 所有方法均需传入 context 以支持超时控制和链路追踪。
+type OrderService struct {
+    db database.Database
+}
+
+// 好：interface 同样需要说明
+// Repository 定义数据持久化的通用接口，供业务层依赖注入使用。
+type Repository interface {
+    Save(ctx context.Context, entity interface{}) error
+    FindById(ctx context.Context, id string) (interface{}, error)
+}
+```
+
+---
+
+## 3. 函数/方法必须有 godoc 注释
+
+所有导出函数和方法必须有 godoc 注释，注释以符号名开头。
+非导出函数逻辑不直观时也应添加说明。
+
+```go
+// 坏：缺少注释
+func processOrder(id string) error { ... }
+
+// 好：godoc 格式，以函数名开头
+// ProcessOrder 处理指定订单，执行校验、扣库存、写日志等流程。
+// 返回 error 时订单状态不变。
+func ProcessOrder(id string) error { ... }
+```
+
+---
+
+## 4. context cancel 必须显式调用
+
+使用 `context.WithCancel`、`context.WithTimeout`、`context.WithDeadline` 创建的
+cancel 函数必须通过 `defer` 或显式调用确保执行，防止 context 泄漏。
+
+```go
+// 坏：忘记调用 cancel，导致资源泄漏
+ctx, _ := context.WithTimeout(parent, 5*time.Second)
+doWork(ctx)
+
+// 好：使用 defer 确保 cancel 被调用
+ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+defer cancel()
+doWork(ctx)
+
+// 好：提前 return 时 defer cancel() 仍会执行
+ctx, cancel := context.WithCancel(parent)
+defer cancel()
+if !ready {
+    return ErrNotReady
+}
+doWork(ctx)
+```
+
+---
+
+## 5. 复杂逻辑需要行注释
+
+循环、分支、算法、并发等不直观的代码段需要行注释说明意图，而非重复代码内容。
+
+```go
+// 坏：注释只重复了代码
+i++ // i 加 1
+
+// 好：注释解释意图
+// 跳过第一个元素，它已在初始化阶段单独处理
+for i := 1; i < len(items); i++ { ... }
+
+// 好：并发逻辑说明同步策略
+// 使用 done 通道通知 goroutine 退出，避免忙等待
+select {
+case <-done:
+    return
+case msg := <-ch:
+    handle(msg)
+}
+```
+
+---
+
+## 6. 开关字面量只有 Y / N
+
+库表 `activeFlag`、ExtProperty、CHAR 开关，取值只能是 `Y` 或 `N`。
+`true`、`false`、`1`、`0`、`yes` 都不是开启。
+
+比较用精确等于 `Y`，或该包已有的 `IsY` / `ActiveFlagYes`。写入用 `Y` / `N` 或已有的 `YN()`。不要再造一套 `ynFlag`。
+
+```go
+// 坏
+if flag == "true" || flag == "1" { ... }
+
+// 好
+if flag == "Y" { ... }
+row.ActiveFlag = "N"
+```
+
+重命名按字段、按调用点改。禁止用脚本对 Identifier 做全库替换。
+
+---
+
+## 7. 脚本初始化只写在数据库脚本里
+
+建表、菜单、按钮、角色授权等初始化数据只放 `scripts/db/sqlite` 和 `scripts/db/mysql`，并写进两边的 `init.sql`。模块的 `dao`、`routes` 在启动时不往权限表补行。
+
+菜单和按钮写在 `FG_AUTH_RESOURCE.sql`。角色授权写在 `FG_AUTH_ROLE_RESOURCE.sql`。
+
+```go
+// 坏：模块启动时往 FG_AUTH_RESOURCE 补菜单
+func Init(router *gin.Engine, db *dbx.DB) {
+    dao.NewMenuDAO(db).Ensure(config.TenantID())
+}
+
+// 好：路由只挂接口。菜单行在库脚本里
+func Init(router *gin.Engine, db *dbx.DB) {
+    ctrl := controllers.NewHostController(db)
+    router.GET(APIPrefix+"/queryHosts", middleware.RequireButton("fg0005:search", ctrl.QueryHosts))
+}
+```
+

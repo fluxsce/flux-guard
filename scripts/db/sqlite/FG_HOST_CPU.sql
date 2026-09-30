@@ -1,0 +1,38 @@
+-- CPU 滚动记录。每次上报只插入，供曲线查询。单核占用在 FG_HOST_CPU_CORE。
+CREATE TABLE IF NOT EXISTS FG_HOST_CPU (
+  agentId TEXT NOT NULL,
+  tenantId TEXT NOT NULL,
+  pointId TEXT NOT NULL,
+  batchId TEXT NOT NULL,
+  cpuCount INTEGER NOT NULL DEFAULT 0,
+  coreCount INTEGER NOT NULL DEFAULT 0,
+  usagePercent REAL NOT NULL DEFAULT 0,
+  userPercent REAL NOT NULL DEFAULT 0,
+  systemPercent REAL NOT NULL DEFAULT 0,
+  idlePercent REAL NOT NULL DEFAULT 0,
+  iowaitPercent REAL NOT NULL DEFAULT 0,
+  irqPercent REAL NOT NULL DEFAULT 0,
+  softirqPercent REAL NOT NULL DEFAULT 0,
+  stealPercent REAL NOT NULL DEFAULT 0,
+  loadAvg1 REAL NOT NULL DEFAULT 0,
+  loadAvg5 REAL NOT NULL DEFAULT 0,
+  loadAvg15 REAL NOT NULL DEFAULT 0,
+  observedTime TEXT NOT NULL,
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, pointId)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_CPU_TIME ON FG_HOST_CPU(tenantId, agentId, observedTime);
+CREATE INDEX IF NOT EXISTS IDX_FG_HOST_CPU_ADD ON FG_HOST_CPU(tenantId, addTime);

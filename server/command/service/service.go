@@ -1,0 +1,283 @@
+// Package service 读写 FG_COMMAND：下发、拨号、认领与回执落库。
+package service
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"fluxguard/common/id"
+	"fluxguard/protocol"
+	"fluxguard/server/command/models"
+	"fluxguard/server/setting"
+	"fluxguard/server/store"
+	dbx "github.com/fluxsce/dbx/db"
+)
+
+// Service 读写 FG_COMMAND，并在能拨通时代理执行。
+type Service struct {
+	db  *dbx.DB
+	hub hub
+}
+
+var current *Service
+
+// Current 返回本进程命令服务。尚未 Open 时为 nil。
+func Current() *Service {
+	return current
+}
+
+// Open 打开命令服务，并补上已有库缺少的下发按钮。tenantID 是本进程所属租户。
+// 同一条库连接再次打开时返回已有实例，下发和长轮询共用唤醒。
+func Open(ctx context.Context, db *dbx.DB, tenantID string) (*Service, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		tenantID = "default"
+	}
+	if db == nil {
+		return nil, errors.New("命令服务缺少库连接")
+	}
+	if current != nil && current.db == db {
+		return current, nil
+	}
+	if err := ensureButton(ctx, db, tenantID); err != nil {
+		return nil, err
+	}
+	current = &Service{db: db}
+	return current, nil
+}
+
+// Dispatch 写入一条命令。能拨通则同步带回结果，否则留下待取并唤醒长轮询。
+func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models.DispatchInput) (models.View, error) {
+	if !protocol.KnownAction(in.Action) {
+		return models.View{}, models.ErrUnknownAction
+	}
+	if in.Action == protocol.ActionIntervalSet && (in.IntervalSec < protocol.IntervalMin || in.IntervalSec > protocol.IntervalMax) {
+		return models.View{}, models.ErrBadInterval
+	}
+	agentID := strings.TrimSpace(in.AgentID)
+	var code, status string
+	err := store.Scan(ctx, s.db, `
+		SELECT COALESCE(agentCode, ''), statusFlag FROM FG_AGENT
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
+		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &code, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.View{}, models.ErrNotFound
+	}
+	if err != nil {
+		return models.View{}, err
+	}
+	if status != "Y" {
+		return models.View{}, models.ErrStopped
+	}
+	if code != "" && code != "host" {
+		return models.View{}, models.ErrNotHost
+	}
+	primary, list, addr := s.hostAddress(ctx, tenantID, agentID)
+	token := setting.IngestPlain(tenantID)
+	canDial := addr != "" && token != "" && allowedTarget(addr, primary, list)
+	commandID := id.New()
+	statusFlag := models.StatusWaiting
+	if canDial {
+		statusFlag = models.StatusDialing
+	}
+	var interval any
+	if in.Action == protocol.ActionIntervalSet {
+		interval = in.IntervalSec
+	}
+	now := store.FormatTime(time.Now().UTC())
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO FG_COMMAND (
+		  commandId, tenantId, agentId, actionName, intervalSec, statusFlag,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @commandId, @tenantId, @agentId, @actionName, @intervalSec, @statusFlag,
+		  @now, @user, @now, @user, 'CMD', 1, 'Y'
+		)`, dbx.Args{
+		"commandId": commandID, "tenantId": tenantID, "agentId": agentID, "actionName": in.Action,
+		"intervalSec": interval, "statusFlag": statusFlag, "now": now, "user": user,
+	}); err != nil {
+		return models.View{}, err
+	}
+	if canDial {
+		if view, pushed := s.push(ctx, tenantID, commandID, addr, token, in); pushed {
+			return view, nil
+		}
+		s.markWaiting(ctx, commandID)
+		s.hub.wake(agentID)
+	} else {
+		s.hub.wake(agentID)
+	}
+	return s.Get(ctx, tenantID, commandID)
+}
+
+// Get 读取一条命令。
+func (s *Service) Get(ctx context.Context, tenantID, commandID string) (models.View, error) {
+	var view models.View
+	var flag string
+	err := store.Scan(ctx, s.db, `
+		SELECT commandId, agentId, actionName, statusFlag, COALESCE(deliverMode, ''), COALESCE(resultText, '')
+		FROM FG_COMMAND
+		WHERE tenantId = @tenantId AND commandId = @commandId AND activeFlag = 'Y'`,
+		dbx.Args{"tenantId": tenantID, "commandId": commandID},
+		&view.CommandID, &view.AgentID, &view.Action, &flag, &view.DeliverMode, &view.Message)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.View{}, models.ErrCommandGone
+	}
+	if err != nil {
+		return models.View{}, err
+	}
+	view.Status = models.StatusName(flag)
+	return view, nil
+}
+
+// ListByAgent 按代理列出最近的命令执行记录，新的在前。
+func (s *Service) ListByAgent(ctx context.Context, tenantID, agentID string, limit int) ([]models.View, error) {
+	agentID = strings.TrimSpace(agentID)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.Query(ctx, fmt.Sprintf(`
+		SELECT commandId, agentId, actionName, statusFlag, COALESCE(deliverMode, ''), COALESCE(resultText, ''),
+		       COALESCE(intervalSec, 0), addTime, addWho
+		FROM FG_COMMAND
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		ORDER BY addTime DESC, commandId DESC
+		LIMIT %d`, limit),
+		dbx.Args{"tenantId": tenantID, "agentId": agentID})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]models.View, 0)
+	for rows.Next() {
+		var view models.View
+		var flag string
+		if err := rows.Scan(
+			&view.CommandID, &view.AgentID, &view.Action, &flag, &view.DeliverMode, &view.Message,
+			&view.IntervalSec, &view.AddTime, &view.AddWho,
+		); err != nil {
+			return nil, err
+		}
+		view.Status = models.StatusName(flag)
+		out = append(out, view)
+	}
+	return out, rows.Err()
+}
+
+// Wait 挂起直到该代理有待取命令或超时。
+func (s *Service) Wait(agentID string, ctx context.Context, hold time.Duration) {
+	s.hub.wait(agentID, ctx, hold)
+}
+
+func (s *Service) hostAddress(ctx context.Context, tenantID, agentID string) (primary, list, addr string) {
+	err := store.Scan(ctx, s.db, `
+		SELECT COALESCE(ipAddress, ''), COALESCE(ipList, ''), COALESCE(commandAddress, '')
+		FROM FG_AGENT_HOST WHERE tenantId = @tenantId AND agentId = @agentId`,
+		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &primary, &list, &addr)
+	if err != nil {
+		return "", "", ""
+	}
+	return strings.TrimSpace(primary), strings.TrimSpace(list), strings.TrimSpace(addr)
+}
+
+func (s *Service) push(ctx context.Context, tenantID, commandID, addr, key string, in models.DispatchInput) (models.View, bool) {
+	claimed, err := s.claim(ctx, commandID, models.StatusDialing, models.DeliverPush)
+	if err != nil || !claimed {
+		return models.View{}, false
+	}
+	endpoint, _, err := dialEndpoint(addr)
+	if err != nil {
+		s.release(ctx, commandID)
+		return models.View{}, false
+	}
+	reply, err := postExec(ctx, endpoint, key, protocol.CommandCall{
+		CommandID: commandID, Action: in.Action, IntervalSec: in.IntervalSec,
+	})
+	if err != nil {
+		s.release(ctx, commandID)
+		return models.View{}, false
+	}
+	flag := models.StatusDone
+	if !reply.OK {
+		flag = models.StatusFailed
+	}
+	if err := s.finish(ctx, commandID, flag, reply.Message); err != nil {
+		return models.View{}, false
+	}
+	view, err := s.Get(ctx, tenantID, commandID)
+	if err != nil {
+		return models.View{}, false
+	}
+	return view, true
+}
+
+func (s *Service) claim(ctx context.Context, commandID, from, mode string) (bool, error) {
+	res, err := s.db.Exec(ctx, `
+		UPDATE FG_COMMAND
+		SET statusFlag = 'R', deliverMode = @mode, editTime = @editTime, editWho = 'system',
+		    currentVersion = currentVersion + 1
+		WHERE commandId = @commandId AND statusFlag = @from AND activeFlag = 'Y'`,
+		dbx.Args{
+			"mode": mode, "editTime": store.FormatTime(time.Now().UTC()),
+			"commandId": commandID, "from": from,
+		})
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+func (s *Service) release(ctx context.Context, commandID string) {
+	_, _ = s.db.Exec(ctx, `
+		UPDATE FG_COMMAND
+		SET statusFlag = 'W', deliverMode = NULL, editTime = @editTime, editWho = 'system',
+		    currentVersion = currentVersion + 1
+		WHERE commandId = @commandId AND statusFlag = 'R' AND activeFlag = 'Y'`,
+		dbx.Args{"editTime": store.FormatTime(time.Now().UTC()), "commandId": commandID})
+}
+
+func (s *Service) markWaiting(ctx context.Context, commandID string) {
+	_, _ = s.db.Exec(ctx, `
+		UPDATE FG_COMMAND
+		SET statusFlag = 'W', editTime = @editTime, editWho = 'system',
+		    currentVersion = currentVersion + 1
+		WHERE commandId = @commandId AND statusFlag = 'D' AND activeFlag = 'Y'`,
+		dbx.Args{"editTime": store.FormatTime(time.Now().UTC()), "commandId": commandID})
+}
+
+func (s *Service) finish(ctx context.Context, commandID, flag, message string) error {
+	res, err := s.db.Exec(ctx, `
+		UPDATE FG_COMMAND
+		SET statusFlag = @statusFlag, resultText = @resultText, editTime = @editTime, editWho = 'system',
+		    currentVersion = currentVersion + 1
+		WHERE commandId = @commandId AND statusFlag = 'R' AND activeFlag = 'Y'`,
+		dbx.Args{
+			"statusFlag": flag, "resultText": clip(message, 200),
+			"editTime": store.FormatTime(time.Now().UTC()), "commandId": commandID,
+		})
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return models.ErrCommandGone
+	}
+	return nil
+}
+
+func clip(text string, n int) string {
+	if utf8.RuneCountInString(text) <= n {
+		return text
+	}
+	runes := []rune(text)
+	return string(runes[:n])
+}
