@@ -179,12 +179,20 @@ func eachStatement(ctx context.Context, conn *dbx.DB, dir string, files []string
 	return nil
 }
 
-// isIgnorableAlter 重复执行 ADD COLUMN 时忽略「列已存在」。
+// isIgnorableAlter 重复执行时忽略「列已存在」，以及旧采集表已经改名或不存在。
 func isIgnorableAlter(stmt string, err error) bool {
 	if err == nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(stmt)), "ALTER") {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
+	upper := strings.ToUpper(stmt)
+	if strings.Contains(upper, " RENAME ") {
+		return strings.Contains(msg, "no such table") ||
+			strings.Contains(msg, "doesn't exist") ||
+			strings.Contains(msg, "does not exist") ||
+			strings.Contains(msg, "already exists") ||
+			strings.Contains(msg, "already another table")
+	}
 	return strings.Contains(msg, "duplicate column") ||
 		strings.Contains(msg, "duplicate key name") ||
 		strings.Contains(msg, "already exists")
@@ -211,5 +219,5 @@ func statements(text string) []string {
 
 func isSchema(stmt string) bool {
 	word := strings.ToUpper(strings.TrimSpace(stmt))
-	return strings.HasPrefix(word, "CREATE") || strings.HasPrefix(word, "ALTER")
+	return strings.HasPrefix(word, "CREATE") || strings.HasPrefix(word, "ALTER") || strings.HasPrefix(word, "UPDATE")
 }

@@ -1,4 +1,4 @@
-// Package zk 用四字命令 mntr 采集，并写入 FG_ZK_METRIC。
+// Package zk 用四字命令 mntr 采集，并写入 FG_COMPONENT_ZK_METRIC。
 package zk
 
 import (
@@ -15,6 +15,7 @@ import (
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
 	"fluxguard/server/component/netx"
+	"fluxguard/server/component/pane"
 	"fluxguard/server/component/row"
 	"fluxguard/server/component/runtime"
 	"fluxguard/server/component/series"
@@ -50,7 +51,7 @@ func (probe) Probe(ctx context.Context, db *dbx.DB, target conn.Open) (models.St
 }
 
 func (probe) Series(ctx context.Context, db *dbx.DB, tenantID, componentID string, limit int) ([]models.Point, error) {
-	return series.Read(ctx, db, "FG_ZK_METRIC", tenantID, componentID, catalog.Columns(catalog.ZK), limit, series.Span{})
+	return series.Read(ctx, db, "FG_COMPONENT_ZK_METRIC", tenantID, componentID, catalog.Columns(catalog.ZK), limit, series.Span{})
 }
 
 func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
@@ -123,7 +124,7 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		args[key] = value
 	}
 	_, err := db.Exec(ctx, `
-		INSERT INTO FG_ZK_METRIC (
+		INSERT INTO FG_COMPONENT_ZK_METRIC (
 		  tenantId, pointId, componentId, upFlag, versionText, roleName, errorText, summaryText, observedTime,
 		  avgLatency, outstandingRequests, znodeCount, followers, watchCount,
 		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag, noteText
@@ -132,7 +133,10 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		  @avgLatency, @outstandingRequests, @znodeCount, @followers, @watchCount,
 		  @addTime, @addWho, @editTime, @editWho, @oprSeqFlag, @currentVersion, @activeFlag, @noteText
 		)`, args)
-	return err
+	if err != nil {
+		return err
+	}
+	return pane.Touch(ctx, db, catalog.ZK, args)
 }
 
 func atoi(v string) int64 {

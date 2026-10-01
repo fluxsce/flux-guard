@@ -1,15 +1,18 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"fluxguard/server/component/catalog"
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
 	"fluxguard/server/component/service"
 	"fluxguard/server/web/httpx"
+	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/middleware/audit"
 	"fluxguard/server/web/request"
 	dbx "github.com/fluxsce/dbx/db"
@@ -43,9 +46,13 @@ func (c *ComponentController) QueryConns(g *gin.Context) {
 	if !c.ready(g) {
 		return
 	}
+	kind := request.Param(g, "kindCode")
+	if !c.allowKind(g, kind) {
+		return
+	}
 	page := request.PageOf(g)
 	rows, total, err := service.List(g.Request.Context(), c.DB, conn.Filter{
-		KindCode:      request.Param(g, "kindCode"),
+		KindCode:      kind,
 		ComponentName: request.Param(g, "componentName"),
 		StatusFlag:    request.Param(g, "statusFlag"),
 	}, page)
@@ -72,6 +79,9 @@ func (c *ComponentController) save(g *gin.Context, creating bool) {
 	}
 	var body models.Input
 	if !request.Bind(g, &body) {
+		return
+	}
+	if !c.allowKind(g, body.KindCode) {
 		return
 	}
 	audit.Note(g, "", "COMPONENT", body.ComponentID, body.ComponentName, "")
@@ -104,7 +114,11 @@ func (c *ComponentController) DeleteConn(g *gin.Context) {
 	if !request.Bind(g, &body) {
 		return
 	}
-	audit.Note(g, "", "COMPONENT", body.ComponentID, body.ComponentID, "")
+	item, ok := c.owned(g, body.ComponentID)
+	if !ok {
+		return
+	}
+	audit.Note(g, "", "COMPONENT", body.ComponentID, item.ComponentName, "")
 	if err := service.Delete(g.Request.Context(), c.DB, body.ComponentID); err != nil {
 		httpx.WriteFail(g, http.StatusBadRequest, err)
 		return
@@ -120,6 +134,9 @@ func (c *ComponentController) TestConn(g *gin.Context) {
 	}
 	var body models.Input
 	if !request.Bind(g, &body) {
+		return
+	}
+	if !c.allowKind(g, body.KindCode) {
 		return
 	}
 	audit.Note(g, "", "COMPONENT", body.ComponentID, body.ComponentName, "")
@@ -147,6 +164,9 @@ func (c *ComponentController) ProbeConn(g *gin.Context) {
 	if !request.Bind(g, &body) {
 		return
 	}
+	if _, ok := c.owned(g, body.ComponentID); !ok {
+		return
+	}
 	audit.Note(g, "", "COMPONENT", body.ComponentID, body.ComponentID, "")
 	item, err := service.Probe(g.Request.Context(), c.DB, body.ComponentID)
 	if err != nil {
@@ -166,6 +186,9 @@ func (c *ComponentController) QueryLatest(g *gin.Context) {
 	if !c.ready(g) {
 		return
 	}
+	if _, ok := c.owned(g, request.Param(g, "componentId")); !ok {
+		return
+	}
 	item, err := service.Latest(g.Request.Context(), c.DB, request.Param(g, "componentId"))
 	if err != nil {
 		httpx.WriteFail(g, http.StatusBadRequest, err)
@@ -179,10 +202,44 @@ func (c *ComponentController) QuerySeries(g *gin.Context) {
 	if !c.ready(g) {
 		return
 	}
-	points, err := service.Series(g.Request.Context(), c.DB, request.Param(g, "componentId"), request.Param(g, "limit"), request.Param(g, "from"), request.Param(g, "to"))
+	componentID := request.Param(g, "componentId")
+	if _, ok := c.owned(g, componentID); !ok {
+		return
+	}
+	points, err := service.Series(g.Request.Context(), c.DB, componentID, request.Param(g, "limit"), request.Param(g, "from"), request.Param(g, "to"))
 	if err != nil {
 		httpx.WriteFail(g, http.StatusBadRequest, err)
 		return
 	}
 	httpx.WriteOK(g, points)
+}
+
+func (c *ComponentController) owned(g *gin.Context, componentID string) (models.Conn, bool) {
+	item, err := service.Lookup(g.Request.Context(), c.DB, componentID)
+	if err != nil {
+		httpx.WriteFail(g, http.StatusBadRequest, err)
+		return models.Conn{}, false
+	}
+	if !c.allowKind(g, item.KindCode) {
+		return models.Conn{}, false
+	}
+	return item, true
+}
+
+func (c *ComponentController) allowKind(g *gin.Context, kind string) bool {
+	kind = strings.TrimSpace(kind)
+	if kind == "" || !catalog.Known(kind) {
+		httpx.WriteFail(g, http.StatusBadRequest, fmt.Errorf("请选择组件种类"))
+		return false
+	}
+	principal := middleware.Principal(g)
+	if principal.TenantAdmin {
+		return true
+	}
+	access := middleware.Access()
+	if access == nil || !access.AllowButton(principal.TenantID, principal.UserID, "fg0007:"+kind) {
+		httpx.WriteErr(g, http.StatusForbidden, "没有权限")
+		return false
+	}
+	return true
 }

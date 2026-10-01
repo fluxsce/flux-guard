@@ -32,9 +32,15 @@ const mongoAuthOptions: FlagOption[] = [
   { label: '无', value: 'none' },
   { label: '用户名口令', value: 'password' },
 ]
+const kafkaDeployOptions: FlagOption[] = [
+  { label: '明文', value: 'cluster' },
+  { label: 'TLS', value: 'tls' },
+]
 const kafkaAuthOptions: FlagOption[] = [
   { label: '无', value: 'none' },
   { label: 'SASL PLAIN', value: 'plain' },
+  { label: 'SCRAM-SHA-256', value: 'scram256' },
+  { label: 'SCRAM-SHA-512', value: 'scram512' },
 ]
 const nacosAuthOptions: FlagOption[] = [
   { label: '无', value: 'none' },
@@ -45,6 +51,7 @@ const deployNames: Record<string, string> = {
   standalone: '单机',
   sentinel: '哨兵',
   cluster: '集群',
+  tls: 'TLS',
   server: '服务',
 }
 const authNames: Record<string, string> = {
@@ -52,6 +59,8 @@ const authNames: Record<string, string> = {
   password: '口令',
   acl: 'ACL',
   plain: 'PLAIN',
+  scram256: 'SCRAM-SHA-256',
+  scram512: 'SCRAM-SHA-512',
   login: '登录',
 }
 
@@ -67,8 +76,8 @@ export function layoutOf(kindCode: string, optionText: string, userName: string,
     deploy = 'standalone'
     auth = auth === 'password' ? 'password' : 'none'
   } else if (kindCode === 'kafka') {
-    deploy = 'cluster'
-    auth = auth === 'plain' ? 'plain' : 'none'
+    deploy = deploy === 'tls' ? 'tls' : 'cluster'
+    auth = auth === 'plain' || auth === 'scram256' || auth === 'scram512' ? auth : 'none'
   } else if (kindCode === 'zk') {
     deploy = 'standalone'
     auth = 'none'
@@ -87,7 +96,11 @@ export function packOption(kindCode: string, deployMode: string, authMode: strin
   if (kindCode === 'redis') return `${deployMode || 'standalone'}:${authMode || 'none'}`
   if (kindCode === 'mysql') return 'server:password'
   if (kindCode === 'mongo') return `standalone:${authMode === 'password' ? 'password' : 'none'}`
-  if (kindCode === 'kafka') return `cluster:${authMode === 'plain' ? 'plain' : 'none'}`
+  if (kindCode === 'kafka') {
+    const deploy = deployMode === 'tls' ? 'tls' : 'cluster'
+    const auth = authMode === 'plain' || authMode === 'scram256' || authMode === 'scram512' ? authMode : 'none'
+    return `${deploy}:${auth}`
+  }
   if (kindCode === 'zk') return 'standalone:none'
   if (kindCode === 'nacos') return `server:${authMode === 'login' ? 'login' : 'none'}`
   return ''
@@ -98,7 +111,7 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
     ...tabOf(basicTab, [
       fieldset('basicGroup', '基本信息', [
         { field: 'componentName', label: '名称', required: true },
-        { field: 'kindCode', label: '种类', type: 'select', required: true, options: kindOptions },
+        { field: 'kindCode', label: '种类', type: 'select', required: true, disabled: true, options: kindOptions },
         { field: 'intervalSec', label: '间隔(秒)', type: 'number', placeholder: '30' },
         { field: 'statusFlag', label: '启用', type: 'select', options: statusOptions },
         { field: 'noteText', label: '备注', type: 'textarea', span: 24 },
@@ -201,13 +214,14 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
         'kafkaGroup',
         'Kafka',
         [
+          { field: 'deployMode', label: '传输', type: 'select', required: true, options: kafkaDeployOptions },
           { field: 'address', label: 'Broker', span: 16, required: true, placeholder: 'host:9092，多个用逗号分隔' },
           { field: 'authMode', label: '认证', type: 'select', required: true, options: kafkaAuthOptions },
-          { field: 'userName', label: '用户名', required: true, show: authIs('kafka', 'plain') },
-          { field: 'secret', label: '口令', type: 'password', modes: ['create', 'edit'], placeholder: '留空表示不修改', show: authIs('kafka', 'plain') },
-          { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('kafka', 'plain') },
+          { field: 'userName', label: '用户名', required: true, show: authIs('kafka', 'plain', 'scram256', 'scram512') },
+          { field: 'secret', label: '口令', type: 'password', modes: ['create', 'edit'], placeholder: '留空表示不修改', show: authIs('kafka', 'plain', 'scram256', 'scram512') },
+          { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('kafka', 'plain', 'scram256', 'scram512') },
         ],
-        { tips: '监控分开看 Topic 和消费组。消费延迟是已提交位移相对日志末端的差值，只取前 8 个消费组。', show: kindIs('kafka') },
+        { tips: '会看每台 Broker、分区副本、主题最小 ISR 和消费组。延迟按分区计算。TLS 使用系统信任的证书。', show: kindIs('kafka') },
       ),
       fieldset(
         'zkGroup',

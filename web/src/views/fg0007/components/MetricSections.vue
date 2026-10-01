@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RsStatCard } from '@/ui'
+import { RsStatCard, RsTooltip } from '@/ui'
 import MetricChart from './MetricChart.vue'
 import { seriesOption } from '../composables/charts'
 import type { BoardCard, BoardSection } from '../composables/boards'
@@ -39,7 +39,12 @@ function span(section: BoardSection) {
           :label="item.label"
           :value="item.value"
           :accent="accent(item.level)"
-        />
+          :aria-label="item.help ? `${item.label}。${item.help}` : undefined"
+        >
+          <template v-if="item.help" #icon>
+            <RsTooltip class="fg-help" icon :content="item.help" aria-label="指标说明" />
+          </template>
+        </RsStatCard>
       </div>
       <MetricChart v-if="charts && section.metrics.length && points.length" :option="seriesOption(section.metrics, points)" height="200px" />
     </section>
@@ -82,6 +87,9 @@ function span(section: BoardSection) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
   gap: 8px;
+}
+.fg-help {
+  color: var(--rs-text-secondary, #4d647c);
 }
 @media (max-width: 960px) {
   .fg-sections {

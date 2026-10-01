@@ -1,5 +1,7 @@
--- Kafka 采集记录。每次拨号只插入。
-CREATE TABLE IF NOT EXISTS `FG_KAFKA_METRIC` (
+-- 已有旧表时改名。新库没有旧表，重复启动时忽略这次失败。
+ALTER TABLE `FG_MYSQL_METRIC` RENAME TO `FG_COMPONENT_MYSQL_METRIC`;
+-- MySQL 采集记录。每次拨号只插入。
+CREATE TABLE IF NOT EXISTS `FG_COMPONENT_MYSQL_METRIC` (
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
   `pointId` VARCHAR(32) NOT NULL COMMENT '记录ID，联合主键',
   `componentId` VARCHAR(32) NOT NULL COMMENT '连接ID',
@@ -9,12 +11,13 @@ CREATE TABLE IF NOT EXISTS `FG_KAFKA_METRIC` (
   `errorText` VARCHAR(100) DEFAULT NULL COMMENT '失败说明',
   `summaryText` VARCHAR(100) DEFAULT NULL COMMENT '摘要',
   `observedTime` DATETIME NOT NULL COMMENT '观测时间',
-  `brokerCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT 'Broker 数',
-  `offlinePartitions` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '离线分区',
-  `underReplicated` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '未同步分区',
-  `topicCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT 'Topic 数',
-  `groupCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '消费组数',
-  `maxLag` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '最大消费延迟',
+  `threadsConnected` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '连接数',
+  `threadsRunning` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '活跃线程',
+  `questions` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计查询',
+  `slowQueries` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计慢查询',
+  `bufferPoolHitRate` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '缓冲池命中率，百分比',
+  `replicaLagSec` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '复制延迟，秒',
+  `uptimeSec` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '运行秒数',
   `addTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `addWho` VARCHAR(32) NOT NULL COMMENT '创建人ID',
   `editTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
@@ -30,6 +33,7 @@ CREATE TABLE IF NOT EXISTS `FG_KAFKA_METRIC` (
   `reserved4` VARCHAR(100) DEFAULT NULL COMMENT '预留字段4',
   `reserved5` VARCHAR(255) DEFAULT NULL COMMENT '预留字段5',
   PRIMARY KEY (`tenantId`, `pointId`),
-  KEY `IDX_FG_KAFKA_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
-  KEY `IDX_FG_KAFKA_METRIC_ADD` (`tenantId`, `addTime`)
-) ENGINE=InnoDB COMMENT='Kafka采集记录表';
+  KEY `IDX_FG_COMPONENT_MYSQL_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
+  KEY `IDX_FG_COMPONENT_MYSQL_METRIC_ADD` (`tenantId`, `addTime`)
+) ENGINE=InnoDB COMMENT='MySQL采集记录表';
+UPDATE FG_COMPONENT_KIND SET metricTable = 'FG_COMPONENT_MYSQL_METRIC' WHERE kindCode = 'mysql' AND metricTable = 'FG_MYSQL_METRIC';

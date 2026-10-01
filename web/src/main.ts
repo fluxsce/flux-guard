@@ -7,6 +7,7 @@ import App from './App.vue'
 import { i18n } from './locales'
 import { installGuard, routes } from './router'
 import 'niuma-ui/styles.css'
+import 'niuma-ui/brand-icons.css'
 import './styles/index.css'
 
 const router = createRouter({

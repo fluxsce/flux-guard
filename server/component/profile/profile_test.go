@@ -17,4 +17,11 @@ func TestRedisModes(t *testing.T) {
 	if _, err := Normalize("mysql", "server:password", "", "secret", "", true); err == nil {
 		t.Fatal("MySQL 缺少账号应拒绝")
 	}
+	kafka, err := Normalize("kafka", "tls:scram512", "app", "secret", "", true)
+	if err != nil || kafka.Option != "tls:scram512" || kafka.User != "app" || kafka.ClearSecret {
+		t.Fatalf("%+v %v", kafka, err)
+	}
+	if _, err := Normalize("kafka", "cluster:plain", "", "secret", "", true); err == nil {
+		t.Fatal("Kafka 认证缺少用户名应拒绝")
+	}
 }

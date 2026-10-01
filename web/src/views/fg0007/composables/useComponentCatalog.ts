@@ -2,7 +2,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
 import type { FgFormField, FgFormMode, FgSearchField } from '@/components/form/types'
 import { placeSavedRow } from '@/components/grid/placeRow'
-import type { FgGridMenuItem } from '@/components/grid/types'
+import type { FgGridColumn, FgGridMenuItem } from '@/components/grid/types'
+import { useSessionStore } from '@/stores/session'
 import { rsConfirm, useRsToast } from '@/ui'
 import { getDefaultPageSize, listParams, type PageData } from '@/api/pagination'
 import { connFormFields, layoutOf, packOption } from './forms'
@@ -35,17 +36,18 @@ export const secretOptions: FlagOption[] = [
   { label: '未设置', value: 'N' },
 ]
 
-export const connColumns = [
-  { key: 'componentName', title: '名称', minWidth: 140 },
-  { key: 'kindName', title: '种类', width: 110 },
-  { key: 'layout', title: '部署', width: 140 },
-  { key: 'address', title: '地址', minWidth: 180 },
-  { key: 'upFlag', title: '连通', width: 80 },
-  { key: 'summaryText', title: '摘要', minWidth: 180 },
-  { key: 'intervalSec', title: '间隔(秒)', width: 96 },
-  { key: 'statusFlag', title: '启用', width: 80 },
-  { key: 'probedTime', title: '最近采集', minWidth: 160 },
-]
+export function connColumnsFor(headlines: FgGridColumn[]): FgGridColumn[] {
+  return [
+    { key: 'componentName', title: '名称', minWidth: 140 },
+    { key: 'layout', title: '部署', width: 120 },
+    { key: 'address', title: '地址', minWidth: 160 },
+    { key: 'upFlag', title: '连通', width: 80 },
+    ...headlines,
+    { key: 'intervalSec', title: '间隔(秒)', width: 96 },
+    { key: 'statusFlag', title: '启用', width: 80 },
+    { key: 'probedTime', title: '最近采集', minWidth: 160 },
+  ]
+}
 
 export const connMenuItems: FgGridMenuItem[] = [
   { key: 'monitor', label: '监控', icon: 'activity', code: 'fg0007:view' },
@@ -66,11 +68,13 @@ function str(value: unknown) {
 
 export function useComponentCatalog() {
   const toast = useRsToast()
+  const session = useSessionStore()
   const rows = ref<ComponentConn[]>([])
   const kinds = ref<Kind[]>([])
   const page = ref(1)
   const pageSize = ref(getDefaultPageSize())
   const total = ref(0)
+  const kindCode = ref('')
   const query = ref({ componentName: '', kindCode: '', statusFlag: '' })
   const error = ref('')
   const formOpen = ref(false)
@@ -81,12 +85,14 @@ export function useComponentCatalog() {
   const testing = ref(false)
   const trial = ref<{ level: 'ok' | 'alert'; text: string } | null>(null)
 
+  const visibleKinds = computed(() =>
+    kinds.value.filter((item) => session.allowAction('fg0007', item.kindCode)),
+  )
   const kindOptions = computed<FlagOption[]>(() =>
-    kinds.value.map((item) => ({ label: item.kindName, value: item.kindCode })),
+    visibleKinds.value.map((item) => ({ label: item.kindName, value: item.kindCode })),
   )
   const searchFields = computed<FgSearchField[]>(() => [
     { field: 'componentName', label: '名称', placeholder: '请输入名称' },
-    { field: 'kindCode', label: '种类', type: 'select', placeholder: '全部', options: [{ label: '全部', value: '' }, ...kindOptions.value] },
     { field: 'statusFlag', label: '启用', type: 'select', placeholder: '全部', options: [{ label: '全部', value: '' }, ...statusOptions] },
   ])
   const formFields = computed<FgFormField[]>(() => connFormFields(kindOptions.value))
@@ -103,8 +109,8 @@ export function useComponentCatalog() {
     current.value = {
       componentId: '',
       componentName: '',
-      kindCode: kinds.value[0]?.kindCode ?? 'redis',
-      deployMode: 'standalone',
+      kindCode: kindCode.value || visibleKinds.value[0]?.kindCode || 'redis',
+      deployMode: kindCode.value === 'kafka' ? 'cluster' : 'standalone',
       authMode: 'none',
       address: '',
       userName: '',
@@ -160,7 +166,7 @@ export function useComponentCatalog() {
     const usesUser = (kindCode === 'redis' && authMode === 'acl')
       || kindCode === 'mysql'
       || (kindCode === 'mongo' && authMode === 'password')
-      || (kindCode === 'kafka' && authMode === 'plain')
+      || (kindCode === 'kafka' && (authMode === 'plain' || authMode === 'scram256' || authMode === 'scram512'))
       || (kindCode === 'nacos' && authMode === 'login')
     const usesDatabase = (kindCode === 'redis' && (str(values.deployMode) === 'standalone' || str(values.deployMode) === 'sentinel'))
       || kindCode === 'mysql'
@@ -286,23 +292,36 @@ export function useComponentCatalog() {
     page.value = 1
     query.value = {
       componentName: str(values.componentName),
-      kindCode: str(values.kindCode),
+      kindCode: kindCode.value,
       statusFlag: str(values.statusFlag),
     }
   }
 
   function onReset() {
     page.value = 1
-    query.value = { componentName: '', kindCode: '', statusFlag: '' }
+    query.value = { componentName: '', kindCode: kindCode.value, statusFlag: '' }
   }
 
+  watch(visibleKinds, (list) => {
+    if (!list.some((item) => item.kindCode === kindCode.value)) {
+      kindCode.value = list[0]?.kindCode ?? ''
+    }
+  })
+
+  watch(kindCode, (value) => {
+    viewing.value = false
+    if (active.value && active.value.kindCode !== value) active.value = null
+    page.value = 1
+    query.value = { ...query.value, kindCode: value }
+  })
+
   watch([page, pageSize, query], () => {
+    if (!query.value.kindCode) return
     void reload()
   })
 
   onMounted(() => {
     void loadKinds()
-    void reload()
   })
 
   return {
@@ -317,6 +336,8 @@ export function useComponentCatalog() {
     total,
     pageRows,
     kinds,
+    kindCode,
+    visibleKinds,
     kindOptions,
     searchFields,
     formFields,

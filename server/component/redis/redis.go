@@ -1,4 +1,4 @@
-// Package redis 用 RESP 读取 INFO，并写入 FG_REDIS_METRIC。
+// Package redis 用 RESP 读取 INFO，并写入 FG_COMPONENT_REDIS_METRIC。
 package redis
 
 import (
@@ -21,6 +21,7 @@ import (
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
 	"fluxguard/server/component/netx"
+	"fluxguard/server/component/pane"
 	"fluxguard/server/component/profile"
 	"fluxguard/server/component/row"
 	"fluxguard/server/component/runtime"
@@ -80,8 +81,9 @@ type DbStat struct {
 	Expires int64  `json:"expires"`
 }
 
-// SlowOp 是慢操作日志里的一条。
+// SlowOp 是慢操作日志里的一条。At 是 Redis 记录该命令的 Unix 秒。
 type SlowOp struct {
+	At      int64  `json:"at"`
 	Usec    int64  `json:"usec"`
 	Command string `json:"command"`
 }
@@ -97,7 +99,7 @@ func (probe) Probe(ctx context.Context, db *dbx.DB, target conn.Open) (models.St
 }
 
 func (probe) Series(ctx context.Context, db *dbx.DB, tenantID, componentID string, limit int) ([]models.Point, error) {
-	return series.Read(ctx, db, "FG_REDIS_METRIC", tenantID, componentID, catalog.Columns(catalog.Redis), limit, series.Span{})
+	return series.Read(ctx, db, "FG_COMPONENT_REDIS_METRIC", tenantID, componentID, catalog.Columns(catalog.Redis), limit, series.Span{})
 }
 
 func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
@@ -196,6 +198,7 @@ func clusterOn(raw net.Conn, auth, user, secret string) (Sample, models.Status, 
 	if err == nil {
 		parsed := ParseInfo(info)
 		copyUsage(&sample, parsed)
+		sample.DBs = fillDatabases(sample.DBs, 1)
 		readSlow(raw, &sample)
 	}
 	status := models.Status{
@@ -286,6 +289,7 @@ func infoAt(ctx context.Context, addr, auth, user, secret string) (Sample, model
 		return Sample{HitRate: -1}, models.Status{}, err
 	}
 	sample := ParseInfo(body)
+	sample.DBs = fillDatabases(sample.DBs, configuredDatabases(raw))
 	readSlow(raw, &sample)
 	return sample, models.Status{
 		Up: true, Version: sample.Version, Role: sample.Role,
@@ -473,6 +477,10 @@ func replicationOf(fields map[string]string, role string) (lag, link float64) {
 	if role == "slave" || role == "replica" {
 		switch fields["master_link_status"] {
 		case "up":
+			// 从节点 INFO 没有 lag 秒数，只有距上次收到主节点数据的秒数。字段缺失时不要当成 0 秒。
+			if _, ok := fields["master_last_io_seconds_ago"]; !ok {
+				return -1, 0
+			}
 			return atof(fields["master_last_io_seconds_ago"]), 0
 		case "down":
 			return -1, 1
@@ -562,11 +570,54 @@ func readSlow(raw net.Conn, sample *Sample) {
 	if n, err := command(raw, "SLOWLOG", "LEN"); err == nil {
 		sample.SlowlogLen = atoi(n)
 	}
-	value, err := commandAny(raw, "SLOWLOG", "GET", "8")
+	value, err := commandAny(raw, "SLOWLOG", "GET", "128")
 	if err != nil {
 		return
 	}
 	sample.Slow = ParseSlowlog(value)
+}
+
+// configuredDatabases 读 databases 配置。读不到时按 Redis 默认的 16 个库。
+func configuredDatabases(raw net.Conn) int {
+	fields, err := commandList(raw, "CONFIG", "GET", "databases")
+	if err != nil || len(fields) < 2 {
+		return 16
+	}
+	n := int(atoi(fields[1]))
+	if n < 1 {
+		return 16
+	}
+	if n > 256 {
+		return 256
+	}
+	return n
+}
+
+// fillDatabases 补齐 0 到 count-1。INFO 的 Keyspace 只列出有键的库。
+func fillDatabases(dbs []DbStat, count int) []DbStat {
+	if count < 1 {
+		count = 1
+	}
+	byIndex := map[int]DbStat{}
+	for _, item := range dbs {
+		n, ok := dbIndex(item.Name)
+		if !ok {
+			continue
+		}
+		byIndex[n] = item
+		if n+1 > count {
+			count = n + 1
+		}
+	}
+	out := make([]DbStat, 0, count)
+	for i := 0; i < count; i++ {
+		if item, ok := byIndex[i]; ok {
+			out = append(out, item)
+			continue
+		}
+		out = append(out, DbStat{Name: fmt.Sprintf("db%d", i)})
+	}
+	return out
 }
 
 func dbIndex(key string) (int, bool) {
@@ -606,7 +657,11 @@ func ParseSlowlog(value any) []SlowOp {
 				parts = append(parts, text)
 			}
 		}
-		out = append(out, SlowOp{Usec: atoi(fmt.Sprint(fields[2])), Command: cutRunes(strings.Join(parts, " "), 120)})
+		out = append(out, SlowOp{
+			At:      atoi(fmt.Sprint(fields[1])),
+			Usec:    atoi(fmt.Sprint(fields[2])),
+			Command: cutRunes(strings.Join(parts, " "), 120),
+		})
 	}
 	return out
 }
@@ -769,7 +824,7 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		args[key] = value
 	}
 	_, err := db.Exec(ctx, `
-		INSERT INTO FG_REDIS_METRIC (
+		INSERT INTO FG_COMPONENT_REDIS_METRIC (
 		  tenantId, pointId, componentId, upFlag, versionText, roleName, errorText, summaryText, observedTime,
 		  usedMemoryBytes, connectedClients, opsPerSec, hitRate, connectedSlaves, knownNodes, failSlots, uptimeSec,
 		  memFragmentation, keyCount, slowlogLen,
@@ -786,14 +841,17 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		  @keyspaceHits, @keyspaceMisses, @evictedKeys, @expiredKeys, @rejectedConnections, @extProperty,
 		  @addTime, @addWho, @editTime, @editWho, @oprSeqFlag, @currentVersion, @activeFlag, @noteText
 		)`, args)
-	return err
+	if err != nil {
+		return err
+	}
+	return pane.Touch(ctx, db, catalog.Redis, args)
 }
 
 func lastCounters(ctx context.Context, db *dbx.DB, tenantID, componentID string) (*prior, error) {
 	var hits, misses, evicted, expired, rejected, uptime, observed any
 	err := store.Scan(ctx, db, `
 		SELECT keyspaceHits, keyspaceMisses, evictedKeys, expiredKeys, rejectedConnections, uptimeSec, observedTime
-		FROM FG_REDIS_METRIC
+		FROM FG_COMPONENT_REDIS_METRIC
 		WHERE tenantId = @tenantId AND componentId = @componentId
 		ORDER BY observedTime DESC
 		LIMIT 1`, dbx.Args{"tenantId": tenantID, "componentId": componentID},

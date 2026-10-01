@@ -1,13 +1,7 @@
--- Nacos 采集记录。每次拨号只插入。
-CREATE TABLE IF NOT EXISTS FG_NACOS_METRIC (
+-- Nacos 当前值。每个连接一行，采集时覆盖。列表只读这张表，不扫 FG_COMPONENT_NACOS_METRIC。
+CREATE TABLE IF NOT EXISTS FG_COMPONENT_NACOS (
   tenantId TEXT NOT NULL,
-  pointId TEXT NOT NULL,
   componentId TEXT NOT NULL,
-  upFlag TEXT NOT NULL DEFAULT 'N',
-  versionText TEXT,
-  roleName TEXT,
-  errorText TEXT,
-  summaryText TEXT,
   observedTime TEXT NOT NULL,
   configCount REAL NOT NULL DEFAULT 0,
   serviceCount REAL NOT NULL DEFAULT 0,
@@ -25,7 +19,6 @@ CREATE TABLE IF NOT EXISTS FG_NACOS_METRIC (
   reserved3 TEXT,
   reserved4 TEXT,
   reserved5 TEXT,
-  PRIMARY KEY (tenantId, pointId)
+  PRIMARY KEY (tenantId, componentId)
 );
-CREATE INDEX IF NOT EXISTS IDX_FG_NACOS_METRIC_TIME ON FG_NACOS_METRIC(tenantId, componentId, observedTime);
-CREATE INDEX IF NOT EXISTS IDX_FG_NACOS_METRIC_ADD ON FG_NACOS_METRIC(tenantId, addTime);
+CREATE INDEX IF NOT EXISTS IDX_FG_COMPONENT_NACOS_ADD ON FG_COMPONENT_NACOS(tenantId, addTime);

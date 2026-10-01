@@ -1,5 +1,6 @@
 -- 登录鉴权按资源编码精确匹配，不会把 MODULE 自动展开成按钮。
--- 超级管理员获得全部有效资源。只读用户获得分组、模块，以及编码以 :search、:view 结尾的按钮。
+-- 超级管理员获得全部有效资源。只读用户获得分组、模块，编码以 :search、:view 结尾的按钮，以及组件监控的种类按钮。
+-- 打开终端（fg0002:shell、fg0007:shell）不给只读用户。
 CREATE TABLE IF NOT EXISTS FG_AUTH_ROLE_RESOURCE (
   roleResourceId TEXT NOT NULL,
   tenantId TEXT NOT NULL,
@@ -54,4 +55,5 @@ WHERE tenantId = 'default' AND activeFlag = 'Y' AND resourceStatus = 'Y'
     resourceType IN ('GROUP', 'MODULE')
     OR resourceCode LIKE '%:search'
     OR resourceCode LIKE '%:view'
+    OR resourceCode IN ('fg0007:redis', 'fg0007:mysql', 'fg0007:mongo', 'fg0007:kafka', 'fg0007:zk', 'fg0007:nacos')
   );

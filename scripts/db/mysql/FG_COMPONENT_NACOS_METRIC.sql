@@ -1,5 +1,7 @@
--- ZooKeeper 采集记录。每次拨号只插入。
-CREATE TABLE IF NOT EXISTS `FG_ZK_METRIC` (
+-- 已有旧表时改名。新库没有旧表，重复启动时忽略这次失败。
+ALTER TABLE `FG_NACOS_METRIC` RENAME TO `FG_COMPONENT_NACOS_METRIC`;
+-- Nacos 采集记录。每次拨号只插入。
+CREATE TABLE IF NOT EXISTS `FG_COMPONENT_NACOS_METRIC` (
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
   `pointId` VARCHAR(32) NOT NULL COMMENT '记录ID，联合主键',
   `componentId` VARCHAR(32) NOT NULL COMMENT '连接ID',
@@ -9,11 +11,8 @@ CREATE TABLE IF NOT EXISTS `FG_ZK_METRIC` (
   `errorText` VARCHAR(100) DEFAULT NULL COMMENT '失败说明',
   `summaryText` VARCHAR(100) DEFAULT NULL COMMENT '摘要',
   `observedTime` DATETIME NOT NULL COMMENT '观测时间',
-  `avgLatency` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '平均延迟，毫秒',
-  `outstandingRequests` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '堆积请求',
-  `znodeCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '节点数',
-  `followers` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '跟随者',
-  `watchCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT 'Watch 数',
+  `configCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '配置数',
+  `serviceCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '服务数',
   `addTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `addWho` VARCHAR(32) NOT NULL COMMENT '创建人ID',
   `editTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
@@ -29,6 +28,7 @@ CREATE TABLE IF NOT EXISTS `FG_ZK_METRIC` (
   `reserved4` VARCHAR(100) DEFAULT NULL COMMENT '预留字段4',
   `reserved5` VARCHAR(255) DEFAULT NULL COMMENT '预留字段5',
   PRIMARY KEY (`tenantId`, `pointId`),
-  KEY `IDX_FG_ZK_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
-  KEY `IDX_FG_ZK_METRIC_ADD` (`tenantId`, `addTime`)
-) ENGINE=InnoDB COMMENT='ZooKeeper采集记录表';
+  KEY `IDX_FG_COMPONENT_NACOS_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
+  KEY `IDX_FG_COMPONENT_NACOS_METRIC_ADD` (`tenantId`, `addTime`)
+) ENGINE=InnoDB COMMENT='Nacos采集记录表';
+UPDATE FG_COMPONENT_KIND SET metricTable = 'FG_COMPONENT_NACOS_METRIC' WHERE kindCode = 'nacos' AND metricTable = 'FG_NACOS_METRIC';

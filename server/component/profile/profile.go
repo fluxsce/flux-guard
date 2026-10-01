@@ -51,19 +51,26 @@ func Normalize(kind, option, user, secret, database string, creating bool) (Spec
 		}
 		return Spec{Option: "standalone:password", User: user, Database: database}, nil
 	case catalog.Kafka:
+		if deploy == "" {
+			deploy = "cluster"
+		}
+		if deploy != "cluster" && deploy != "tls" {
+			return Spec{}, fmt.Errorf("Kafka 传输应为明文或 TLS")
+		}
 		if auth == "" {
 			auth = "none"
 		}
-		if auth != "none" && auth != "plain" {
+		switch auth {
+		case "none":
+			return Spec{Option: deploy + ":none", ClearSecret: true}, nil
+		case "plain", "scram256", "scram512":
+			if user == "" || (creating && strings.TrimSpace(secret) == "") {
+				return Spec{}, fmt.Errorf("Kafka 认证需要用户名和口令")
+			}
+			return Spec{Option: deploy + ":" + auth, User: user}, nil
+		default:
 			return Spec{}, fmt.Errorf("不支持的 Kafka 认证方式")
 		}
-		if auth == "none" {
-			return Spec{Option: "cluster:none", ClearSecret: true}, nil
-		}
-		if user == "" || (creating && strings.TrimSpace(secret) == "") {
-			return Spec{}, fmt.Errorf("SASL PLAIN 需要用户名和口令")
-		}
-		return Spec{Option: "cluster:plain", User: user}, nil
 	case catalog.ZK:
 		return Spec{Option: "standalone:none", ClearSecret: true}, nil
 	case catalog.Nacos:

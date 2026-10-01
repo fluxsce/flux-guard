@@ -5,8 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"fluxguard/server/component/access"
-	"fluxguard/server/component/catalog"
 	"fluxguard/server/component/sched"
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/routes"
@@ -24,9 +22,8 @@ func init() {
 }
 
 // Init 挂载组件连接和采集曲线，并启动直连采集循环。
+// 菜单、种类和页签的初始行在 scripts/db，启动时不再补。
 func Init(router *gin.Engine, db *dbx.DB) {
-	_ = catalog.Ensure(context.Background(), db)
-	_ = access.EnsureMenu(context.Background(), db)
 	routes.RegisterLoop(func(ctx context.Context) {
 		sched.Loop(ctx, db)
 	})

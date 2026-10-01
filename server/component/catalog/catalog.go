@@ -17,6 +17,7 @@ type Kind struct {
 	KindName    string
 	DefaultPort int
 	MetricTable string
+	PaneTable   string
 	SortOrder   int
 	NoteText    string
 	Metrics     []Metric
@@ -33,7 +34,7 @@ type Metric struct {
 func All() []Kind {
 	return []Kind{
 		{
-			KindCode: Redis, KindName: "Redis", DefaultPort: 6379, MetricTable: "FG_REDIS_METRIC", SortOrder: 10,
+			KindCode: Redis, KindName: "Redis", DefaultPort: 6379, MetricTable: "FG_COMPONENT_REDIS_METRIC", PaneTable: "FG_COMPONENT_REDIS", SortOrder: 10,
 			NoteText: "单机、哨兵或集群。认证可以不填、只填口令，或使用 ACL 用户名。",
 			Metrics: []Metric{
 				{"usedMemoryBytes", "已用内存", "byte"},
@@ -63,7 +64,7 @@ func All() []Kind {
 			},
 		},
 		{
-			KindCode: MySQL, KindName: "MySQL", DefaultPort: 3306, MetricTable: "FG_MYSQL_METRIC", SortOrder: 20,
+			KindCode: MySQL, KindName: "MySQL", DefaultPort: 3306, MetricTable: "FG_COMPONENT_MYSQL_METRIC", PaneTable: "FG_COMPONENT_MYSQL", SortOrder: 20,
 			NoteText: "只读账号即可。库名可空。复制延迟看 Seconds_Behind_Source。",
 			Metrics: []Metric{
 				{"threadsConnected", "连接数", ""},
@@ -76,7 +77,7 @@ func All() []Kind {
 			},
 		},
 		{
-			KindCode: Mongo, KindName: "MongoDB", DefaultPort: 27017, MetricTable: "FG_MONGO_METRIC", SortOrder: 30,
+			KindCode: Mongo, KindName: "MongoDB", DefaultPort: 27017, MetricTable: "FG_COMPONENT_MONGO_METRIC", PaneTable: "FG_COMPONENT_MONGO", SortOrder: 30,
 			NoteText: "当前拨号不走 SCRAM。需要口令的实例会记为连不上。",
 			Metrics: []Metric{
 				{"connectionsCurrent", "当前连接", ""},
@@ -88,19 +89,26 @@ func All() []Kind {
 			},
 		},
 		{
-			KindCode: Kafka, KindName: "Kafka", DefaultPort: 9092, MetricTable: "FG_KAFKA_METRIC", SortOrder: 40,
-			NoteText: "地址可写多个 broker，逗号分隔。填写用户名时按 PLAIN 认证。",
+			KindCode: Kafka, KindName: "Kafka", DefaultPort: 9092, MetricTable: "FG_COMPONENT_KAFKA_METRIC", PaneTable: "FG_COMPONENT_KAFKA", SortOrder: 40,
+			NoteText: "地址可写多个 broker，逗号分隔。传输可选明文或 TLS。认证可以不填，或使用 SASL PLAIN、SCRAM-SHA-256、SCRAM-SHA-512。",
 			Metrics: []Metric{
 				{"brokerCount", "Broker 数", ""},
+				{"onlineBrokers", "可达 Broker", ""},
+				{"offlineBrokers", "不可达 Broker", ""},
 				{"offlinePartitions", "离线分区", ""},
 				{"underReplicated", "未同步分区", ""},
+				{"preferredReplicas", "首选副本偏离", ""},
+				{"underMinIsr", "低于最小 ISR", ""},
 				{"topicCount", "Topic 数", ""},
 				{"groupCount", "消费组数", ""},
-				{"maxLag", "最大消费延迟", ""},
+				{"rebalanceGroups", "再均衡", ""},
+				{"maxLag", "最大分区延迟", ""},
+				{"totalLag", "总延迟", ""},
+				{"logBytes", "日志占用", "byte"},
 			},
 		},
 		{
-			KindCode: ZK, KindName: "ZooKeeper", DefaultPort: 2181, MetricTable: "FG_ZK_METRIC", SortOrder: 50,
+			KindCode: ZK, KindName: "ZooKeeper", DefaultPort: 2181, MetricTable: "FG_COMPONENT_ZK_METRIC", PaneTable: "FG_COMPONENT_ZK", SortOrder: 50,
 			NoteText: "使用四字命令 mntr，服务端需要打开这项。",
 			Metrics: []Metric{
 				{"avgLatency", "平均延迟", "ms"},
@@ -111,7 +119,7 @@ func All() []Kind {
 			},
 		},
 		{
-			KindCode: Nacos, KindName: "Nacos", DefaultPort: 8848, MetricTable: "FG_NACOS_METRIC", SortOrder: 60,
+			KindCode: Nacos, KindName: "Nacos", DefaultPort: 8848, MetricTable: "FG_COMPONENT_NACOS_METRIC", PaneTable: "FG_COMPONENT_NACOS", SortOrder: 60,
 			NoteText: "地址填 host:port 或 http 地址。有用户名时先登录再看健康检查。",
 			Metrics: []Metric{
 				{"configCount", "配置数", ""},

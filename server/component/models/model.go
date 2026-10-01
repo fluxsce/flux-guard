@@ -10,6 +10,17 @@ type Metric struct {
 	Unit string `json:"unit,omitempty"`
 }
 
+// Panel 是一种组件详情里的一页。终端页按种类分开，列表当前值来自 ListFlag 为 Y 的指标。
+type Panel struct {
+	PanelCode    string   `json:"panelCode"`
+	PanelName    string   `json:"panelName"`
+	SortOrder    int      `json:"sortOrder"`
+	TerminalFlag string   `json:"terminalFlag"`
+	ListFlag     string   `json:"listFlag"`
+	Metrics      []string `json:"metrics,omitempty"`
+	Sections     []string `json:"sections,omitempty"`
+}
+
 // Kind 是一种可直连的组件。
 type Kind struct {
 	KindCode    string   `json:"kindCode"`
@@ -19,6 +30,7 @@ type Kind struct {
 	SortOrder   int      `json:"sortOrder"`
 	NoteText    string   `json:"noteText,omitempty"`
 	Metrics     []Metric `json:"metrics"`
+	Panels      []Panel  `json:"panels"`
 }
 
 // Input 是保存连接的请求。Secret 留空表示修改时不更换口令。
@@ -38,26 +50,27 @@ type Input struct {
 
 // Conn 是一条连接的查询结果。SecretSet 表示是否已保存口令。
 type Conn struct {
-	ComponentID   string `json:"componentId"`
-	KindCode      string `json:"kindCode"`
-	KindName      string `json:"kindName"`
-	ComponentName string `json:"componentName"`
-	Address       string `json:"address"`
-	UserName      string `json:"userName"`
-	SecretSet     string `json:"secretSet"`
-	DatabaseName  string `json:"databaseName"`
-	OptionText    string `json:"optionText"`
-	IntervalSec   int    `json:"intervalSec"`
-	StatusFlag    string `json:"statusFlag"`
-	UpFlag        string `json:"upFlag"`
-	VersionText   string `json:"versionText"`
-	RoleName      string `json:"roleName"`
-	ErrorText     string `json:"errorText"`
-	SummaryText   string `json:"summaryText"`
-	ProbedTime    string `json:"probedTime"`
-	NoteText      string `json:"noteText"`
-	AddTime       string `json:"addTime"`
-	EditTime      string `json:"editTime"`
+	ComponentID   string             `json:"componentId"`
+	KindCode      string             `json:"kindCode"`
+	KindName      string             `json:"kindName"`
+	ComponentName string             `json:"componentName"`
+	Address       string             `json:"address"`
+	UserName      string             `json:"userName"`
+	SecretSet     string             `json:"secretSet"`
+	DatabaseName  string             `json:"databaseName"`
+	OptionText    string             `json:"optionText"`
+	IntervalSec   int                `json:"intervalSec"`
+	StatusFlag    string             `json:"statusFlag"`
+	UpFlag        string             `json:"upFlag"`
+	VersionText   string             `json:"versionText"`
+	RoleName      string             `json:"roleName"`
+	ErrorText     string             `json:"errorText"`
+	SummaryText   string             `json:"summaryText"`
+	ProbedTime    string             `json:"probedTime"`
+	NoteText      string             `json:"noteText"`
+	AddTime       string             `json:"addTime"`
+	EditTime      string             `json:"editTime"`
+	Headlines     map[string]float64 `json:"headlines,omitempty"`
 }
 
 // IDInput 指定一条连接。

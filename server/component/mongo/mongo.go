@@ -1,4 +1,4 @@
-// Package mongo 用 OP_MSG 读取 serverStatus，并写入 FG_MONGO_METRIC。
+// Package mongo 用 OP_MSG 读取 serverStatus，并写入 FG_COMPONENT_MONGO_METRIC。
 // 需要口令的实例当前记为连不上，不实现 SCRAM。
 package mongo
 
@@ -16,6 +16,7 @@ import (
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
 	"fluxguard/server/component/netx"
+	"fluxguard/server/component/pane"
 	"fluxguard/server/component/row"
 	"fluxguard/server/component/runtime"
 	"fluxguard/server/component/series"
@@ -52,7 +53,7 @@ func (probe) Probe(ctx context.Context, db *dbx.DB, target conn.Open) (models.St
 }
 
 func (probe) Series(ctx context.Context, db *dbx.DB, tenantID, componentID string, limit int) ([]models.Point, error) {
-	return series.Read(ctx, db, "FG_MONGO_METRIC", tenantID, componentID, catalog.Columns(catalog.Mongo), limit, series.Span{})
+	return series.Read(ctx, db, "FG_COMPONENT_MONGO_METRIC", tenantID, componentID, catalog.Columns(catalog.Mongo), limit, series.Span{})
 }
 
 func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
@@ -333,7 +334,7 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		args[key] = value
 	}
 	_, err := db.Exec(ctx, `
-		INSERT INTO FG_MONGO_METRIC (
+		INSERT INTO FG_COMPONENT_MONGO_METRIC (
 		  tenantId, pointId, componentId, upFlag, versionText, roleName, errorText, summaryText, observedTime,
 		  connectionsCurrent, connectionsAvailable, opInsert, opQuery, opUpdate, opDelete,
 		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag, noteText
@@ -342,5 +343,8 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 		  @connectionsCurrent, @connectionsAvailable, @opInsert, @opQuery, @opUpdate, @opDelete,
 		  @addTime, @addWho, @editTime, @editWho, @oprSeqFlag, @currentVersion, @activeFlag, @noteText
 		)`, args)
-	return err
+	if err != nil {
+		return err
+	}
+	return pane.Touch(ctx, db, catalog.Mongo, args)
 }

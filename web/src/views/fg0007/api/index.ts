@@ -11,6 +11,16 @@ export interface MetricDef {
   unit?: string
 }
 
+export interface Panel {
+  panelCode: string
+  panelName: string
+  sortOrder: number
+  terminalFlag: string
+  listFlag: string
+  metrics?: string[]
+  sections?: string[]
+}
+
 export interface Kind {
   kindCode: string
   kindName: string
@@ -19,6 +29,7 @@ export interface Kind {
   sortOrder: number
   noteText?: string
   metrics: MetricDef[]
+  panels?: Panel[]
 }
 
 export interface ComponentConn {
@@ -42,6 +53,7 @@ export interface ComponentConn {
   noteText: string
   addTime: string
   editTime: string
+  headlines?: Record<string, number>
 }
 
 export interface ComponentInput {
@@ -65,8 +77,18 @@ export interface RedisDb {
 }
 
 export interface RedisSlow {
+  at: number
   usec: number
   command: string
+}
+
+export interface KafkaBrokerRow {
+  id: number
+  host: string
+  port: number
+  controller: boolean
+  up: boolean
+  logBytes?: number
 }
 
 export interface KafkaTopicRow {
@@ -74,20 +96,34 @@ export interface KafkaTopicRow {
   partitions: number
   offline: number
   under: number
+  skew?: number
+  replicas?: number
+  replicaMax?: number
+  belowMin?: number
+  internal?: boolean
 }
 
 export interface KafkaGroupRow {
   name: string
   lag: number
+  maxLag?: number
+  part?: number
   topic: string
+  topicCount?: number
+  state?: string
+  members?: number
 }
 
 export interface PointDetail {
   dbs?: RedisDb[]
   slow?: RedisSlow[]
+  clusterId?: string
+  brokers?: KafkaBrokerRow[]
   topics?: KafkaTopicRow[]
   groups?: KafkaGroupRow[]
   groupNote?: string
+  topicNote?: string
+  brokerNote?: string
 }
 
 export interface Point {

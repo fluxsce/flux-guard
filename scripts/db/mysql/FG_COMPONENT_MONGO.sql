@@ -1,16 +1,10 @@
--- Nacos 采集记录。每次拨号只插入。
-CREATE TABLE IF NOT EXISTS `FG_NACOS_METRIC` (
+-- MongoDB 当前值。每个连接一行，采集时覆盖。列表只读这张表，不扫 FG_COMPONENT_MONGO_METRIC。
+CREATE TABLE IF NOT EXISTS `FG_COMPONENT_MONGO` (
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
-  `pointId` VARCHAR(32) NOT NULL COMMENT '记录ID，联合主键',
-  `componentId` VARCHAR(32) NOT NULL COMMENT '连接ID',
-  `upFlag` VARCHAR(1) NOT NULL DEFAULT 'N' COMMENT '连通标记(Y连通,N不通)',
-  `versionText` VARCHAR(64) DEFAULT NULL COMMENT '版本',
-  `roleName` VARCHAR(32) DEFAULT NULL COMMENT '角色',
-  `errorText` VARCHAR(100) DEFAULT NULL COMMENT '失败说明',
-  `summaryText` VARCHAR(100) DEFAULT NULL COMMENT '摘要',
-  `observedTime` DATETIME NOT NULL COMMENT '观测时间',
-  `configCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '配置数',
-  `serviceCount` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '服务数',
+  `componentId` VARCHAR(32) NOT NULL COMMENT '连接ID，联合主键',
+  `observedTime` DATETIME NOT NULL COMMENT '最近观测时间',
+  `connectionsCurrent` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '当前连接',
+  `opQuery` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计查询',
   `addTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `addWho` VARCHAR(32) NOT NULL COMMENT '创建人ID',
   `editTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
@@ -25,7 +19,6 @@ CREATE TABLE IF NOT EXISTS `FG_NACOS_METRIC` (
   `reserved3` VARCHAR(100) DEFAULT NULL COMMENT '预留字段3',
   `reserved4` VARCHAR(100) DEFAULT NULL COMMENT '预留字段4',
   `reserved5` VARCHAR(255) DEFAULT NULL COMMENT '预留字段5',
-  PRIMARY KEY (`tenantId`, `pointId`),
-  KEY `IDX_FG_NACOS_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
-  KEY `IDX_FG_NACOS_METRIC_ADD` (`tenantId`, `addTime`)
-) ENGINE=InnoDB COMMENT='Nacos采集记录表';
+  PRIMARY KEY (`tenantId`, `componentId`),
+  KEY `IDX_FG_COMPONENT_MONGO_ADD` (`tenantId`, `addTime`)
+) ENGINE=InnoDB COMMENT='MongoDB 当前值表';

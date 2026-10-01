@@ -61,7 +61,21 @@ function pointValue(metric: MetricDef, point: Point) {
   const value = point.values?.[metric.code]
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   if (value < 0) return null
+  if (metric.code === 'maxMemoryBytes' && value === 0) return null
   return value
+}
+
+function percentCeiling(metrics: MetricDef[], points: Point[]) {
+  let peak = 100
+  for (const metric of metrics) {
+    if (metric.unit !== '%') continue
+    for (const point of points) {
+      const value = pointValue(metric, point)
+      if (value != null && value > peak) peak = value
+    }
+  }
+  if (peak <= 100) return 100
+  return Math.ceil(peak / 10) * 10
 }
 
 function seriesName(metric: MetricDef) {
@@ -88,7 +102,7 @@ export function seriesOption(metrics: MetricDef[], points: Point[]): ChartOption
   const percentAxis = {
     type: 'value' as const,
     min: 0,
-    max: 100,
+    max: percentCeiling(metrics, points),
     axisLabel: { ...axisText, formatter: (value: number) => `${value}%` },
     splitLine: { show: false },
   }

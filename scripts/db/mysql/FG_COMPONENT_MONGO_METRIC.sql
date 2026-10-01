@@ -1,5 +1,7 @@
--- MySQL 采集记录。每次拨号只插入。
-CREATE TABLE IF NOT EXISTS `FG_MYSQL_METRIC` (
+-- 已有旧表时改名。新库没有旧表，重复启动时忽略这次失败。
+ALTER TABLE `FG_MONGO_METRIC` RENAME TO `FG_COMPONENT_MONGO_METRIC`;
+-- MongoDB 采集记录。每次拨号只插入。
+CREATE TABLE IF NOT EXISTS `FG_COMPONENT_MONGO_METRIC` (
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
   `pointId` VARCHAR(32) NOT NULL COMMENT '记录ID，联合主键',
   `componentId` VARCHAR(32) NOT NULL COMMENT '连接ID',
@@ -9,13 +11,12 @@ CREATE TABLE IF NOT EXISTS `FG_MYSQL_METRIC` (
   `errorText` VARCHAR(100) DEFAULT NULL COMMENT '失败说明',
   `summaryText` VARCHAR(100) DEFAULT NULL COMMENT '摘要',
   `observedTime` DATETIME NOT NULL COMMENT '观测时间',
-  `threadsConnected` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '连接数',
-  `threadsRunning` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '活跃线程',
-  `questions` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计查询',
-  `slowQueries` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计慢查询',
-  `bufferPoolHitRate` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '缓冲池命中率，百分比',
-  `replicaLagSec` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '复制延迟，秒',
-  `uptimeSec` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '运行秒数',
+  `connectionsCurrent` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '当前连接',
+  `connectionsAvailable` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '可用连接',
+  `opInsert` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计插入',
+  `opQuery` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计查询',
+  `opUpdate` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计更新',
+  `opDelete` DECIMAL(20, 3) NOT NULL DEFAULT 0 COMMENT '累计删除',
   `addTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `addWho` VARCHAR(32) NOT NULL COMMENT '创建人ID',
   `editTime` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间',
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS `FG_MYSQL_METRIC` (
   `reserved4` VARCHAR(100) DEFAULT NULL COMMENT '预留字段4',
   `reserved5` VARCHAR(255) DEFAULT NULL COMMENT '预留字段5',
   PRIMARY KEY (`tenantId`, `pointId`),
-  KEY `IDX_FG_MYSQL_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
-  KEY `IDX_FG_MYSQL_METRIC_ADD` (`tenantId`, `addTime`)
-) ENGINE=InnoDB COMMENT='MySQL采集记录表';
+  KEY `IDX_FG_COMPONENT_MONGO_METRIC_TIME` (`tenantId`, `componentId`, `observedTime`),
+  KEY `IDX_FG_COMPONENT_MONGO_METRIC_ADD` (`tenantId`, `addTime`)
+) ENGINE=InnoDB COMMENT='MongoDB采集记录表';
+UPDATE FG_COMPONENT_KIND SET metricTable = 'FG_COMPONENT_MONGO_METRIC' WHERE kindCode = 'mongo' AND metricTable = 'FG_MONGO_METRIC';

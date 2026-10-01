@@ -245,7 +245,7 @@ server/web/views/fg0002     代理
 server/web/views/fg0003     扩展目录
 server/web/views/fg0005     主机列表（当前值）、曲线和主机预警规则
 server/web/views/fg0006     Java 应用列表（当前值）和历史曲线
-server/web/views/fg0007     组件监控：连接、当前值和曲线
+server/web/views/fg0007     组件监控：按种类列出实例，详情按页签看当前值和曲线
 server/web/views/fg0021     用户（0021–0040 系统管理）
 server/web/views/fg0022     角色
 server/web/views/fg0023     资源
@@ -269,7 +269,7 @@ server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_
 3. 在权限种子里加上对应的模块和按钮码。
 4. 控制台建 `web/src/views/fg00xx`（页面和 `api`），并在 `web/src/router` 挂上。接口用 `createApi(moduleApiPrefix('fg00xx'))`，前缀与后端模块目录同名。模块工具写在该目录的 `ai.ts`，并由 `web/src/ai/modules.ts` 引入。页面 setup 调用 `useModuleAi`，只上报当前场景。
 
-代理上报留在 `POST /fluxguard/api/ingest/v1/batches`，实现在 `server/web/ingest`，不进某个视图模块号。任何语言的代理都只依赖这条契约。每次上报只更新 `FG_AGENT`、`FG_AGENT_HOST`、`FG_AGENT_JAVA`。主机 CPU、内存、磁盘容量、磁盘 IO、网卡、TCP/UDP 连接、文件句柄、进程汇总和占用靠前的进程各插入记录表。Java 堆、GC、线程各插入记录表。fg0005 列表读最新一批，点进一行看当前分类和曲线，主机规则也在这一页。fg0006 同样读 Java 当前值和曲线。fg0007 维护 Redis、MySQL、MongoDB、Kafka、ZooKeeper、Nacos 的连接，由中央服务按间隔拨号，每种组件写入自己的采集表，列表显示最近一次连通情况。预警是 fg0041 模板、fg0042 渠道、fg0043 事件。系统操作日志在 fg0051，读 `FG_AUTH_AUDIT_LOG`。代理操作日志在 fg0052，读 `FG_COMMAND` 与 `FG_SHELL_AUDIT`。
+代理上报留在 `POST /fluxguard/api/ingest/v1/batches`，实现在 `server/web/ingest`，不进某个视图模块号。任何语言的代理都只依赖这条契约。每次上报只更新 `FG_AGENT`、`FG_AGENT_HOST`、`FG_AGENT_JAVA`。主机 CPU、内存、磁盘容量、磁盘 IO、网卡、TCP/UDP 连接、文件句柄、进程汇总和占用靠前的进程各插入记录表。Java 堆、GC、线程各插入记录表。fg0005 列表读最新一批，点进一行看当前分类和曲线，主机规则也在这一页。fg0006 同样读 Java 当前值和曲线。fg0007 维护 Redis、MySQL、MongoDB、Kafka、ZooKeeper、Nacos 的连接，由中央服务按间隔拨号。曲线写入 `FG_COMPONENT_REDIS_METRIC` 这一类采集表。列表要看的当前值覆盖到 `FG_COMPONENT_REDIS` 这一类当前值表，每个连接一行，字段不超过 32 列。列表只查这张表。控制台左侧按种类进入，实例表直接显示这一类的当前值。详情页签记在 `FG_COMPONENT_PANEL`，代码在 `server/component/panel`，按种类分开；终端页用按钮 `fg0007:shell`，每种组件以后接自己的终端。种类按钮是 `fg0007:redis` 这一类编码。预警是 fg0041 模板、fg0042 渠道、fg0043 事件。系统操作日志在 fg0051，读 `FG_AUTH_AUDIT_LOG`。代理操作日志在 fg0052，读 `FG_COMMAND` 与 `FG_SHELL_AUDIT`。
 
 ## 控制台 AI 接入
 
@@ -292,7 +292,7 @@ server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_
 - 每张表有 `(tenantId, addTime)` 索引，供按租户和创建时间归档。审计表沿用 `IDX_FG_AUDIT_TIME`。
 - 新表预留列只到 `reserved5`，宽度用 64、100、255 分档。
 
-不设部门。用户通过 `FG_AUTH_USER_ROLE` 归到角色，角色通过 `FG_AUTH_ROLE_RESOURCE` 获得资源。资源四层是 `GROUP`、`MODULE`、`BUTTON`、`API`。程序按 `resourceCode` 鉴权，不会把模块自动展开成按钮，超级管理员也不例外。新库的初始授权在 `FG_AUTH_ROLE_RESOURCE.sql`：超级管理员拿到当时全部有效资源，只读角色拿到分组、模块，以及编码以 `:view` 结尾的按钮。之后的增删都在角色页完成，启动时不会把授权重新灌回去。
+不设部门。用户通过 `FG_AUTH_USER_ROLE` 归到角色，角色通过 `FG_AUTH_ROLE_RESOURCE` 获得资源。资源四层是 `GROUP`、`MODULE`、`BUTTON`、`API`。程序按 `resourceCode` 鉴权，不会把模块自动展开成按钮，超级管理员也不例外。新库的初始授权在 `FG_AUTH_ROLE_RESOURCE.sql`：超级管理员拿到当时全部有效资源，只读角色拿到分组、模块，编码以 `:search`、`:view` 结尾的按钮，以及组件监控的种类按钮（`fg0007:redis` 这一类）。打开终端不给只读角色。之后的增删都在角色页完成。组件监控的按钮写在 `FG_AUTH_RESOURCE.sql`，种类和页签的初始行写在 `FG_COMPONENT_KIND.sql`、`FG_COMPONENT_PANEL.sql`。启动时不再补这些行。
 
 数据权限表保留 `scopeValue`。`filterCondition` 只是对齐 gateway 的保留列，应用不能把它拼进 SQL。
 

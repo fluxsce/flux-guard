@@ -1,15 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RsCard, RsEmpty, RsTable, type RsTableColumn } from '@/ui'
-import MetricChart from './MetricChart.vue'
-import MetricSections from './MetricSections.vue'
-import type { Board } from '../composables/boards'
-import { seriesOption } from '../composables/charts'
-import type { Point, PointDetail, RedisDb, RedisSlow } from '../api'
+import { RsCard, RsTable, RsTooltip, type RsTableColumn } from '@/ui'
+import type { PointDetail, RedisDb, RedisSlow } from '../api'
 
 const props = defineProps<{
-  board: Board
-  points: Point[]
+  panelCode: string
   detail: PointDetail
 }>()
 
@@ -18,12 +13,28 @@ function ms(usec: number) {
   return `${usec} μs`
 }
 
-const slowRows = computed(() => (props.detail.slow ?? []).map((item, index) => ({ ...item, id: String(index) })))
+function when(sec: number) {
+  if (!Number.isFinite(sec) || sec <= 0) return '—'
+  const date = new Date(sec * 1000)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 
-const trends = computed(() =>
-  props.board.sections
-    .filter((section) => section.metrics.length > 0)
-    .map((section) => ({ title: section.title, option: seriesOption(section.metrics, props.points) })),
+function kindOf(command: string) {
+  const word = command.trim().split(/\s+/, 1)[0]
+  return word ? word.toUpperCase() : '—'
+}
+
+type SlowRow = RedisSlow & { id: string; atText: string; kind: string }
+
+const slowRows = computed<SlowRow[]>(() =>
+  (props.detail.slow ?? []).map((item, index) => ({
+    ...item,
+    id: String(index),
+    atText: when(item.at),
+    kind: kindOf(item.command),
+  })),
 )
 
 const dbColumns: RsTableColumn<RedisDb>[] = [
@@ -32,100 +43,83 @@ const dbColumns: RsTableColumn<RedisDb>[] = [
   { key: 'expires', title: '将过期', dataIndex: 'expires', align: 'right' },
 ]
 
-const slowColumns: RsTableColumn<RedisSlow & { id: string }>[] = [
+const slowColumns: RsTableColumn<SlowRow>[] = [
+  { key: 'atText', title: '时间', dataIndex: 'atText', width: 168 },
+  { key: 'kind', title: '类型', dataIndex: 'kind', width: 96 },
   { key: 'usec', title: '耗时', dataIndex: 'usec', width: 96 },
-  { key: 'command', title: '命令', dataIndex: 'command', ellipsis: true },
+  { key: 'command', title: '命令', dataIndex: 'command' },
 ]
-
-function tableHeight(rows: number) {
-  return Math.min(280, 36 + Math.max(rows, 1) * 34 + 2)
-}
 </script>
 
 <template>
-  <div class="fg-redis">
-    <MetricSections :sections="board.sections" :points="points" :charts="false" />
-    <h3 class="fg-section">趋势</h3>
-    <RsEmpty v-if="trends.length === 0 || !points.length" title="还没有趋势数据" />
-    <section v-else class="fg-charts">
-      <article v-for="chart in trends" :key="chart.title" class="fg-chart-panel">
-        <h4>{{ chart.title }}</h4>
-        <MetricChart :option="chart.option" height="240px" />
-      </article>
-    </section>
-    <div class="fg-tables">
-    <RsCard title="各库键数量" size="sm" :padding="false">
-      <p v-if="!detail.dbs?.length" class="fg-note">还没有各库键数量。INFO 的 Keyspace 段为空时，这里也是空的。</p>
-      <RsTable
-        v-else
-        :columns="dbColumns"
-        :data="detail.dbs"
-        row-key="name"
-        size="sm"
-        cell-focus="none"
-        null-label="—"
-        :rounded="false"
-        :context-menu="false"
-        :height="tableHeight(detail.dbs.length)"
-      />
-    </RsCard>
-    <RsCard title="最近慢操作" size="sm" :padding="false">
-      <p v-if="!slowRows.length" class="fg-note">慢操作日志是空的，或实例没有打开 SLOWLOG。</p>
-      <RsTable
-        v-else
-        :columns="slowColumns"
-        :data="slowRows"
-        row-key="id"
-        size="sm"
-        cell-focus="none"
-        null-label="—"
-        :rounded="false"
-        :context-menu="false"
-        :height="tableHeight(slowRows.length)"
-      >
-        <template #usec="{ row }">
-          <span :data-level="(row as RedisSlow).usec >= 100000 ? 'alert' : 'watch'">{{ ms((row as RedisSlow).usec) }}</span>
-        </template>
-      </RsTable>
-    </RsCard>
-    </div>
-  </div>
+  <RsCard v-if="panelCode === 'keys'" class="fg-monitor" title="各库键数量" size="sm" :padding="false">
+    <template #actions>
+      <RsTooltip icon content="按实例配置列出每个库。没有键的库也显示，数量是 0。集群只有 db0。" aria-label="各库键数量说明" />
+    </template>
+    <p v-if="!detail.dbs?.length" class="fg-note">还没有各库键数量。INFO 的 Keyspace 段为空时，这里也是空的。</p>
+    <RsTable
+      v-else
+      :columns="dbColumns"
+      :data="detail.dbs"
+      row-key="name"
+      size="sm"
+      cell-focus="none"
+      null-label="—"
+      :rounded="false"
+      :virtual="false"
+      :context-menu="false"
+    >
+      <template #header-expires>
+        <RsTooltip icon content="这个库里设了过期时间、还没到期的键。">将过期</RsTooltip>
+      </template>
+    </RsTable>
+  </RsCard>
+  <RsCard v-else-if="panelCode === 'slow'" class="fg-monitor" title="最近慢操作" size="sm" :padding="false">
+    <template #actions>
+      <RsTooltip icon content="来自 SLOWLOG，最多列出最近 128 条。耗时达到 100 毫秒会标红。" aria-label="最近慢操作说明" />
+    </template>
+    <p v-if="!slowRows.length" class="fg-note">慢操作日志是空的，或实例没有打开 SLOWLOG。</p>
+    <RsTable
+      v-else
+      :columns="slowColumns"
+      :data="slowRows"
+      row-key="id"
+      size="sm"
+      cell-focus="none"
+      null-label="—"
+      :rounded="false"
+      :virtual="false"
+      :context-menu="false"
+    >
+      <template #header-kind>
+        <RsTooltip icon content="命令名，例如 KEYS、HGETALL。">类型</RsTooltip>
+      </template>
+      <template #header-usec>
+        <RsTooltip icon content="这条命令执行用了多久。">耗时</RsTooltip>
+      </template>
+      <template #usec="{ row }">
+        <span :data-level="(row as SlowRow).usec >= 100000 ? 'alert' : 'watch'">{{ ms((row as SlowRow).usec) }}</span>
+      </template>
+      <template #command="{ row }">
+        <span class="fg-command">{{ (row as SlowRow).command || '—' }}</span>
+      </template>
+    </RsTable>
+  </RsCard>
 </template>
 
 <style scoped>
-.fg-redis {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.fg-monitor {
+  flex: none;
+  align-self: stretch;
 }
-.fg-section {
-  margin: 6px 0 0;
-  font-size: 13px;
-  font-weight: 600;
+.fg-monitor :deep(.rs-table),
+.fg-monitor :deep(.rs-table-shell) {
+  height: auto;
+  max-height: none;
+  overflow: visible;
 }
-.fg-charts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.fg-chart-panel {
-  min-width: 0;
-  padding: 8px 10px 4px;
-  border: 1px solid var(--fg-panel-border, var(--rs-border));
-  background: var(--rs-surface-elevated, var(--rs-surface));
-  box-shadow: var(--fg-panel-shadow);
-}
-.fg-chart-panel h4 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--rs-text-secondary);
-}
-.fg-tables {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: start;
+.fg-monitor :deep(.rs-table--content-visibility .rs-table__row) {
+  content-visibility: visible;
 }
 .fg-note {
   margin: 0;
@@ -133,16 +127,14 @@ function tableHeight(rows: number) {
   color: var(--rs-text-secondary, #4d647c);
   font-size: 13px;
 }
+.fg-command {
+  white-space: normal;
+  word-break: break-all;
+}
 span[data-level='alert'] {
   color: #e23b55;
 }
 span[data-level='watch'] {
   color: #c49212;
-}
-@media (max-width: 960px) {
-  .fg-charts,
-  .fg-tables {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

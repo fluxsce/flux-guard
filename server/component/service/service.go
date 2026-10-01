@@ -9,6 +9,8 @@ import (
 	"fluxguard/server/component/catalog"
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
+	"fluxguard/server/component/pane"
+	"fluxguard/server/component/panel"
 	"fluxguard/server/component/row"
 	"fluxguard/server/component/runtime"
 	"fluxguard/server/component/series"
@@ -36,6 +38,19 @@ func Catalog() []models.Kind {
 		for _, metric := range item.Metrics {
 			kind.Metrics = append(kind.Metrics, models.Metric{Code: metric.Code, Name: metric.Name, Unit: metric.Unit})
 		}
+		for _, item := range panel.Of(kind.KindCode) {
+			view := models.Panel{
+				PanelCode: item.PanelCode, PanelName: item.PanelName, SortOrder: item.SortOrder,
+				TerminalFlag: "N", ListFlag: "N", Metrics: item.Metrics, Sections: item.Sections,
+			}
+			if item.Terminal {
+				view.TerminalFlag = "Y"
+			}
+			if item.List {
+				view.ListFlag = "Y"
+			}
+			kind.Panels = append(kind.Panels, view)
+		}
 		out = append(out, kind)
 	}
 	return out
@@ -47,7 +62,50 @@ func List(ctx context.Context, db *dbx.DB, filter conn.Filter, page dbx.Page) ([
 	if err != nil {
 		return nil, 0, err
 	}
-	return conn.List(ctx, db, sess.TenantID, filter, page)
+	rows, total, err := conn.List(ctx, db, sess.TenantID, filter, page)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := attachHeadlines(ctx, db, sess.TenantID, filter.KindCode, rows); err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
+}
+
+// Lookup 按编号取一条连接，供进入详情前核对种类权限。
+func Lookup(ctx context.Context, db *dbx.DB, componentID string) (models.Conn, error) {
+	sess, err := request.Require(ctx)
+	if err != nil {
+		return models.Conn{}, err
+	}
+	return conn.Get(ctx, db, sess.TenantID, componentID)
+}
+
+func attachHeadlines(ctx context.Context, db *dbx.DB, tenantID, kind string, rows []models.Conn) error {
+	cols := panel.ListMetrics(kind)
+	if len(cols) == 0 || len(rows) == 0 {
+		return nil
+	}
+	spec, ok := catalog.Get(kind)
+	if !ok || spec.PaneTable == "" {
+		return nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, item := range rows {
+		if item.ComponentID != "" {
+			ids = append(ids, item.ComponentID)
+		}
+	}
+	found, err := pane.Latest(ctx, db, spec.PaneTable, tenantID, ids, cols)
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		if values, ok := found[rows[i].ComponentID]; ok {
+			rows[i].Headlines = values
+		}
+	}
+	return nil
 }
 
 // Save 新增或修改连接。

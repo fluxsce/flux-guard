@@ -25,8 +25,12 @@ func TestParseInfo(t *testing.T) {
 	if len(sample.DBs) != 2 || sample.DBs[0].Name != "db0" || sample.DBs[1].Keys != 8 {
 		t.Fatalf("%+v", sample.DBs)
 	}
+	filled := fillDatabases(sample.DBs, 16)
+	if len(filled) != 16 || filled[0].Keys != 4 || filled[1].Name != "db1" || filled[1].Keys != 0 || filled[2].Keys != 8 {
+		t.Fatalf("%+v", filled)
+	}
 	slow := ParseSlowlog([]any{[]any{"1", "170", "150000", []any{"KEYS", "*"}}})
-	if len(slow) != 1 || slow[0].Usec != 150000 || slow[0].Command != "KEYS *" {
+	if len(slow) != 1 || slow[0].At != 170 || slow[0].Usec != 150000 || slow[0].Command != "KEYS *" {
 		t.Fatalf("%+v", slow)
 	}
 	if ParseInfo("role:master\n").HitRate != -1 {
@@ -67,6 +71,14 @@ func TestParseCapacityAndReplication(t *testing.T) {
 	if down.MasterLinkDown != 1 || down.ReplicaLagSec != -1 {
 		t.Fatalf("%+v", down)
 	}
+	up := ParseInfo("role:slave\nmaster_link_status:up\n")
+	if up.MasterLinkDown != 0 || up.ReplicaLagSec != -1 {
+		t.Fatalf("缺少 last io 时不应记成 0 秒: %+v", up)
+	}
+	idle := ParseInfo("role:replica\nmaster_link_status:up\nmaster_last_io_seconds_ago:4\n")
+	if idle.ReplicaLagSec != 4 || idle.MasterLinkDown != 0 {
+		t.Fatalf("%+v", idle)
+	}
 }
 
 func TestApplyRates(t *testing.T) {
@@ -103,7 +115,7 @@ func TestSaveIntervalHitRate(t *testing.T) {
 	}
 	var hit any
 	if err := store.Scan(ctx, db, `
-		SELECT hitRate FROM FG_REDIS_METRIC
+		SELECT hitRate FROM FG_COMPONENT_REDIS_METRIC
 		WHERE tenantId = @tenantId AND componentId = @componentId
 		ORDER BY observedTime DESC, pointId DESC LIMIT 1`,
 		dbx.Args{"tenantId": "t1", "componentId": "c1"}, &hit); err != nil {
