@@ -2,9 +2,7 @@ import { computed, ref } from 'vue'
 import { isApiSuccess, parseApiData, updateTimeout } from '@/api/request'
 import { applyPageSizePolicy } from '@/api/pagination'
 import { SESSION_TOKEN_KEY } from '@/api/requestHeader'
-import { login as loginApi, logout as logoutApi, me as meApi, menus as menusApi, type LoginCaptcha } from '@/views/login/api'
-import { querySettings, type Settings } from '@/views/fg0024/api'
-import type { Menu, SessionUser } from '@/views/login/api'
+import { login as loginApi, logout as logoutApi, me as meApi, menus as menusApi, type LoginCaptcha, type Menu, type SessionUser } from '@/views/login/api'
 import { clearUserCookie, readUserCookie, writeUserCookie } from '@/views/login/sessionCookie'
 import { defineStore } from 'pinia'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -13,6 +11,9 @@ import { useWorkspaceStore } from '@/stores/workspace'
 export function modulePath(code: string) {
   return code ? `/${code}` : ''
 }
+
+/** 本人账号页。不进授权菜单，已登录即可在工作区标签里打开。 */
+export const ACCOUNT_PATH = '/account'
 
 export const useSessionStore = defineStore('session', () => {
   const user = ref<SessionUser | null>(readUserCookie())
@@ -64,15 +65,18 @@ export const useSessionStore = defineStore('session', () => {
     return tenantAdmin() || codes.value.has(code)
   }
 
-  /** 判断路由路径是否落在已授权模块上。路径形如 /fg0022。租户管理员直接通过。 */
+  /** 判断路由路径是否落在已授权模块上。路径形如 /fg0022。本人账号页和租户管理员直接通过。 */
   function allowPath(path: string) {
+    if (path === ACCOUNT_PATH) return true
     return tenantAdmin() || (path.startsWith('/') && codes.value.has(path.slice(1)))
   }
 
-  /** 登录后的落地页。取第一条已授权模块，没有则去登录页。 */
+  /** 登录后的落地页。取第一条已授权模块。租户管理员没有菜单时进入总览。其余账号没有页面可进。 */
   function homePath() {
     const first = menus.value.find((item) => item.resourceCode)
-    return first ? modulePath(first.resourceCode) : '/login'
+    if (first) return modulePath(first.resourceCode)
+    if (tenantAdmin()) return '/fg0001'
+    return '/login'
   }
 
   /** 清掉内存里的用户、菜单和本地登录 Cookie。 */
@@ -88,6 +92,7 @@ export const useSessionStore = defineStore('session', () => {
     const [userResult, menuResult] = await Promise.all([meApi(), menusApi()])
     if (!isApiSuccess(userResult) || !isApiSuccess(menuResult)) {
       reset()
+      sessionStorage.removeItem(SESSION_TOKEN_KEY)
       return false
     }
     const me = parseApiData<SessionUser & {
@@ -104,26 +109,10 @@ export const useSessionStore = defineStore('session', () => {
     }
     menus.value = parseApiData<Menu[]>(menuResult) ?? []
     loaded.value = true
-    await applyAccessPolicy()
     return true
   }
 
-  /** 用环境设置覆盖接口超时和默认分页。读取失败时保留已有值。 */
-  async function applyAccessPolicy() {
-    try {
-      const result = await querySettings()
-      if (!isApiSuccess(result)) return
-      const data = parseApiData<Settings>(result)
-      const timeout = data?.webTimeout
-      if (!timeout) return
-      updateTimeout(timeout.requestTimeoutSeconds * 1000)
-      applyPageSizePolicy(timeout.defaultPageSize, timeout.maxPageSize)
-    } catch {
-      // 策略读取失败时继续使用默认超时和分页。
-    }
-  }
-
-  /** 登录成功后写入票据和用户，再加载菜单。 */
+  /** 登录成功后写入票据和用户，再加载菜单。接口超时和分页用登录、当前用户接口带回的值。 */
   async function signIn(userId: string, password: string, captcha?: LoginCaptcha) {
     const result = await loginApi(userId, password, captcha)
     if (!isApiSuccess(result)) return result

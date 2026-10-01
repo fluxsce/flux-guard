@@ -1,5 +1,31 @@
 # 示例配置。复制为 configs/java.yaml 后再改。java.yaml 是本机文件，不要提交。
-# JVM 代理。以 -javaagent 挂进目标进程，或 java -jar 在当前进程里跑。
+# 代理只读 java.yaml，不读本文件。默认路径是进程工作目录下的 configs/java.yaml。
+#
+# 解开 flux-guard-agent-java.tar.gz 后，进入 flux-guard-agent-java/。先复制配置：
+#   cp configs/java.yaml.example configs/java.yaml
+# Windows：
+#   copy configs\java.yaml.example configs\java.yaml
+#
+# 在该目录下把代理挂进目标进程（才能读到 configs/java.yaml）：
+#   java -javaagent:flux-guard-agent-java.jar -jar your-app.jar
+#
+# 代理参数用分号分隔，写在 -javaagent 或 -jar 后面。可覆盖本文件的项，也可改配置路径：
+#   config、server_url、agent_token、interval_sec、app_name、once
+#   java -javaagent:flux-guard-agent-java.jar=config=configs/java.yaml;app_name=demo -jar your-app.jar
+#
+# Tomcat 的工作目录不是代理目录，config 要写绝对路径。把这一行放进 bin/setenv.sh 的 CATALINA_OPTS
+#（不要放 JAVA_OPTS，停服脚本也会读 JAVA_OPTS）：
+#   CATALINA_OPTS="$CATALINA_OPTS -javaagent:/opt/flux-guard-agent-java/flux-guard-agent-java.jar=config=/opt/flux-guard-agent-java/configs/java.yaml;app_name=tomcat"
+# Windows 的 bin/setenv.bat：
+#   set "CATALINA_OPTS=%CATALINA_OPTS% -javaagent:C:/flux-guard-agent-java/flux-guard-agent-java.jar=config=C:/flux-guard-agent-java/configs/java.yaml;app_name=tomcat"
+# 以 Windows 服务安装的 Tomcat 不读 setenv.bat，把同一段 -javaagent: 写进服务的 Java Options。
+#
+# 不挂进别的进程，在当前进程里按间隔上报：
+#   java -jar flux-guard-agent-java.jar
+# 只上报一次后退出：
+#   java -jar flux-guard-agent-java.jar once=true
+#
+# 需要 Java 8 或更高版本。Java 代理不登记系统服务。
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 上报间隔（秒）

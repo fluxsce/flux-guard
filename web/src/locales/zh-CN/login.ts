@@ -11,6 +11,7 @@ export default {
   submit: '登录',
   pending: '正在核验…',
   failed: '登录失败',
+  noModule: '当前账号没有可访问的页面，请联系管理员授权',
   agents: '采集代理',
   agentsDetail: '主机与应用上报',
   samples: '运行样本',

@@ -37,5 +37,3 @@ CREATE TABLE IF NOT EXISTS `FG_AUTH_AUDIT_LOG` (
   KEY `IDX_FG_AUDIT_RESULT` (`tenantId`, `resultFlag`, `addTime`),
   KEY `IDX_FG_AUDIT_TARGET` (`tenantId`, `targetType`, `targetId`)
 ) ENGINE=InnoDB COMMENT='权限审计表';
--- 已有库补列；列已存在时由 store 忽略错误。
-ALTER TABLE `FG_AUTH_AUDIT_LOG` ADD COLUMN `failReason` VARCHAR(500) DEFAULT NULL COMMENT '失败原因';

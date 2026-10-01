@@ -177,8 +177,9 @@ const gauges = computed(() => {
   const fdAllocated = fd?.allocatedCount ?? props.host.fdAllocated
   const fdMaximum = fd?.maximumCount ?? 0
   const fdPercent = fdMaximum > 0 ? (fd?.usedPercent ?? props.host.fdUsedPercent) : props.host.fdUsedPercent
+  // Linux file-max 往往远大于已用数，占比会显示成 0.0%。这时改显示已分配数。
   const fdGauge =
-    fdMaximum > 0 || fdPercent > 0
+    fdMaximum > 0 && fdPercent >= 0.05
       ? gaugeOption('句柄', fdPercent, fdCaption())
       : gaugeCountOption('句柄', fdAllocated, fdCaption())
   return [
@@ -187,7 +188,7 @@ const gauges = computed(() => {
     { option: gaugeOption('磁盘', props.host.diskUsedPercent, diskCaption()) },
     {
       option: fdGauge,
-      help: '进程打开的文件描述符 / 句柄数。Linux 有系统上限可看占比；Windows 通常只有已分配数、无可用上限。',
+      help: '进程打开的文件描述符 / 句柄数。Linux 上限很大时仪表显示已分配数，占比够高才显示百分比。Windows 通常只有已分配数、无可用上限。',
     },
   ]
 })

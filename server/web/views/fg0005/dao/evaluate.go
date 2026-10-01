@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"fluxguard/common/hostvol"
 	"fluxguard/common/logger"
 	"fluxguard/server/alert"
 	"fluxguard/server/alert/validate"
@@ -249,40 +250,26 @@ func metricValue(ctx context.Context, db *dbx.DB, tenantID string, host hostTarg
 		return latestFloat(ctx, db, `
 			SELECT usagePercent FROM FG_HOST_CPU
 			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			ORDER BY observedTime DESC, pointId DESC LIMIT 1`, tenantID, host.AgentID)
+			ORDER BY observedTime DESC LIMIT 1`, tenantID, host.AgentID)
 	case "mem.usage":
 		return latestFloat(ctx, db, `
 			SELECT usedPercent FROM FG_HOST_MEM
 			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			ORDER BY observedTime DESC, pointId DESC LIMIT 1`, tenantID, host.AgentID)
+			ORDER BY observedTime DESC LIMIT 1`, tenantID, host.AgentID)
 	case "load.1":
 		return latestFloat(ctx, db, `
 			SELECT loadAvg1 FROM FG_HOST_CPU
 			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			ORDER BY observedTime DESC, pointId DESC LIMIT 1`, tenantID, host.AgentID)
+			ORDER BY observedTime DESC LIMIT 1`, tenantID, host.AgentID)
 	case "disk.usage":
-		return latestFloat(ctx, db, `
-			SELECT MAX(usedPercent) FROM FG_HOST_DISK
-			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			  AND batchId = (
-			    SELECT batchId FROM FG_HOST_DISK
-			    WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			    ORDER BY observedTime DESC, pointId DESC LIMIT 1
-			  )`, tenantID, host.AgentID)
+		return latestDiskMax(ctx, db, tenantID, host.AgentID, false)
 	case "disk.inode":
-		return latestFloat(ctx, db, `
-			SELECT MAX(inodeUsedPercent) FROM FG_HOST_DISK
-			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			  AND batchId = (
-			    SELECT batchId FROM FG_HOST_DISK
-			    WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			    ORDER BY observedTime DESC, pointId DESC LIMIT 1
-			  )`, tenantID, host.AgentID)
+		return latestDiskMax(ctx, db, tenantID, host.AgentID, true)
 	case "fd.usage":
 		return latestFloat(ctx, db, `
 			SELECT usedPercent FROM FG_HOST_FD
 			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-			ORDER BY observedTime DESC, pointId DESC LIMIT 1`, tenantID, host.AgentID)
+			ORDER BY observedTime DESC LIMIT 1`, tenantID, host.AgentID)
 	case "agent.offline":
 		when, ok := store.TimeValue(host.LastSeen)
 		if !ok {
@@ -292,6 +279,51 @@ func metricValue(ctx context.Context, db *dbx.DB, tenantID string, host hostTarg
 	default:
 		return 0, false
 	}
+}
+
+func latestDiskMax(ctx context.Context, db *dbx.DB, tenantID, agentID string, inode bool) (float64, bool) {
+	args := dbx.Args{"tenantId": tenantID, "agentId": agentID}
+	var batchID string
+	var observed any
+	err := store.Scan(ctx, db, `
+		SELECT batchId, observedTime FROM FG_HOST_DISK
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		ORDER BY observedTime DESC
+		LIMIT 1`, args, &batchID, &observed)
+	if err != nil || strings.TrimSpace(batchID) == "" {
+		return 0, false
+	}
+	args["batchId"] = batchID
+	args["observedTime"] = observed
+	rows, err := db.Query(ctx, `
+		SELECT mountPoint, usedPercent, inodeUsedPercent FROM FG_HOST_DISK
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND observedTime = @observedTime AND batchId = @batchId`, args)
+	if err != nil {
+		return 0, false
+	}
+	defer rows.Close()
+	max := 0.0
+	found := false
+	for rows.Next() {
+		var mount string
+		var used, inodePct any
+		if err := rows.Scan(&mount, &used, &inodePct); err != nil {
+			return max, found
+		}
+		if hostvol.Container(mount) {
+			continue
+		}
+		value := asFloat(used)
+		if inode {
+			value = asFloat(inodePct)
+		}
+		if !found || value > max {
+			max = value
+			found = true
+		}
+	}
+	return max, found
 }
 
 func latestFloat(ctx context.Context, db *dbx.DB, query, tenantID, agentID string) (float64, bool) {

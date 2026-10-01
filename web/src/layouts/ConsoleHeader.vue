@@ -5,12 +5,11 @@ import { getHttpErrorMessage } from '@/api/request'
 import { setLocale, type AppLocale } from '@/locales'
 import { useModuleI18n } from '@/locales/useModuleI18n'
 import { moduleIcon } from '@/router'
-import { modulePath, useSessionStore } from '@/stores/session'
+import { ACCOUNT_PATH, modulePath, useSessionStore } from '@/stores/session'
 import { setTheme, theme, type AppTheme } from '@/layouts/theme'
 import { useProductVersion } from '@/productVersion'
 import { RsAvatar, RsBreadcrumb, RsIcon, RsPopover } from '@/ui'
 import type { Menu } from '@/views/login/api'
-import AccountProfileDialog from './AccountProfileDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,14 +18,16 @@ const { t, locale } = useModuleI18n('shell')
 const { version } = useProductVersion()
 const now = ref(new Date())
 const accountOpen = ref(false)
-const profileOpen = ref(false)
 const query = ref('')
 const searchOpen = ref(false)
 const activeIndex = ref(0)
 let clockTimer = 0
 
 const currentMenu = computed(() => session.menus.find((item) => modulePath(item.resourceCode) === route.path))
-const pageTitle = computed(() => currentMenu.value?.resourceName || t('overview'))
+const pageTitle = computed(() => {
+  if (route.path === ACCOUNT_PATH) return t('profile')
+  return currentMenu.value?.resourceName || t('overview')
+})
 const clockTime = computed(() => now.value.toLocaleTimeString(locale.value, { hour12: false }))
 const crumbs = computed(() => {
   const home = session.homePath()
@@ -48,7 +49,19 @@ const hits = computed(() => {
   const matched = keyword
     ? menus.filter((menu) => `${menu.resourceName} ${menu.groupName} ${menu.resourceCode}`.toLowerCase().includes(keyword))
     : menus
-  return matched.slice(0, 8)
+  const list = matched.slice(0, 8)
+  if (!keyword) return list
+  const account: Menu = {
+    resourceCode: 'account',
+    resourceName: t('profile'),
+    resourcePath: ACCOUNT_PATH,
+    parentResourceId: '',
+    groupName: '',
+    sortOrder: 0,
+  }
+  const text = `${account.resourceName} account`.toLowerCase()
+  if (!text.includes(keyword)) return list
+  return [account, ...list.filter((item) => item.resourceCode !== 'account')].slice(0, 8)
 })
 const cursor = computed(() => Math.min(activeIndex.value, Math.max(hits.value.length - 1, 0)))
 const searchListOpen = computed(() => searchOpen.value && (query.value.trim().length > 0 || hits.value.length > 0))
@@ -107,7 +120,12 @@ function onSearchBlur(event: FocusEvent) {
 
 function openProfile() {
   accountOpen.value = false
-  profileOpen.value = true
+  if (route.path !== ACCOUNT_PATH) void router.push(ACCOUNT_PATH)
+}
+
+function hitIcon(code: string) {
+  if (code === 'account') return 'user-pen'
+  return moduleIcon(code)
 }
 
 async function onLogout() {
@@ -176,7 +194,7 @@ watch(
             @mouseenter="activeIndex = index"
             @click="goPage(hit)"
           >
-            <RsIcon :name="moduleIcon(hit.resourceCode)" :size="14" />
+            <RsIcon :name="hitIcon(hit.resourceCode)" :size="14" />
             <span class="fg-search-name">{{ hit.resourceName }}</span>
             <span v-if="hit.groupName" class="fg-search-group">{{ hit.groupName }}</span>
           </button>
@@ -243,7 +261,6 @@ watch(
           </div>
         </template>
       </RsPopover>
-      <AccountProfileDialog v-model:open="profileOpen" />
     </div>
   </header>
 </template>

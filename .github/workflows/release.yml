@@ -35,6 +35,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Use checked-out dbx
         run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
       - name: Test
@@ -71,6 +75,15 @@ jobs:
           SHA=$(git rev-parse --short=12 HEAD)
           LDFLAGS="-s -w -X fluxguard/common/buildinfo.Version=${VERSION} -X fluxguard/common/buildinfo.Commit=${SHA} -X fluxguard/common/buildinfo.Date=${STAMP}"
           mkdir -p dist
+          rm -rf agents/java/build
+          mkdir -p agents/java/build
+          list="$(mktemp)"
+          find agents/java/src -name '*.java' > "${list}"
+          javac --release 8 -encoding UTF-8 -d agents/java/build @"${list}"
+          rm -f "${list}"
+          jar cfm dist/flux-guard-agent-java.jar agents/java/MANIFEST.MF -C agents/java/build .
+          jar tf dist/flux-guard-agent-java.jar | grep -qx 'fluxguard/agent/Agent.class'
+          unzip -p dist/flux-guard-agent-java.jar META-INF/MANIFEST.MF | grep -q 'Premain-Class: fluxguard.agent.Agent'
           while read -r goos goarch; do
             ext=""
             if [[ "${goos}" == "windows" ]]; then
@@ -91,6 +104,7 @@ jobs:
             cp -a configs/host.yaml.example "${stage}/host/configs/"
             cp -a configs/app.yaml.example "${stage}/app/configs/"
             cp -a configs/java.yaml.example "${stage}/java/configs/"
+            cp -a dist/flux-guard-agent-java.jar "${stage}/java/flux-guard-agent-java.jar"
             cp -a scripts "${dir}/"
             mkdir -p "${stage}/host/scripts" "${stage}/app/scripts"
             cp -a scripts/run "${stage}/host/scripts/run"

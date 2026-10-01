@@ -56,7 +56,7 @@ defineSlots<{
 
 <template>
   <div class="fg-form-grid">
-    <template v-for="field in fields" :key="field.field">
+    <template v-for="(field, index) in fields" :key="`${field.field}:${field.label}:${index}`">
       <div
         v-if="field.type === 'fieldset' && visible(field)"
         class="fg-form-cell fg-form-cell--fieldset"

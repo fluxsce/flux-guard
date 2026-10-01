@@ -16,8 +16,8 @@ func init() {
 type javaWriter struct{}
 
 func (javaWriter) Save(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
-	if err := dao.SaveJavaMetrics(ctx, tx, batch); err != nil {
+	if err := dao.SaveJava(ctx, tx, batch); err != nil {
 		return err
 	}
-	return dao.SaveJava(ctx, tx, batch)
+	return dao.SaveJavaMetrics(ctx, tx, batch)
 }

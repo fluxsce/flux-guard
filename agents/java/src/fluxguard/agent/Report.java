@@ -38,7 +38,7 @@ final class Report {
 
     private int send(String json) throws Exception {
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
-        URL url = new URL(cfg.serverUrl + "/api/ingest/v1/batches");
+        URL url = new URL(cfg.serverUrl + "/fluxguard/api/ingest/v1/batches");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(20000);

@@ -15,6 +15,8 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 
+	"fluxguard/common/hostnic"
+	"fluxguard/common/hostvol"
 	"fluxguard/protocol"
 )
 
@@ -183,7 +185,7 @@ func diskSamples(ctx context.Context, now time.Time) []protocol.Sample {
 	n := 0
 	seen := map[string]bool{}
 	for _, part := range parts {
-		if n >= maxDisk || skipFS[strings.ToLower(part.Fstype)] || part.Mountpoint == "" {
+		if n >= maxDisk || skipFS[strings.ToLower(part.Fstype)] || part.Mountpoint == "" || hostvol.Container(part.Mountpoint) {
 			continue
 		}
 		if seen[part.Mountpoint] {
@@ -446,7 +448,7 @@ func procState(status []string) string {
 
 func skipNIC(name string) bool {
 	n := strings.ToLower(name)
-	return n == "lo" || n == "lo0" || strings.Contains(n, "loopback")
+	return n == "lo" || n == "lo0" || strings.Contains(n, "loopback") || hostnic.Container(n)
 }
 
 func fdSamples(now time.Time) []protocol.Sample {

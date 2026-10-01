@@ -34,6 +34,7 @@ export const moduleNames: Record<string, string> = {
   fg0003: '插件',
   fg0005: '主机监控',
   fg0006: 'Java 监控',
+  fg0007: '组件监控',
   fg0021: '用户',
   fg0022: '角色',
   fg0023: '资源',
@@ -55,6 +56,7 @@ export const targetTypeNames: Record<string, string> = {
   JOB: '系统任务',
   RULE: '预警规则',
   CHANNEL: '通知渠道',
+  COMPONENT: '组件连接',
   TEMPLATE: '预警模板',
   EVENT: '预警事件',
 }

@@ -103,13 +103,21 @@ async function submit() {
       captchaId: captchaId.value,
       captchaCode: form.value.captchaCode,
     })
-    if (!isApiSuccess(result)) {
+    if (!isApiSuccess(result) || !session.loaded) {
       error.value = getApiMessage(result, t('failed'))
       toast.error(error.value)
       await refreshCaptcha()
       return
     }
-    await router.push(session.homePath())
+    const home = session.homePath()
+    if (home === '/login') {
+      error.value = t('noModule')
+      toast.error(error.value)
+      await session.signOut()
+      await refreshCaptcha()
+      return
+    }
+    await router.push(home)
   } catch (err) {
     error.value = getHttpErrorMessage(err, t('failed'))
     toast.error(error.value)

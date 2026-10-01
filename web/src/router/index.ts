@@ -2,7 +2,7 @@ import type { RouteRecordRaw, Router } from 'vue-router'
 import { SESSION_TOKEN_KEY } from '@/api/requestHeader'
 import { readUserCookie } from '@/views/login/sessionCookie'
 import { loadRouteMessages } from '@/locales'
-import { modulePath, useSessionStore } from '@/stores/session'
+import { ACCOUNT_PATH, modulePath, useSessionStore } from '@/stores/session'
 import type { Menu } from '@/views/login/api'
 import type { RsMenuItem } from '@/ui'
 
@@ -40,6 +40,7 @@ export const moduleRoutes: RouteRecordRaw[] = [
   { path: 'fg0003', component: () => import('@/views/fg0003/PluginsView.vue'), meta: { module: 'fg0003', icon: 'puzzle', group: 'group:system' } },
   { path: 'fg0005', component: () => import('@/views/fg0005/HostsView.vue'), meta: { module: 'fg0005', icon: 'cpu', group: 'group:observe', flush: true } },
   { path: 'fg0006', component: () => import('@/views/fg0006/JavaView.vue'), meta: { module: 'fg0006', icon: 'coffee', group: 'group:observe', flush: true } },
+  { path: 'fg0007', component: () => import('@/views/fg0007/ComponentsView.vue'), meta: { module: 'fg0007', icon: 'boxes', group: 'group:observe', flush: true } },
   { path: 'fg0100', component: () => import('@/views/common/PluginSlotView.vue'), meta: { module: 'fg0100', icon: 'bell', group: 'group:observe' } },
   { path: 'fg0021', component: () => import('@/views/fg0021/UsersView.vue'), meta: { module: 'fg0021', icon: 'users', group: 'group:system', flush: true } },
   { path: 'fg0022', component: () => import('@/views/fg0022/RolesView.vue'), meta: { module: 'fg0022', icon: 'shield', group: 'group:system', flush: true } },
@@ -106,7 +107,14 @@ export const routes: RouteRecordRaw[] = [
     path: '/',
     component: () => import('@/layouts/ConsoleLayout.vue'),
     redirect: '/fg0001',
-    children: moduleRoutes,
+    children: [
+      ...moduleRoutes,
+      {
+        path: ACCOUNT_PATH.slice(1),
+        component: () => import('@/views/account/AccountView.vue'),
+        meta: { icon: 'user-pen' },
+      },
+    ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/fg0001' },
 ]

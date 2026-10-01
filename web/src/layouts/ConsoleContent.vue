@@ -5,7 +5,7 @@ import { useAiStore } from '@/ai'
 import type { Component } from 'vue'
 import { useModuleI18n } from '@/locales/useModuleI18n'
 import { moduleIcon } from '@/router'
-import { modulePath, useSessionStore } from '@/stores/session'
+import { ACCOUNT_PATH, modulePath, useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { RsTabs, type RsTabItem } from '@/ui'
 
@@ -23,10 +23,11 @@ const tabItems = computed<RsTabItem[]>(() => {
   return workspace.pages.map((page) => {
     const menu = session.menus.find((item) => modulePath(item.resourceCode) === page.path)
     const pinned = page.path === home
+    const account = page.path === ACCOUNT_PATH
     return {
       value: page.path,
-      label: menu?.resourceName || page.title,
-      icon: menu ? moduleIcon(menu.resourceCode) : undefined,
+      label: account ? t('profile') : menu?.resourceName || page.title,
+      icon: account ? 'user-pen' : menu ? moduleIcon(menu.resourceCode) : undefined,
       fixed: pinned,
       closable: !pinned && closable,
     }
@@ -43,9 +44,10 @@ function describe(path: string) {
   const view = record?.components?.default
   if (!view || resolved.path === '/login') return null
   const menu = session.menus.find((item) => modulePath(item.resourceCode) === path)
+  const account = path === ACCOUNT_PATH
   return {
     path,
-    title: menu?.resourceName || path,
+    title: account ? t('profile') : menu?.resourceName || path,
     flush: record?.meta?.flush === true,
     view: view as Component,
   }

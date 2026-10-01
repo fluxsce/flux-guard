@@ -2,9 +2,9 @@ package protocol
 
 const (
 	// ShellSessionsPath 是代理拉取自己名下仍打开的终端。
-	ShellSessionsPath = "/api/shell/v1/sessions"
+	ShellSessionsPath = WebRoot + "/api/shell/v1/sessions"
 	// ShellInputPath 是代理长轮询一路终端的输入。
-	ShellInputPath = "/api/shell/v1/input"
+	ShellInputPath = WebRoot + "/api/shell/v1/input"
 	// ShellOutputPath 是代理把这路终端的输出送回中央。
-	ShellOutputPath = "/api/shell/v1/output"
+	ShellOutputPath = WebRoot + "/api/shell/v1/output"
 )

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"fluxguard/common/hostnic"
+	"fluxguard/common/hostvol"
 	"fluxguard/common/id"
 	"fluxguard/protocol"
 	"fluxguard/server/store"
@@ -130,7 +132,7 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			hasTCP = true
 		case strings.HasPrefix(name, "host.net."):
 			key := clip(labelOf(sample, "device"), 64)
-			if key == "" {
+			if key == "" || hostnic.Container(key) {
 				continue
 			}
 			row := nics[key]
@@ -193,7 +195,85 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			return err
 		}
 	}
-	return nil
+	return touchHostCurrent(ctx, tx, batch, hasCPU, cpu, hasMem, mem, hasDisk, disks, hasIO, ios, hasNet, nics, hasTCP, tcp, hasFD, fd, hasProc, proc)
+}
+
+// touchHostCurrent 把本批算好的当前值写回身份行。没到的指标保持上一行。
+func touchHostCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, hasCPU bool, cpu cpuSnap, hasMem bool, mem memSnap, hasDisk bool, disks map[string]*diskSnap, hasIO bool, ios map[string]*diskIOSnap, hasNet bool, nics map[string]*netSnap, hasTCP bool, tcp tcpSnap, hasFD bool, fd fdSnap, hasProc bool, proc procSnap) error {
+	sets := make([]string, 0, 8)
+	args := dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}
+	if hasCPU {
+		sets = append(sets, "cpuUsagePercent = @cpuUsagePercent", "loadAvg1 = @loadAvg1")
+		args["cpuUsagePercent"] = cpu.usage
+		args["loadAvg1"] = cpu.load1
+	}
+	if hasMem {
+		sets = append(sets, "memUsedPercent = @memUsedPercent", "memUsedBytes = @memUsedBytes")
+		args["memUsedPercent"] = mem.usedPercent
+		args["memUsedBytes"] = mem.used
+		if mem.total > 0 {
+			sets = append(sets, "memTotalBytes = @memTotalBytes")
+			args["memTotalBytes"] = mem.total
+		}
+	}
+	if hasDisk {
+		maxUsed := 0.0
+		for _, row := range disks {
+			if hostvol.Container(row.mount) {
+				continue
+			}
+			if row.usedPercent > maxUsed {
+				maxUsed = row.usedPercent
+			}
+		}
+		sets = append(sets, "diskUsedPercent = @diskUsedPercent")
+		args["diskUsedPercent"] = maxUsed
+	}
+	if hasIO {
+		var readBps, writeBps, util float64
+		for _, row := range ios {
+			readBps += row.readBps
+			writeBps += row.writeBps
+			if row.util > util {
+				util = row.util
+			}
+		}
+		sets = append(sets, "diskReadBytesPerSec = @diskReadBytesPerSec", "diskWriteBytesPerSec = @diskWriteBytesPerSec", "diskUtilPercent = @diskUtilPercent")
+		args["diskReadBytesPerSec"] = readBps
+		args["diskWriteBytesPerSec"] = writeBps
+		args["diskUtilPercent"] = util
+	}
+	if hasNet {
+		var rx, txBytes float64
+		for _, row := range nics {
+			rx += row.rxBps
+			txBytes += row.txBps
+		}
+		sets = append(sets, "netReceiveBytesPerSec = @netReceiveBytesPerSec", "netTransmitBytesPerSec = @netTransmitBytesPerSec")
+		args["netReceiveBytesPerSec"] = rx
+		args["netTransmitBytesPerSec"] = txBytes
+	}
+	if hasTCP {
+		sets = append(sets, "tcpEstablished = @tcpEstablished", "tcpTimeWait = @tcpTimeWait", "tcpCloseWait = @tcpCloseWait")
+		args["tcpEstablished"] = tcp.established
+		args["tcpTimeWait"] = tcp.timeWait
+		args["tcpCloseWait"] = tcp.closeWait
+	}
+	if hasFD {
+		sets = append(sets, "fdAllocated = @fdAllocated", "fdUsedPercent = @fdUsedPercent")
+		args["fdAllocated"] = fd.allocated
+		args["fdUsedPercent"] = fd.usedPercent
+	}
+	if hasProc {
+		sets = append(sets, "procCount = @procCount", "zombieCount = @zombieCount")
+		args["procCount"] = proc.count
+		args["zombieCount"] = proc.zombie
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, "UPDATE FG_AGENT_HOST SET "+strings.Join(sets, ", ")+" WHERE tenantId = @tenantId AND agentId = @agentId", args)
+	return err
 }
 
 func applyCPU(row *cpuSnap, name string, value float64, at time.Time) {

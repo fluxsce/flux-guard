@@ -82,6 +82,14 @@ func Datasets() []Dataset {
 			Cutoff:  sample,
 		})
 	}
+	for _, table := range componentSampleTables {
+		list = append(list, Dataset{
+			Name:    "component-" + table,
+			Table:   table,
+			TimeCol: "addTime",
+			Cutoff:  sample,
+		})
+	}
 	return list
 }
 
@@ -97,6 +105,16 @@ var hostSampleTables = []string{
 	"FG_HOST_TCP",
 	"FG_HOST_PROC",
 	"FG_HOST_PROC_TOP",
+}
+
+// componentSampleTables 是组件直连采集。FG_COMPONENT_CONN 与 FG_COMPONENT_KIND 不在此列。
+var componentSampleTables = []string{
+	"FG_REDIS_METRIC",
+	"FG_MYSQL_METRIC",
+	"FG_MONGO_METRIC",
+	"FG_KAFKA_METRIC",
+	"FG_ZK_METRIC",
+	"FG_NACOS_METRIC",
 }
 
 // javaSampleTables 是滚动 Java 样本。FG_AGENT_JAVA 是身份表，不在此列。

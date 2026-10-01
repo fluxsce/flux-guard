@@ -3,9 +3,13 @@ package protocol
 import "strings"
 
 const (
+	// WebRoot 是控制台页面和代理访问中央的根路径。
+	// server/web/routes.WebRoot 引用这一处，网关只放行这一段。
+	WebRoot = "/fluxguard"
+
 	// IngestMethod 与 IngestPath 是代理上报的唯一接口。
 	IngestMethod = "POST"
-	IngestPath   = "/api/ingest/v1/batches"
+	IngestPath   = WebRoot + "/api/ingest/v1/batches"
 
 	// BearerPrefix 是 Authorization 头的前缀，后面是代理令牌。
 	BearerPrefix = "Bearer "
@@ -33,4 +37,14 @@ func BearerToken(header string) string {
 // 4xx 是请求本身被拒绝，不重试。
 func RetryableStatus(code int) bool {
 	return code >= 500
+}
+
+// FromAgent 判断这是代理打到中央的路径。这些请求带代理令牌，不走控制台登录。
+func FromAgent(path string) bool {
+	switch path {
+	case IngestPath, WaitPath, ResultPath, ShellSessionsPath, ShellInputPath, ShellOutputPath:
+		return true
+	default:
+		return false
+	}
 }

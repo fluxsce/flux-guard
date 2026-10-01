@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"fluxguard/protocol"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/middleware/audit"
@@ -49,6 +50,9 @@ func moduleCode(c *gin.Context) string {
 
 func skipSession(c *gin.Context) bool {
 	path := c.Request.URL.Path
+	if protocol.FromAgent(path) {
+		return true
+	}
 	if !strings.HasPrefix(path, APIRoot+"/") {
 		return true
 	}

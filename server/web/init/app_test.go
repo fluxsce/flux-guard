@@ -13,6 +13,7 @@ import (
 
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/logger"
+	"fluxguard/protocol"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
 	login "fluxguard/server/web/views/login/controllers"
@@ -191,14 +192,14 @@ func TestModulesLoginAndViewerDenied(t *testing.T) {
 		t.Fatalf("viewer register %d %s", res.Code, res.Body.String())
 	}
 
-	res = call(t, handler, http.MethodPost, "/api/ingest/v1/batches", "", map[string]any{
+	res = call(t, handler, http.MethodPost, protocol.IngestPath, "", map[string]any{
 		"batchId": "batch-http-1", "agentCode": "host",
 		"samples": []map[string]any{{"metricName": "runtime.cpu.count", "metricValue": 8}},
 	})
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("missing token %d", res.Code)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(mustJSON(t, map[string]any{
+	req := httptest.NewRequest(http.MethodPost, protocol.IngestPath, bytes.NewReader(mustJSON(t, map[string]any{
 		"batchId": "batch-http-1", "agentCode": "host",
 		"samples": []map[string]any{{"metricName": "runtime.cpu.count", "metricValue": 8}},
 	})))
@@ -210,7 +211,7 @@ func TestModulesLoginAndViewerDenied(t *testing.T) {
 		t.Fatalf("ingest %d %s", res.Code, res.Body.String())
 	}
 	res = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(mustJSON(t, map[string]any{
+	req = httptest.NewRequest(http.MethodPost, protocol.IngestPath, bytes.NewReader(mustJSON(t, map[string]any{
 		"batchId": "batch-http-1", "agentCode": "host",
 		"samples": []map[string]any{{"metricName": "runtime.cpu.count", "metricValue": 8}},
 	})))
@@ -322,7 +323,7 @@ func TestHostMachinesStaySeparate(t *testing.T) {
 		{"batch-m-aaa11111", "machine-aaaa1111"},
 		{"batch-m-bbb22222", "machine-bbbb2222"},
 	} {
-		res := call(t, handler, http.MethodPost, "/api/ingest/v1/batches", "agt_dev_local", map[string]any{
+		res := call(t, handler, http.MethodPost, protocol.IngestPath, "agt_dev_local", map[string]any{
 			"batchId": item.batch, "agentCode": "host",
 			"samples": []map[string]any{{"metricName": "host.cpu.count", "metricValue": 2}},
 			"host": map[string]any{

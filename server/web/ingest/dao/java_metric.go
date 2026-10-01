@@ -259,7 +259,40 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			return err
 		}
 	}
-	return nil
+	return touchJavaCurrent(ctx, tx, batch, hasHeap, heap, hasThread, threads, hasGC, gcs)
+}
+
+// touchJavaCurrent 把本批堆、线程和回收累计写回身份行。没到的指标保持上一行。
+func touchJavaCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, hasHeap bool, heap heapSnap, hasThread bool, threads threadSnap, hasGC bool, gcs map[string]*gcSnap) error {
+	sets := make([]string, 0, 6)
+	args := dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}
+	if hasHeap {
+		sets = append(sets, "heapUsedPercent = @heapUsedPercent", "heapUsedBytes = @heapUsedBytes", "heapMaxBytes = @heapMaxBytes", "nonHeapUsedBytes = @nonHeapUsedBytes")
+		args["heapUsedPercent"] = heap.usedPercent
+		args["heapUsedBytes"] = heap.used
+		args["heapMaxBytes"] = heap.max
+		args["nonHeapUsedBytes"] = heap.nonUsed
+	}
+	if hasThread {
+		sets = append(sets, "threadCount = @threadCount", "daemonCount = @daemonCount")
+		args["threadCount"] = threads.count
+		args["daemonCount"] = threads.daemon
+	}
+	if hasGC {
+		var count, elapsed int64
+		for _, row := range gcs {
+			count += row.count
+			elapsed += row.time
+		}
+		sets = append(sets, "collectionCount = @collectionCount", "collectionTimeMs = @collectionTimeMs")
+		args["collectionCount"] = count
+		args["collectionTimeMs"] = elapsed
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, "UPDATE FG_AGENT_JAVA SET "+strings.Join(sets, ", ")+" WHERE tenantId = @tenantId AND agentId = @agentId", args)
+	return err
 }
 
 func javaGC(rows map[string]*gcSnap, sample protocol.Sample) *gcSnap {

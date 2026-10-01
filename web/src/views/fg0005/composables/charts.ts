@@ -36,7 +36,7 @@ export interface NamedChart {
 const chartHelp: Record<string, string> = {
   内存: '含物理内存与交换。交换是磁盘上的后备：内存不够时系统把闲置页挪过去，交换已用上升通常表示内存吃紧。',
   负载: '过去 1/5/15 分钟的平均可运行队列长度。持续高于 CPU 核数说明算力或等待偏紧。',
-  句柄: '进程打开的文件描述符 / 句柄数。Linux 有系统上限可看占比；Windows 通常只有已分配数、无可用上限。',
+  句柄: '进程打开的文件描述符 / 句柄数。Linux 上限单独一轴，避免把已用数压成贴底的线；占比太低时仪表显示已分配数。Windows 通常只有已分配数、无可用上限。',
   磁盘吞吐: '各设备读写字节速率（字节/秒），由相邻两次累计字节差除以时间得出。',
   '磁盘 IOPS': '各设备读写次数速率（次/秒），由累计读写次数差除以时间得出。',
   磁盘延迟: '单次 IO 平均服务时间（毫秒）= 累计耗时增量 / 次数增量。',
@@ -61,7 +61,7 @@ function formatValue(unit: string, value: number) {
   if (!Number.isFinite(value)) return '—'
   if (unit === 'percent') return percent(value)
   if (unit === 'rate') return rate(value)
-  if (unit === 'count') return count(value)
+  if (unit === 'count' || unit === 'cap') return count(value)
   if (unit === 'bytes') return bytes(value)
   if (unit === 'cores') return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} 核`
   if (unit === 'ms') return latency(value)
@@ -80,10 +80,17 @@ function tone(value: number) {
 }
 
 function tooltipLayer() {
+  const surface = 'var(--rs-surface-elevated)'
+  const border = 'var(--rs-popover-border)'
+  const text = 'var(--rs-text-primary)'
+  const shadow = 'var(--rs-popover-shadow)'
   return {
     appendTo: 'body' as const,
     className: 'fg-chart-tooltip',
-    extraCssText: 'max-height:min(70vh,520px);overflow:auto;z-index:10000;pointer-events:auto;',
+    backgroundColor: surface,
+    borderColor: border,
+    textStyle: { color: text, fontSize: 12 },
+    extraCssText: `max-height:min(70vh,520px);overflow:auto;z-index:10000;background-color:${surface};color:${text};border-color:${border};box-shadow:${shadow};`,
   }
 }
 
@@ -309,7 +316,7 @@ function lastText(curve: HostCurve) {
 function valueAxis(unit: string, colors: ReturnType<typeof ink>, split: boolean) {
   return {
     type: 'value' as const,
-    min: unit === 'percent' || unit === 'bytes' || unit === 'cores' || unit === 'ms' || unit === 'iops' || unit === 'persec' || unit === 'count' ? 0 : undefined,
+    min: unit === 'percent' || unit === 'bytes' || unit === 'cores' || unit === 'ms' || unit === 'iops' || unit === 'persec' || unit === 'count' || unit === 'cap' ? 0 : undefined,
     max: unit === 'percent' ? 100 : undefined,
     axisLabel: {
       color: colors.text,
@@ -384,11 +391,27 @@ function lineOption(curves: HostCurve[]): ChartOption {
   }
 }
 
+function shortDevice(disk: { deviceName: string; mountPoint: string }) {
+  let device = disk.deviceName.trim().replace(/^\/dev\//, '')
+  const slash = device.lastIndexOf('/')
+  if (slash >= 0) device = device.slice(slash + 1)
+  return device || disk.mountPoint
+}
+
 function capacityOption(disks: HostDetail['disks']): ChartOption {
   const rows = [...disks].sort((left, right) => right.usedPercent - left.usedPercent)
   const colors = ink()
   const horizontal = rows.length > 4
-  const names = rows.map((disk) => disk.mountPoint)
+  const counts = new Map<string, number>()
+  for (const disk of rows) {
+    const name = shortDevice(disk)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  const names = rows.map((disk) => {
+    const name = shortDevice(disk)
+    if ((counts.get(name) ?? 0) > 1 && disk.mountPoint && disk.mountPoint !== name) return `${name} ${disk.mountPoint}`
+    return name
+  })
   const valueAxis = {
     type: 'value' as const,
     min: 0,
@@ -403,7 +426,7 @@ function capacityOption(disks: HostDetail['disks']): ChartOption {
     type: 'category' as const,
     data: names,
     inverse: horizontal,
-    axisLabel: { color: colors.text, fontSize: 11, interval: 0 },
+    axisLabel: { color: colors.text, fontSize: 11, interval: 0, width: horizontal ? 120 : undefined, overflow: 'truncate' },
   }
   return {
     tooltip: {
@@ -415,8 +438,10 @@ function capacityOption(disks: HostDetail['disks']): ChartOption {
         const index = list[0]?.dataIndex ?? 0
         const disk = rows[index]
         if (!disk) return ''
+        const device = shortDevice(disk)
+        const title = disk.mountPoint && disk.mountPoint !== device ? `${device} · ${disk.mountPoint}` : device
         return [
-          disk.mountPoint,
+          title,
           `已用 ${bytes(disk.usedBytes)}（${percent(disk.usedPercent)}）`,
           `可用 ${bytes(disk.freeBytes)}`,
           `总量 ${bytes(disk.totalBytes)}`,

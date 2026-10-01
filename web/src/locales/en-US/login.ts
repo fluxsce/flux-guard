@@ -11,6 +11,7 @@ export default {
   submit: 'Sign in',
   pending: 'Checking…',
   failed: 'Sign-in failed',
+  noModule: 'This account has no pages to open. Ask an administrator for access.',
   agents: 'Agents',
   agentsDetail: 'Hosts and apps reporting in',
   samples: 'Samples',

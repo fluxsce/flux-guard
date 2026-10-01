@@ -1,0 +1,37 @@
+-- 组件连接。口令只存密文。最近一次拨号写在本行，曲线在各采集表。
+CREATE TABLE IF NOT EXISTS FG_COMPONENT_CONN (
+  componentId TEXT NOT NULL,
+  tenantId TEXT NOT NULL,
+  kindCode TEXT NOT NULL,
+  componentName TEXT NOT NULL,
+  address TEXT NOT NULL,
+  userName TEXT,
+  secretEnc TEXT,
+  databaseName TEXT,
+  optionText TEXT,
+  intervalSec INTEGER NOT NULL DEFAULT 30,
+  statusFlag TEXT NOT NULL DEFAULT 'Y',
+  upFlag TEXT NOT NULL DEFAULT 'N',
+  versionText TEXT,
+  roleName TEXT,
+  errorText TEXT,
+  summaryText TEXT,
+  probedTime TEXT,
+  addTime TEXT NOT NULL DEFAULT (datetime('now')),
+  addWho TEXT NOT NULL,
+  editTime TEXT NOT NULL DEFAULT (datetime('now')),
+  editWho TEXT NOT NULL,
+  oprSeqFlag TEXT NOT NULL,
+  currentVersion INTEGER NOT NULL DEFAULT 1,
+  activeFlag TEXT NOT NULL DEFAULT 'Y',
+  noteText TEXT,
+  extProperty TEXT,
+  reserved1 TEXT,
+  reserved2 TEXT,
+  reserved3 TEXT,
+  reserved4 TEXT,
+  reserved5 TEXT,
+  PRIMARY KEY (tenantId, componentId)
+);
+CREATE INDEX IF NOT EXISTS IDX_FG_COMPONENT_CONN_KIND ON FG_COMPONENT_CONN(tenantId, kindCode);
+CREATE INDEX IF NOT EXISTS IDX_FG_COMPONENT_CONN_ADD ON FG_COMPONENT_CONN(tenantId, addTime);

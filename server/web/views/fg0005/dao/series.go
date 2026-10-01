@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"fluxguard/common/hostnic"
+	"fluxguard/common/hostvol"
 	"fluxguard/server/store"
 	"fluxguard/server/web/views/fg0005/models"
 	dbx "github.com/fluxsce/dbx/db"
@@ -30,11 +32,11 @@ const diskSQL = `SELECT observedTime, mountPoint, deviceName, usedBytes, totalBy
 
 const diskIOSQL = `SELECT observedTime, deviceName, readBytesPerSec, writeBytesPerSec, readCount, writeCount, readLatencyMs, writeLatencyMs, utilPercent FROM FG_HOST_DISK_IO WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 
-const nicSQL = `SELECT observedTime, nicName, receiveBytesPerSec, transmitBytesPerSec, receiveErrs, transmitErrs, receiveDrop, transmitDrop FROM FG_HOST_NET WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-
 const procSQL = `SELECT observedTime, procCount, runningCount, sleepingCount, zombieCount, rssTotalBytes FROM FG_HOST_PROC WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 
 const procTopSQL = `SELECT observedTime, processId, processName, rssBytes, cpuPercent FROM FG_HOST_PROC_TOP WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, cpuPercent DESC, pointId DESC`
+
+var nicSQL = `SELECT observedTime, nicName, receiveBytesPerSec, transmitBytesPerSec, receiveErrs, transmitErrs, receiveDrop, transmitDrop FROM FG_HOST_NET WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'` + hostnic.SkipSQL("nicName") + ` ORDER BY observedTime DESC, pointId DESC`
 
 // Series 返回一台机器的曲线点，旧的在前。每张表只查一次。未给时间窗时每种曲线取最近 120 个点。
 func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.HostSeries {
@@ -94,7 +96,10 @@ func appendHost(db *dbx.DB, build *seriesBuild, clause string, args dbx.Args, li
 	}
 	for _, row := range queryWide(db, applySpan(fdSQL, clause), args, limit, 3) {
 		build.add("句柄数", "count", "", row[0], asFloat(row[1]))
-		build.add("句柄上限", "count", "", row[0], asFloat(row[2]))
+		if maximum := asFloat(row[2]); maximum > 0 {
+			// 上限与已用数差几个数量级。同轴时已用线贴在 0 上，看起来像没有句柄。
+			build.add("句柄上限", "cap", "", row[0], maximum)
+		}
 	}
 }
 
@@ -375,15 +380,10 @@ func queryWide(db *dbx.DB, query string, args dbx.Args, limit, width int) [][]an
 }
 
 func diskLabel(mount, device string) string {
-	mount = strings.TrimSpace(mount)
-	device = strings.TrimSpace(device)
-	if mount == "" {
-		return device
+	if hostvol.Container(mount) {
+		return ""
 	}
-	if device == "" || device == mount {
-		return mount
-	}
-	return mount + " " + device
+	return hostvol.BlockName(device, mount)
 }
 
 func spanClause(span SeriesSpan, args dbx.Args) string {

@@ -21,6 +21,8 @@ const props = withDefaults(
     moduleId?: string
     /** 保存按钮的动作键。不写时新增认 add，修改认 edit。 */
     saveAction?: string
+    /** 测试或其它底栏动作进行中时禁用保存。 */
+    testing?: boolean
     /** 对话框宽度。 */
     width?: string
   }>(),
@@ -30,6 +32,7 @@ const props = withDefaults(
     initialData: () => ({}),
     autoClose: true,
     teleportTo: undefined,
+    testing: false,
     width: '640px',
   },
 )
@@ -57,6 +60,10 @@ function confirm() {
   emit('submit', formRef.value?.getValues() ?? {})
   if (props.autoClose) open.value = false
 }
+
+function formValues() {
+  return formRef.value?.getValues() ?? {}
+}
 </script>
 
 <template>
@@ -80,8 +87,9 @@ function confirm() {
     </FgDataForm>
     <slot v-if="formRef?.model" name="extra" :model="formRef.model" />
     <template #footer>
-      <RsButton size="sm" @click="close">{{ mode === 'view' ? '关闭' : '取消' }}</RsButton>
-      <RsButton v-if="canSave" variant="primary" size="sm" @click="confirm">保存</RsButton>
+      <RsButton size="sm" :disabled="testing" @click="close">{{ mode === 'view' ? '关闭' : '取消' }}</RsButton>
+      <slot v-if="canSave" name="footer" :testing="testing" :values="formValues" />
+      <RsButton v-if="canSave" variant="primary" size="sm" :disabled="testing" @click="confirm">保存</RsButton>
     </template>
   </RsDialog>
 </template>

@@ -18,7 +18,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Use checked-out dbx
         run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
       - name: Test
         run: go test -count=1 ./...
+      - name: Build Java agent
+        run: |
+          set -euo pipefail
+          rm -rf agents/java/build
+          mkdir -p agents/java/build
+          list="$(mktemp)"
+          find agents/java/src -name '*.java' > "${list}"
+          javac --release 8 -encoding UTF-8 -d agents/java/build @"${list}"
+          rm -f "${list}"
+          jar cfm agents/java/flux-guard-agent-java.jar agents/java/MANIFEST.MF -C agents/java/build .
+          jar tf agents/java/flux-guard-agent-java.jar | grep -qx 'fluxguard/agent/Agent.class'
+          unzip -p agents/java/flux-guard-agent-java.jar META-INF/MANIFEST.MF | grep -q 'Premain-Class: fluxguard.agent.Agent'

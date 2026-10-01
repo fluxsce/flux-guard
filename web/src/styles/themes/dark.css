@@ -87,4 +87,30 @@
   --fg-panel-border: rgb(62 198 255 / 0.28);
   --fg-panel-shadow: inset 0 1px 0 rgb(245 196 81 / 0.55);
   --fg-dialog-bg: linear-gradient(180deg, rgb(62 198 255 / 0.14), transparent 42px), #0e1728;
+
+  --rs-terminal-shell-bg: #070d18;
+  --rs-terminal-bg: #0b1322;
+  --rs-terminal-fg: #e7f2ff;
+  --rs-terminal-cursor: #3ec6ff;
+  --rs-terminal-cursor-accent: #041018;
+  --rs-terminal-row-stripe: #102033;
+  --rs-terminal-selection-bg: rgb(62 198 255 / 0.28);
+  --rs-terminal-selection-fg: #ffffff;
+  --rs-terminal-border: #2a4368;
+  --rs-terminal-ansi-black: #041018;
+  --rs-terminal-ansi-red: #ff6b81;
+  --rs-terminal-ansi-green: #3dd68c;
+  --rs-terminal-ansi-yellow: #f5c451;
+  --rs-terminal-ansi-blue: #6d7cff;
+  --rs-terminal-ansi-magenta: #b79bff;
+  --rs-terminal-ansi-cyan: #3ec6ff;
+  --rs-terminal-ansi-white: #93a8c4;
+  --rs-terminal-ansi-bright-black: #6d82a0;
+  --rs-terminal-ansi-bright-red: #ff9aab;
+  --rs-terminal-ansi-bright-green: #7eecc0;
+  --rs-terminal-ansi-bright-yellow: #ffe7b0;
+  --rs-terminal-ansi-bright-blue: #9aa6ff;
+  --rs-terminal-ansi-bright-magenta: #d4c4ff;
+  --rs-terminal-ansi-bright-cyan: #7ad7ff;
+  --rs-terminal-ansi-bright-white: #e7f2ff;
 }

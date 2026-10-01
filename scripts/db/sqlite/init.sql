@@ -26,6 +26,14 @@ PRAGMA foreign_keys = ON;
 .read FG_JAVA_GC_PAUSE.sql
 .read FG_JAVA_THREAD_STATE.sql
 .read FG_JAVA_POOL_MAX.sql
+.read FG_COMPONENT_KIND.sql
+.read FG_COMPONENT_CONN.sql
+.read FG_REDIS_METRIC.sql
+.read FG_MYSQL_METRIC.sql
+.read FG_MONGO_METRIC.sql
+.read FG_KAFKA_METRIC.sql
+.read FG_ZK_METRIC.sql
+.read FG_NACOS_METRIC.sql
 .read FG_HOST_CPU.sql
 .read FG_HOST_CPU_CORE.sql
 .read FG_HOST_MEM.sql

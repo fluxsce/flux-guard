@@ -20,7 +20,7 @@ var javaOrder = map[string]struct{}{
 	"heapUsedPercent": {}, "threadCount": {}, "collectionCount": {}, "reportedTime": {},
 }
 
-// List 返回本租户每个 Java 进程的当前堆、线程和回收累计。
+// List 返回本租户每个 Java 进程的当前堆、线程和回收累计。当前值在上报时写入 FG_AGENT_JAVA。
 func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]models.JavaRow, int64, error) {
 	if db == nil {
 		return []models.JavaRow{}, 0, nil
@@ -37,40 +37,12 @@ func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]mode
 		SELECT j.agentId, j.appName AS appName, COALESCE(j.mainClass, ''), COALESCE(j.processId, ''),
 		       COALESCE(j.javaVersion, '') AS javaVersion, j.startTime, COALESCE(j.hostName, '') AS hostName,
 		       COALESCE(j.ipAddress, '') AS ipAddress,
-		       COALESCE(h.heapUsedPercent, 0) AS heapUsedPercent, COALESCE(h.heapUsedBytes, 0), COALESCE(h.heapMaxBytes, 0),
-		       COALESCE(h.nonHeapUsedBytes, 0),
-		       COALESCE(t.threadCount, 0) AS threadCount, COALESCE(t.daemonCount, 0),
-		       COALESCE(g.collectionCount, 0) AS collectionCount, COALESCE(g.collectionTimeMs, 0),
+		       COALESCE(j.heapUsedPercent, 0) AS heapUsedPercent, COALESCE(j.heapUsedBytes, 0), COALESCE(j.heapMaxBytes, 0),
+		       COALESCE(j.nonHeapUsedBytes, 0),
+		       COALESCE(j.threadCount, 0) AS threadCount, COALESCE(j.daemonCount, 0),
+		       COALESCE(j.collectionCount, 0) AS collectionCount, COALESCE(j.collectionTimeMs, 0),
 		       j.reportedTime AS reportedTime
-		FROM FG_AGENT_JAVA j
-		LEFT JOIN FG_JAVA_HEAP h
-		  ON h.tenantId = j.tenantId AND h.pointId = (
-		    SELECT pointId FROM FG_JAVA_HEAP
-		    WHERE tenantId = j.tenantId AND agentId = j.agentId AND activeFlag = 'Y'
-		    ORDER BY observedTime DESC, pointId DESC
-		    LIMIT 1
-		  )
-		LEFT JOIN FG_JAVA_THREAD t
-		  ON t.tenantId = j.tenantId AND t.pointId = (
-		    SELECT pointId FROM FG_JAVA_THREAD
-		    WHERE tenantId = j.tenantId AND agentId = j.agentId AND activeFlag = 'Y'
-		    ORDER BY observedTime DESC, pointId DESC
-		    LIMIT 1
-		  )
-		LEFT JOIN (
-		  SELECT g.tenantId, g.agentId,
-		         SUM(g.collectionCount) AS collectionCount,
-		         SUM(g.collectionTimeMs) AS collectionTimeMs
-		  FROM FG_JAVA_GC g
-		  WHERE g.activeFlag = 'Y' AND g.batchId = (
-		    SELECT batchId FROM FG_JAVA_GC latest
-		    WHERE latest.tenantId = g.tenantId AND latest.agentId = g.agentId AND latest.activeFlag = 'Y'
-		    ORDER BY latest.observedTime DESC, latest.pointId DESC
-		    LIMIT 1
-		  )
-		  GROUP BY g.tenantId, g.agentId
-		) g ON g.tenantId = j.tenantId AND g.agentId = j.agentId
-		` + where + `
+		FROM FG_AGENT_JAVA j` + where + `
 		ORDER BY j.appName`
 	rows, total, err := db.QueryPage(context.Background(), countSQL, listSQL, page, args)
 	if err != nil {

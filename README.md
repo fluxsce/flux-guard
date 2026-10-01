@@ -118,7 +118,7 @@ if (-not (Test-Path configs\server.yaml)) { Copy-Item configs\server.yaml.exampl
 | `agents/flux-guard-agent-app.tar.gz` | `flux-guard-agent-app/` |
 | `agents/flux-guard-agent-java.tar.gz` | `flux-guard-agent-java/` |
 
-主机代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理只有配置示例，用 `-javaagent` 挂进目标进程。第一次启动时，若还没有本机 `configs/*.yaml`，脚本会从示例复制一份。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
+主机代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理目录里有 `flux-guard-agent-java.jar` 和配置示例，挂载方式写在 `configs/java.yaml.example` 的注释里。第一次启动时，若还没有本机 `configs/*.yaml`，主机和应用的启动脚本会从示例复制一份。Java 代理没有启动脚本，把示例复制为 `configs/java.yaml` 后再改。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
 
 中央服务、主机代理和应用代理要在机器重启后自动起来，在各自目录执行一次 `scripts/run/install.sh`（Windows 用管理员执行 `install.ps1`）。这会登记成系统服务并立即启动：Linux 是 systemd，macOS 是 launchd，Windows 是开机任务。服务不把程序输出送进系统日志，日志仍写在安装目录的 `logs/` 里并按大小轮转。重启用同目录的 `restart.sh` 或 `restart.ps1`。取消开机启动用 `uninstall.sh` 或 `uninstall.ps1`。Java 代理不登记。
 

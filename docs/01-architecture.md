@@ -68,7 +68,7 @@ flowchart TB
 
 **协议** 规定这些交互：
 
-- `POST /api/ingest/v1/batches`
+- `POST /fluxguard/api/ingest/v1/batches`
 - 头 `Authorization: Bearer <上报令牌>`
 - 正文是 `protocol.Request`：`batchId`、`agentCode`、`sentAt`、`samples`、`events`、`host`、`java`。租户由令牌决定，不写进正文
 - 成功应答是 `protocol.Result`
@@ -79,7 +79,7 @@ flowchart TB
 
 ## 操控采集机
 
-指标上报保持短连接的 `POST /api/ingest/v1/batches`。这条链路已经在跑：代理按间隔采集，`common/report` 组批次，`server/web/ingest` 校验令牌后写入主机记录和事件。应答只有是否重复和条数，不携带命令。
+指标上报保持短连接的 `POST /fluxguard/api/ingest/v1/batches`。这条链路已经在跑：代理按间隔采集，`common/report` 组批次，`server/web/ingest` 校验令牌后写入主机记录和事件。应答只有是否重复和条数，不携带命令。
 
 命令另开通道。控制台只提交允许名单里的动作，任意 shell 不进名单。一条命令一行记录，拨入和拉取共用这一行，控制台只看这一行的状态和结果。
 
@@ -114,8 +114,8 @@ sequenceDiagram
 | 方向 | 路径 | 谁发起 | 作用 |
 |------|------|--------|------|
 | 拨入 | 代理上的 `POST /api/command/v1/exec` | server | 连上则执行并在本次应答里带回结果 |
-| 取令 | server 上的 `GET /api/command/v1/wait` | 代理 | 长轮询，只返回已改为待取的命令 |
-| 回执 | server 上的 `POST /api/command/v1/results` | 代理 | 把拉取执行的结果写回同一行 |
+| 取令 | server 上的 `GET /fluxguard/api/command/v1/wait` | 代理 | 长轮询，只返回已改为待取的命令 |
+| 回执 | server 上的 `POST /fluxguard/api/command/v1/results` | 代理 | 把拉取执行的结果写回同一行 |
 
 上报、取令、回执和命令端口都带同一把代理令牌，头仍是 `Authorization: Bearer`。进来的请求用摘要校验。拨号要出示这把令牌，所以环境设置里同一行再留一份可还原的密文，不是另一把密钥。令牌为空时不监听。取令和回执再用 `agentCode` 加 `machineId` 标明机器。
 
@@ -193,9 +193,10 @@ cmd/app             Go 应用代理入口；其它语言不经过这里
 server/auth         用户、角色、资源
 server/secret       口令和代理令牌摘要，只给 server 用
 server/web          管理端装配；模块在 views 下按目录扩展
-server/web/ingest   上报接收入口，分层与 views 相同：routes 在 init 自注册，另有 controllers、service、dao。不进模块号，路径仍是 POST /api/ingest/v1/batches
+server/web/ingest   上报接收入口，分层与 views 相同：routes 在 init 自注册，另有 controllers、service、dao。不进模块号，路径仍是 POST /fluxguard/api/ingest/v1/batches
 server/command      命令队列：先拨代理，拨不通改为待取。子包 models / service / routes；根包是门面
 server/alert        预警模板、渠道、事件与投递。子包 models / validate / channel / template / event / service；根包是门面
+server/component    组件直连采集。catalog 是种类目录，conn 是连接，sched 按间隔拨号，redis / mysql / mongo / kafka / zk / nacos 各自写入采集表
 server/shell        交互终端会话 FG_SHELL，字节只留在本进程内存管道；开闭与回车命令写入 FG_SHELL_AUDIT
 server/plugin       server 内置组件：菜单、转发，以及 examplealert
 server/config       本进程监听配置。产品版本不在 YAML 里
@@ -244,7 +245,7 @@ server/web/views/fg0002     代理
 server/web/views/fg0003     扩展目录
 server/web/views/fg0005     主机列表（当前值）、曲线和主机预警规则
 server/web/views/fg0006     Java 应用列表（当前值）和历史曲线
-server/web/views/fg0007     数据库列表（当前值，计划）
+server/web/views/fg0007     组件监控：连接、当前值和曲线
 server/web/views/fg0021     用户（0021–0040 系统管理）
 server/web/views/fg0022     角色
 server/web/views/fg0023     资源
@@ -268,7 +269,7 @@ server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_
 3. 在权限种子里加上对应的模块和按钮码。
 4. 控制台建 `web/src/views/fg00xx`（页面和 `api`），并在 `web/src/router` 挂上。接口用 `createApi(moduleApiPrefix('fg00xx'))`，前缀与后端模块目录同名。模块工具写在该目录的 `ai.ts`，并由 `web/src/ai/modules.ts` 引入。页面 setup 调用 `useModuleAi`，只上报当前场景。
 
-代理上报留在 `POST /api/ingest/v1/batches`，实现在 `server/web/ingest`，不进某个视图模块号。任何语言的代理都只依赖这条契约。每次上报只更新 `FG_AGENT`、`FG_AGENT_HOST`、`FG_AGENT_JAVA`。主机 CPU、内存、磁盘容量、磁盘 IO、网卡、TCP/UDP 连接、文件句柄、进程汇总和占用靠前的进程各插入记录表。Java 堆、GC、线程各插入记录表。fg0005 列表读最新一批，点进一行看当前分类和曲线，主机规则也在这一页。fg0006 同样读 Java 当前值和曲线。预警是 fg0041 模板、fg0042 渠道、fg0043 事件。系统操作日志在 fg0051，读 `FG_AUTH_AUDIT_LOG`。代理操作日志在 fg0052，读 `FG_COMMAND` 与 `FG_SHELL_AUDIT`。数据库列表仍是计划。
+代理上报留在 `POST /fluxguard/api/ingest/v1/batches`，实现在 `server/web/ingest`，不进某个视图模块号。任何语言的代理都只依赖这条契约。每次上报只更新 `FG_AGENT`、`FG_AGENT_HOST`、`FG_AGENT_JAVA`。主机 CPU、内存、磁盘容量、磁盘 IO、网卡、TCP/UDP 连接、文件句柄、进程汇总和占用靠前的进程各插入记录表。Java 堆、GC、线程各插入记录表。fg0005 列表读最新一批，点进一行看当前分类和曲线，主机规则也在这一页。fg0006 同样读 Java 当前值和曲线。fg0007 维护 Redis、MySQL、MongoDB、Kafka、ZooKeeper、Nacos 的连接，由中央服务按间隔拨号，每种组件写入自己的采集表，列表显示最近一次连通情况。预警是 fg0041 模板、fg0042 渠道、fg0043 事件。系统操作日志在 fg0051，读 `FG_AUTH_AUDIT_LOG`。代理操作日志在 fg0052，读 `FG_COMMAND` 与 `FG_SHELL_AUDIT`。
 
 ## 控制台 AI 接入
 

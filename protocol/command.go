@@ -1,12 +1,12 @@
 package protocol
 
 const (
-	// ExecPath 是代理命令端口。server 拨进来，同一次应答带回结果。
+	// ExecPath 是代理本机命令端口。server 直接拨这台机器，不经过中央根路径。
 	ExecPath = "/api/command/v1/exec"
 	// WaitPath 是代理向 server 长轮询待取命令。
-	WaitPath = "/api/command/v1/wait"
+	WaitPath = WebRoot + "/api/command/v1/wait"
 	// ResultPath 是代理把拉取执行的结果写回 server。
-	ResultPath = "/api/command/v1/results"
+	ResultPath = WebRoot + "/api/command/v1/results"
 
 	// ActionCollectNow 让主机代理马上再采一轮。
 	ActionCollectNow = "host.collect.now"

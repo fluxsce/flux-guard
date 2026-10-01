@@ -179,13 +179,14 @@ func eachStatement(ctx context.Context, conn *dbx.DB, dir string, files []string
 	return nil
 }
 
-// isIgnorableAlter 已有库重复执行 ADD COLUMN 时忽略「列已存在」。
+// isIgnorableAlter 重复执行 ADD COLUMN 时忽略「列已存在」。
 func isIgnorableAlter(stmt string, err error) bool {
 	if err == nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(stmt)), "ALTER") {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate column") ||
+		strings.Contains(msg, "duplicate key name") ||
 		strings.Contains(msg, "already exists")
 }
 
@@ -209,6 +210,6 @@ func statements(text string) []string {
 }
 
 func isSchema(stmt string) bool {
-	word := strings.ToUpper(stmt)
+	word := strings.ToUpper(strings.TrimSpace(stmt))
 	return strings.HasPrefix(word, "CREATE") || strings.HasPrefix(word, "ALTER")
 }

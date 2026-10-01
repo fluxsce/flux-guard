@@ -2,6 +2,7 @@ package dao
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,8 @@ func TestListAndDetail(t *testing.T) {
 			{MetricName: "host.disk.total.bytes", MetricValue: 500, Labels: map[string]string{"path": "/data", "device": "sdb1"}},
 			{MetricName: "host.disk.used.bytes", MetricValue: 300, Labels: map[string]string{"path": "C:", "device": "C:"}},
 			{MetricName: "host.disk.total.bytes", MetricValue: 900, Labels: map[string]string{"path": "C:", "device": "C:"}},
+			{MetricName: "host.disk.used.bytes", MetricValue: 10, Labels: map[string]string{"path": "/s/ac1bc307/volume-subpaths/wms/0", "device": "/dev/sda1"}},
+			{MetricName: "host.disk.total.bytes", MetricValue: 1000, Labels: map[string]string{"path": "/s/ac1bc307/volume-subpaths/wms/0", "device": "/dev/sda1"}},
 			{MetricName: "host.disk.io.read.bytes_per_sec", MetricValue: 2048, Labels: map[string]string{"device": "sda"}},
 			{MetricName: "host.disk.io.write.bytes_per_sec", MetricValue: 512, Labels: map[string]string{"device": "sda"}},
 			{MetricName: "host.disk.io.util.percent", MetricValue: 8, Labels: map[string]string{"device": "sda"}},
@@ -96,8 +99,11 @@ func TestListAndDetail(t *testing.T) {
 	if latest["内存已用"] != 800 || latest["内存总量"] != 2000 || latest["内存缓存"] != 0 || latest["CPU中断"] != 0 || latest["累计重传"] != 0 {
 		t.Fatalf("capacity=%+v", latest)
 	}
-	if latest["进程数"] != 40 || latest["僵尸"] != 1 {
+	if latest["进程数"] != 40 || latest["僵尸"] != 1 || latest["句柄数"] != 900 {
 		t.Fatalf("proc=%+v", latest)
+	}
+	if _, hasCap := latest["句柄上限"]; hasCap {
+		t.Fatal("zero file-max should be omitted")
 	}
 	if _, idle := latest["交换已用"]; idle {
 		t.Fatal("idle swap should be omitted")
@@ -109,8 +115,13 @@ func TestListAndDetail(t *testing.T) {
 		}
 		disks[curve.Group+" "+curve.Name] = curve.Points[len(curve.Points)-1].Value
 	}
-	if disks["磁盘容量 / sda1 已用"] != 700 || disks["磁盘容量 /data sdb1 总量"] != 500 || disks["磁盘容量 C: 已用"] != 300 {
+	if disks["磁盘容量 sda1 已用"] != 700 || disks["磁盘容量 sdb1 总量"] != 500 || disks["磁盘容量 C: 已用"] != 300 {
 		t.Fatalf("disks=%+v", disks)
+	}
+	for key := range disks {
+		if strings.Contains(key, "volume-subpaths") {
+			t.Fatalf("container volume leaked: %s", key)
+		}
 	}
 	if disks["磁盘吞吐 sda 读"] != 2048 || disks["磁盘吞吐 sda 写"] != 512 || disks["磁盘吞吐 sdb 读"] != 100 || disks["网卡 eth0 发送"] != 1024 || disks["网卡 eth1 接收"] != 200 {
 		t.Fatalf("devices=%+v", disks)

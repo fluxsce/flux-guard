@@ -28,7 +28,7 @@ func TestActionOf(t *testing.T) {
 		{"/fluxguard/api/fg0024/saveSettings", "fg0024:edit", ActionUpdate},
 		{"/fluxguard/api/fg0043/ackEvent", "fg0043:edit", ActionUpdate},
 		{"/healthz", "", ""},
-		{"/api/ingest/v1/batches", "", ""},
+		{"/fluxguard/api/ingest/v1/batches", "", ""},
 	}
 	for _, item := range cases {
 		if got := ActionOf(item.path, item.resource); got != item.want {

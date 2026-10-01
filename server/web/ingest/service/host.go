@@ -16,8 +16,8 @@ func init() {
 type hostWriter struct{}
 
 func (hostWriter) Save(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
-	if err := dao.SaveHostMetrics(ctx, tx, batch); err != nil {
+	if err := dao.SaveHost(ctx, tx, batch); err != nil {
 		return err
 	}
-	return dao.SaveHost(ctx, tx, batch)
+	return dao.SaveHostMetrics(ctx, tx, batch)
 }
