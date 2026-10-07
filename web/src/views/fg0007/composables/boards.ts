@@ -97,7 +97,7 @@ function sectionsOf(
   if (kind === 'redis' && deploy === 'sentinel') return redisSentinel(up, conn, point, problem)
   if (kind === 'redis') return redisStandalone(up, role, version, point, problem)
   if (kind === 'mysql') return mysqlBoard(up, role, version, point, problem)
-  if (kind === 'mongo') return mongoBoard(up, role, version, point)
+  if (kind === 'mongo') return mongoBoard(up, role, version, point, problem)
   if (kind === 'kafka') return kafkaBoard(up, version, point, problem)
   if (kind === 'zk') return zkBoard(up, role, version, point, problem)
   return nacosBoard(up, point)
@@ -395,38 +395,212 @@ function mysqlBoard(
   ]
 }
 
-function mongoBoard(up: BoardCard, role: BoardCard, version: BoardCard, point: Point | null): BoardSection[] {
+function mongoRole(code: string) {
+  const names: Record<string, string> = {
+    primary: '主节点',
+    secondary: '从节点',
+    arbiter: '仲裁',
+    mongos: '路由',
+    standalone: '单机',
+  }
+  return names[code] || code || '—'
+}
+
+function mongoBoard(
+  up: BoardCard,
+  role: BoardCard,
+  version: BoardCard,
+  point: Point | null,
+  problem: (text: string, level: Board['level']) => void,
+): BoardSection[] {
+  const usage = num(point, 'connUsagePercent')
+  let usageLevel: BoardCard['level'] = 'ok'
+  if (usage != null && usage >= 90) {
+    usageLevel = 'alert'
+    problem(`连接已用到上限的 ${usage.toFixed(1)}%`, 'alert')
+  } else if (usage != null && usage >= 80) {
+    usageLevel = 'watch'
+    problem(`连接已用到上限的 ${usage.toFixed(1)}%`, 'watch')
+  }
+  const dirty = num(point, 'cacheDirtyPercent')
+  let dirtyLevel: BoardCard['level'] = 'ok'
+  if (dirty != null && dirty >= 20) {
+    dirtyLevel = 'alert'
+    problem(`脏数据占缓存上限的 ${dirty.toFixed(1)}%`, 'alert')
+  } else if (dirty != null && dirty >= 10) {
+    dirtyLevel = 'watch'
+    problem(`脏数据占缓存上限的 ${dirty.toFixed(1)}%`, 'watch')
+  }
+  const lag = num(point, 'replicaLagSec')
+  const members = num(point, 'memberCount')
+  const inSet = role.value === 'primary' || role.value === 'secondary' || role.value === 'arbiter' || Boolean(point?.detail?.setName)
+  let lagLevel: BoardCard['level'] = 'ok'
+  let lagText = '—'
+  if (!inSet && (lag == null || lag < 0)) lagText = '无副本集'
+  else if (lag != null && lag >= 0) {
+    lagText = textOf('s', lag)
+    if (lag >= 30) {
+      lagLevel = 'alert'
+      problem(`复制延迟 ${Math.round(lag)} 秒`, 'alert')
+    } else if (lag >= 10) {
+      lagLevel = 'watch'
+      problem(`复制延迟 ${Math.round(lag)} 秒`, 'watch')
+    }
+  }
+  const unhealthy = num(point, 'unhealthyMembers')
+  if (unhealthy != null && unhealthy > 0) problem(`异常成员 ${Math.round(unhealthy)}`, 'alert')
+  const readers = num(point, 'queuedReaders')
+  const writers = num(point, 'queuedWriters')
+  const readerLevel = queueLevel(readers)
+  const writerLevel = queueLevel(writers)
+  if (readerLevel !== 'ok' && readers != null) problem(`读排队 ${Math.round(readers)}`, readerLevel)
+  if (writerLevel !== 'ok' && writers != null) problem(`写排队 ${Math.round(writers)}`, writerLevel)
+  const readTickets = num(point, 'readTickets')
+  const writeTickets = num(point, 'writeTickets')
+  if (readTickets === 0) problem('读票据已用完', 'alert')
+  if (writeTickets === 0) problem('写票据已用完', 'alert')
+  const asserts = num(point, 'assertPerSec')
+  let assertLevel: BoardCard['level'] = 'ok'
+  if (asserts != null && asserts >= 1) {
+    assertLevel = 'alert'
+    problem(`断言 ${asserts.toFixed(2)}/秒`, 'alert')
+  } else if (asserts != null && asserts > 0) {
+    assertLevel = 'watch'
+    problem(`断言 ${asserts.toFixed(2)}/秒`, 'watch')
+  }
+  const slow = num(point, 'slowOps')
+  let slowLevel: BoardCard['level'] = 'ok'
+  if (slow != null && slow >= 5) {
+    slowLevel = 'alert'
+    problem(`正在执行的慢操作 ${Math.round(slow)}`, 'alert')
+  } else if (slow != null && slow > 0) {
+    slowLevel = 'watch'
+    problem(`正在执行的慢操作 ${Math.round(slow)}`, 'watch')
+  }
+  const setName = point?.detail?.setName?.trim() || ''
   return [
-    { code: 'availability', title: '可用性', cards: [up, role, version], metrics: [] },
+    {
+      code: 'availability',
+      title: '可用性',
+      cards: [
+        up,
+        card('角色', mongoRole(role.value)),
+        version,
+        card('运行', textOf('s', num(point, 'uptimeSec'))),
+        card('副本集', setName || (inSet ? '—' : '无'), 'ok', '副本集名称。单机和路由没有这项。'),
+      ],
+      metrics: [],
+    },
     {
       code: 'connections',
       title: '连接',
       cards: [
-        card('当前连接', textOf('', num(point, 'connectionsCurrent'))),
-        card('可用连接', textOf('', num(point, 'connectionsAvailable'))),
+        card('当前', textOf('', num(point, 'connectionsCurrent'))),
+        card('可用', textOf('', num(point, 'connectionsAvailable'))),
+        card('活跃', textOf('', num(point, 'connectionsActive')), 'ok', '正在执行操作的连接。空闲连接不算在这里。'),
+        card('占用', textOf('%', usage), usageLevel, '当前连接占当前加可用的比例，也就是接近连接上限的程度。'),
       ],
       metrics: [
         { code: 'connectionsCurrent', name: '当前连接' },
-        { code: 'connectionsAvailable', name: '可用连接' },
+        { code: 'connectionsActive', name: '活跃连接' },
+        { code: 'connUsagePercent', name: '占用', unit: '%' },
+      ],
+    },
+    {
+      code: 'memory',
+      title: '内存',
+      cards: [
+        card('常驻', textOf('byte', num(point, 'residentBytes')), 'ok', '进程常驻内存。'),
+        card('缓存已用', textOf('byte', num(point, 'cacheUsedBytes'))),
+        card('缓存上限', textOf('byte', num(point, 'cacheMaxBytes')), 'ok', 'WiredTiger 缓存配置的上限。'),
+        card('缓存占用', textOf('%', num(point, 'cacheUsagePercent')), 'ok', '已用缓存除以上限。WiredTiger 会把缓存用到接近上限，单看这个比例不能判断故障。'),
+        card('脏数据', textOf('byte', num(point, 'cacheDirtyBytes'))),
+        card('脏数据占比', textOf('%', dirty), dirtyLevel, '脏数据占缓存上限的比例。大约到 5% 开始淘汰，到 20% 会明显变慢。'),
+      ],
+      metrics: [
+        { code: 'cacheUsedBytes', name: '缓存已用', unit: 'byte' },
+        { code: 'cacheDirtyBytes', name: '脏数据', unit: 'byte' },
+        { code: 'residentBytes', name: '常驻内存', unit: 'byte' },
       ],
     },
     {
       code: 'ops',
-      title: '累计操作',
+      title: '操作',
       cards: [
-        card('插入', textOf('', num(point, 'opInsert'))),
-        card('查询', textOf('', num(point, 'opQuery'))),
-        card('更新', textOf('', num(point, 'opUpdate'))),
-        card('删除', textOf('', num(point, 'opDelete'))),
+        card('每秒', textOf('/s', num(point, 'opsPerSec')), 'ok', '两次采集之间，插入、查询、更新、删除、命令和取更多的合计。第一拍还没有上一拍时显示 —。'),
+        card('查询', textOf('/s', num(point, 'opQueryPerSec'))),
+        card('取更多', textOf('/s', num(point, 'opGetmorePerSec')), 'ok', 'getmore，把游标里剩下的结果取回来。'),
+        card('插入', textOf('/s', num(point, 'opInsertPerSec'))),
+        card('更新', textOf('/s', num(point, 'opUpdatePerSec'))),
+        card('删除', textOf('/s', num(point, 'opDeletePerSec'))),
+        card('命令', textOf('/s', num(point, 'opCommandPerSec'))),
       ],
       metrics: [
-        { code: 'opQuery', name: '查询' },
-        { code: 'opInsert', name: '插入' },
-        { code: 'opUpdate', name: '更新' },
-        { code: 'opDelete', name: '删除' },
+        { code: 'opQueryPerSec', name: '查询', unit: '/s' },
+        { code: 'opGetmorePerSec', name: '取更多', unit: '/s' },
+        { code: 'opInsertPerSec', name: '插入', unit: '/s' },
+        { code: 'opUpdatePerSec', name: '更新', unit: '/s' },
+        { code: 'opDeletePerSec', name: '删除', unit: '/s' },
+        { code: 'opCommandPerSec', name: '命令', unit: '/s' },
       ],
     },
+    {
+      code: 'traffic',
+      title: '流量',
+      cards: [
+        card('入站', textOf('KB/s', num(point, 'netInKbps'))),
+        card('出站', textOf('KB/s', num(point, 'netOutKbps'))),
+      ],
+      metrics: [
+        { code: 'netInKbps', name: '入站', unit: 'KB/s' },
+        { code: 'netOutKbps', name: '出站', unit: 'KB/s' },
+      ],
+    },
+    {
+      code: 'replica',
+      title: '复制',
+      cards: [
+        card('延迟', lagText, lagLevel, '主节点显示最慢从节点落后的秒数。从节点显示自己落后主节点的秒数。单机和路由没有这项。'),
+        card('成员', textOf('', members)),
+        card('异常成员', textOf('', unhealthy), unhealthy != null && unhealthy > 0 ? 'alert' : 'ok', '健康检查不是 1 的成员。'),
+      ],
+      metrics: [{ code: 'replicaLagSec', name: '复制延迟', unit: 's' }],
+    },
+    {
+      code: 'queue',
+      title: '排队',
+      cards: [
+        card('读排队', textOf('', readers), readerLevel, '已经在等全局锁的读操作。'),
+        card('写排队', textOf('', writers), writerLevel, '已经在等全局锁的写操作。'),
+        card('读票据', textOf('', readTickets), readTickets === 0 ? 'alert' : 'ok', 'WiredTiger 还能同时开始的读事务数。变成 0 时新的读要等。'),
+        card('写票据', textOf('', writeTickets), writeTickets === 0 ? 'alert' : 'ok', 'WiredTiger 还能同时开始的写事务数。变成 0 时新的写要等。'),
+        card('断言', textOf('/s', asserts), assertLevel, '两次采集之间新出现的断言，按每秒计。包含 regular、warning、msg 和 user。正常是 0。'),
+      ],
+      metrics: [
+        { code: 'queuedReaders', name: '读排队' },
+        { code: 'queuedWriters', name: '写排队' },
+        { code: 'readTickets', name: '读票据' },
+        { code: 'writeTickets', name: '写票据' },
+      ],
+    },
+    {
+      code: 'storage',
+      title: '库',
+      cards: [card('占用', textOf('byte', num(point, 'dataBytes')), 'ok', '各库 sizeOnDisk 的合计。')],
+      metrics: [{ code: 'dataBytes', name: '占用', unit: 'byte' }],
+    },
+    {
+      code: 'slow',
+      title: '慢操作',
+      cards: [card('正在执行', textOf('', slow), slowLevel, '这一刻还在执行、并且已经超过 1 秒的操作。不是历史慢日志。')],
+      metrics: [{ code: 'slowOps', name: '慢操作' }],
+    },
   ]
+}
+
+function queueLevel(value: number | null): BoardCard['level'] {
+  if (value == null || value < 0 || value === 0) return 'ok'
+  return value >= 10 ? 'alert' : 'watch'
 }
 
 function kafkaBoard(

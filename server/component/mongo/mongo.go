@@ -1,13 +1,14 @@
-// Package mongo 用 OP_MSG 读取 serverStatus，并写入 FG_COMPONENT_MONGO_METRIC。
+// Package mongo 读取 serverStatus、复制状态、库占用和正在执行的操作，并写入 FG_COMPONENT_MONGO_METRIC。
 // 需要口令的实例当前记为连不上，不实现 SCRAM。
 package mongo
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"time"
 
@@ -30,18 +31,6 @@ func init() {
 
 type probe struct{}
 
-// Sample 是一轮 MongoDB 采集。
-type Sample struct {
-	ConnectionsCurrent   int64
-	ConnectionsAvailable int64
-	OpInsert             int64
-	OpQuery              int64
-	OpUpdate             int64
-	OpDelete             int64
-	Version              string
-	Role                 string
-}
-
 func (probe) Probe(ctx context.Context, db *dbx.DB, target conn.Open) (models.Status, error) {
 	sample, status := collect(ctx, target)
 	if db != nil {
@@ -58,16 +47,16 @@ func (probe) Series(ctx context.Context, db *dbx.DB, tenantID, componentID strin
 
 func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
 	if target.UserName != "" || target.Secret != "" {
-		return Sample{}, models.Status{Error: "MongoDB 口令登录尚未接入"}
+		return newSample(), models.Status{Error: "MongoDB 口令登录尚未接入"}
 	}
 	addr, err := netx.HostPort(target.Address, 27017)
 	if err != nil {
-		return Sample{}, models.Status{Error: err.Error()}
+		return newSample(), models.Status{Error: err.Error()}
 	}
 	dialer := net.Dialer{Timeout: 3 * time.Second}
 	raw, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return Sample{}, models.Status{Error: err.Error()}
+		return newSample(), models.Status{Error: err.Error()}
 	}
 	defer raw.Close()
 	if deadline, ok := ctx.Deadline(); ok {
@@ -75,34 +64,45 @@ func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
 	}
 	doc, err := call(raw, bsonDoc(bsonInt32("serverStatus", 1), bsonString("$db", "admin")))
 	if err != nil {
-		return Sample{}, models.Status{Error: err.Error()}
+		return newSample(), models.Status{Error: err.Error()}
 	}
-	if okv := num(dig(doc, "ok")); okv < 1 {
+	if num(dig(doc, "ok")) < 1 {
 		msg := text(dig(doc, "errmsg"))
 		if msg == "" {
 			msg = "MongoDB 应答失败"
 		}
-		return Sample{}, models.Status{Error: row.Cut(msg, 100)}
+		return newSample(), models.Status{Error: row.Cut(msg, 100)}
 	}
-	sample := Sample{
-		ConnectionsCurrent:   int64(num(dig(doc, "connections", "current"))),
-		ConnectionsAvailable: int64(num(dig(doc, "connections", "available"))),
-		OpInsert:             int64(num(dig(doc, "opcounters", "insert"))),
-		OpQuery:              int64(num(dig(doc, "opcounters", "query"))),
-		OpUpdate:             int64(num(dig(doc, "opcounters", "update"))),
-		OpDelete:             int64(num(dig(doc, "opcounters", "delete"))),
-		Version:              text(dig(doc, "version")),
-		Role:                 "standalone",
+	sample := sampleFrom(doc)
+	me := text(dig(doc, "repl", "me"))
+	if extra, err := call(raw, bsonDoc(bsonInt32("replSetGetStatus", 1), bsonString("$db", "admin"))); err != nil {
+		sample.MemberNote = "不是副本集，或暂时读不到成员。"
+	} else {
+		readReplica(&sample, extra, me)
 	}
-	if truthy(dig(doc, "repl", "ismaster")) || truthy(dig(doc, "repl", "isWritablePrimary")) {
-		sample.Role = "primary"
-	} else if truthy(dig(doc, "repl", "secondary")) {
-		sample.Role = "secondary"
+	if extra, err := call(raw, bsonDoc(bsonInt32("listDatabases", 1), bsonString("$db", "admin"))); err != nil {
+		sample.DbNote = "读不到库列表。"
+	} else {
+		readDatabases(&sample, extra)
+	}
+	if extra, err := call(raw, currentOpCommand()); err != nil {
+		sample.RunningNote = "读不到正在执行的操作。"
+	} else {
+		readRunning(&sample, extra)
 	}
 	return sample, models.Status{
 		Up: true, Version: sample.Version, Role: sample.Role,
-		Summary: fmt.Sprintf("角色 %s · 连接 %d", sample.Role, sample.ConnectionsCurrent),
+		Summary: row.Cut(summaryOf(sample), 100),
 	}
+}
+
+func currentOpCommand() []byte {
+	return bsonDoc(
+		bsonInt32("currentOp", 1),
+		bsonBool("active", true),
+		bsonBool("$all", true),
+		bsonString("$db", "admin"),
+	)
 }
 
 func call(raw net.Conn, doc []byte) (map[string]any, error) {
@@ -148,187 +148,39 @@ func opMessage(doc []byte) []byte {
 	return buf
 }
 
-func bsonDoc(elems ...[]byte) []byte {
-	body := []byte{}
-	for _, elem := range elems {
-		body = append(body, elem...)
-	}
-	size := 4 + len(body) + 1
-	out := make([]byte, 4, size)
-	binary.LittleEndian.PutUint32(out, uint32(size))
-	out = append(out, body...)
-	return append(out, 0)
-}
-
-func bsonInt32(name string, v int32) []byte {
-	out := append([]byte{0x10}, cstring(name)...)
-	var n [4]byte
-	binary.LittleEndian.PutUint32(n[:], uint32(v))
-	return append(out, n[:]...)
-}
-
-func bsonString(name, value string) []byte {
-	out := append([]byte{0x02}, cstring(name)...)
-	raw := append([]byte(value), 0)
-	var n [4]byte
-	binary.LittleEndian.PutUint32(n[:], uint32(len(raw)))
-	out = append(out, n[:]...)
-	return append(out, raw...)
-}
-
-func cstring(name string) []byte {
-	return append([]byte(name), 0)
-}
-
-func decodeDoc(b []byte) (map[string]any, error) {
-	if len(b) < 5 {
-		return nil, fmt.Errorf("MongoDB 应答无效")
-	}
-	size := int(binary.LittleEndian.Uint32(b[:4]))
-	if size < 5 || size > len(b) {
-		return nil, fmt.Errorf("MongoDB 应答无效")
-	}
-	return decodeElems(b[4 : size-1])
-}
-
-func decodeElems(b []byte) (map[string]any, error) {
-	out := map[string]any{}
-	i := 0
-	for i < len(b) {
-		typ := b[i]
-		i++
-		name, n, err := readCString(b[i:])
-		if err != nil {
-			return nil, err
-		}
-		i += n
-		val, used, err := decodeValue(typ, b[i:])
-		if err != nil {
-			return nil, err
-		}
-		out[name] = val
-		i += used
-	}
-	return out, nil
-}
-
-func decodeValue(typ byte, b []byte) (any, int, error) {
-	switch typ {
-	case 0x01:
-		if len(b) < 8 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return math.Float64frombits(binary.LittleEndian.Uint64(b[:8])), 8, nil
-	case 0x02:
-		if len(b) < 4 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		n := int(binary.LittleEndian.Uint32(b[:4]))
-		if n < 1 || 4+n > len(b) {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return string(b[4 : 4+n-1]), 4 + n, nil
-	case 0x03, 0x04:
-		if len(b) < 4 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		n := int(binary.LittleEndian.Uint32(b[:4]))
-		if n < 5 || n > len(b) {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		doc, err := decodeElems(b[4 : n-1])
-		return doc, n, err
-	case 0x05:
-		if len(b) < 5 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		n := int(binary.LittleEndian.Uint32(b[:4]))
-		if 5+n > len(b) {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return nil, 5 + n, nil
-	case 0x07:
-		if len(b) < 12 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return nil, 12, nil
-	case 0x08:
-		if len(b) < 1 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return b[0] != 0, 1, nil
-	case 0x09, 0x11, 0x12:
-		if len(b) < 8 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		if typ == 0x12 {
-			return int64(binary.LittleEndian.Uint64(b[:8])), 8, nil
-		}
-		return nil, 8, nil
-	case 0x0A:
-		return nil, 0, nil
-	case 0x10:
-		if len(b) < 4 {
-			return nil, 0, fmt.Errorf("MongoDB 应答无效")
-		}
-		return int32(binary.LittleEndian.Uint32(b[:4])), 4, nil
-	default:
-		return nil, 0, fmt.Errorf("MongoDB 应答含未识别类型")
-	}
-}
-
-func readCString(b []byte) (string, int, error) {
-	for i, c := range b {
-		if c == 0 {
-			return string(b[:i]), i + 1, nil
-		}
-	}
-	return "", 0, fmt.Errorf("MongoDB 应答无效")
-}
-
-func dig(v any, path ...string) any {
-	cur := v
-	for _, key := range path {
-		doc, ok := cur.(map[string]any)
-		if !ok {
-			return nil
-		}
-		cur = doc[key]
-	}
-	return cur
-}
-
-func num(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int32:
-		return float64(n)
-	case int64:
-		return float64(n)
-	default:
-		return 0
-	}
-}
-
-func text(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-func truthy(v any) bool {
-	b, ok := v.(bool)
-	return ok && b
-}
-
 func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample Sample, status models.Status) error {
+	now := time.Now().UTC()
+	if status.Up {
+		prev, err := lastCounters(ctx, db, tenantID, componentID)
+		if err != nil {
+			return err
+		}
+		applyRates(&sample, prev, now)
+	} else {
+		sample = newSample()
+	}
 	args := dbx.Args{
 		"tenantId": tenantID, "pointId": id.New(), "componentId": componentID,
 		"upFlag": row.Flag(status.Up), "versionText": row.Cut(status.Version, 64),
 		"roleName": row.Cut(status.Role, 32), "errorText": row.Cut(status.Error, 100),
-		"summaryText": row.Cut(status.Summary, 100), "observedTime": store.FormatTime(time.Now().UTC()),
+		"summaryText": row.Cut(status.Summary, 100), "observedTime": store.FormatTime(now),
 		"connectionsCurrent": sample.ConnectionsCurrent, "connectionsAvailable": sample.ConnectionsAvailable,
+		"connectionsActive": sample.ConnectionsActive, "connUsagePercent": sample.ConnUsagePercent,
+		"residentBytes": sample.ResidentBytes, "cacheUsedBytes": sample.CacheUsedBytes,
+		"cacheMaxBytes": sample.CacheMaxBytes, "cacheDirtyBytes": sample.CacheDirtyBytes,
+		"cacheUsagePercent": sample.CacheUsagePercent, "cacheDirtyPercent": sample.CacheDirtyPercent,
+		"opsPerSec": sample.OpsPerSec, "opInsertPerSec": sample.OpInsertPerSec, "opQueryPerSec": sample.OpQueryPerSec,
+		"opUpdatePerSec": sample.OpUpdatePerSec, "opDeletePerSec": sample.OpDeletePerSec,
+		"opCommandPerSec": sample.OpCommandPerSec, "opGetmorePerSec": sample.OpGetmorePerSec,
 		"opInsert": sample.OpInsert, "opQuery": sample.OpQuery, "opUpdate": sample.OpUpdate, "opDelete": sample.OpDelete,
+		"opGetmore": sample.OpGetmore, "opCommand": sample.OpCommand,
+		"replicaLagSec": sample.ReplicaLagSec, "memberCount": sample.MemberCount, "unhealthyMembers": sample.UnhealthyMembers,
+		"netInKbps": sample.NetInKbps, "netOutKbps": sample.NetOutKbps, "netInBytes": sample.NetIn, "netOutBytes": sample.NetOut,
+		"queuedReaders": sample.QueuedReaders, "queuedWriters": sample.QueuedWriters,
+		"readTickets": sample.ReadTickets, "writeTickets": sample.WriteTickets,
+		"assertPerSec": sample.AssertPerSec, "assertsTotal": sample.Asserts,
+		"slowOps": sample.SlowOps, "uptimeSec": sample.UptimeSec, "dataBytes": sample.DataBytes,
+		"extProperty": mongoDetail(sample),
 	}
 	for key, value := range row.Stamp("system", "") {
 		args[key] = value
@@ -336,15 +188,59 @@ func save(ctx context.Context, db *dbx.DB, tenantID, componentID string, sample 
 	_, err := db.Exec(ctx, `
 		INSERT INTO FG_COMPONENT_MONGO_METRIC (
 		  tenantId, pointId, componentId, upFlag, versionText, roleName, errorText, summaryText, observedTime,
-		  connectionsCurrent, connectionsAvailable, opInsert, opQuery, opUpdate, opDelete,
+		  connectionsCurrent, connectionsAvailable, connectionsActive, connUsagePercent,
+		  residentBytes, cacheUsedBytes, cacheMaxBytes, cacheDirtyBytes, cacheUsagePercent, cacheDirtyPercent,
+		  opsPerSec, opInsertPerSec, opQueryPerSec, opUpdatePerSec, opDeletePerSec, opCommandPerSec, opGetmorePerSec,
+		  opInsert, opQuery, opUpdate, opDelete, opGetmore, opCommand,
+		  replicaLagSec, memberCount, unhealthyMembers,
+		  netInKbps, netOutKbps, netInBytes, netOutBytes,
+		  queuedReaders, queuedWriters, readTickets, writeTickets,
+		  assertPerSec, assertsTotal, slowOps, uptimeSec, dataBytes, extProperty,
 		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag, noteText
 		) VALUES (
 		  @tenantId, @pointId, @componentId, @upFlag, @versionText, @roleName, @errorText, @summaryText, @observedTime,
-		  @connectionsCurrent, @connectionsAvailable, @opInsert, @opQuery, @opUpdate, @opDelete,
+		  @connectionsCurrent, @connectionsAvailable, @connectionsActive, @connUsagePercent,
+		  @residentBytes, @cacheUsedBytes, @cacheMaxBytes, @cacheDirtyBytes, @cacheUsagePercent, @cacheDirtyPercent,
+		  @opsPerSec, @opInsertPerSec, @opQueryPerSec, @opUpdatePerSec, @opDeletePerSec, @opCommandPerSec, @opGetmorePerSec,
+		  @opInsert, @opQuery, @opUpdate, @opDelete, @opGetmore, @opCommand,
+		  @replicaLagSec, @memberCount, @unhealthyMembers,
+		  @netInKbps, @netOutKbps, @netInBytes, @netOutBytes,
+		  @queuedReaders, @queuedWriters, @readTickets, @writeTickets,
+		  @assertPerSec, @assertsTotal, @slowOps, @uptimeSec, @dataBytes, @extProperty,
 		  @addTime, @addWho, @editTime, @editWho, @oprSeqFlag, @currentVersion, @activeFlag, @noteText
 		)`, args)
 	if err != nil {
 		return err
 	}
 	return pane.Touch(ctx, db, catalog.Mongo, args)
+}
+
+func lastCounters(ctx context.Context, db *dbx.DB, tenantID, componentID string) (*prior, error) {
+	var insertN, queryN, updateN, deleteN, getmoreN, commandN any
+	var netIn, netOut, asserts, uptime, observed any
+	err := store.Scan(ctx, db, `
+		SELECT opInsert, opQuery, opUpdate, opDelete, opGetmore, opCommand,
+		       netInBytes, netOutBytes, assertsTotal, uptimeSec, observedTime
+		FROM FG_COMPONENT_MONGO_METRIC
+		WHERE tenantId = @tenantId AND componentId = @componentId
+		ORDER BY observedTime DESC
+		LIMIT 1`, dbx.Args{"tenantId": tenantID, "componentId": componentID},
+		&insertN, &queryN, &updateN, &deleteN, &getmoreN, &commandN, &netIn, &netOut, &asserts, &uptime, &observed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	at, ok := store.TimeValue(observed)
+	if !ok {
+		return nil, nil
+	}
+	return &prior{
+		Insert: int64(row.Float(insertN)), Query: int64(row.Float(queryN)),
+		Update: int64(row.Float(updateN)), Delete: int64(row.Float(deleteN)),
+		Getmore: int64(row.Float(getmoreN)), Command: int64(row.Float(commandN)),
+		NetIn: int64(row.Float(netIn)), NetOut: int64(row.Float(netOut)),
+		Asserts: int64(row.Float(asserts)), Uptime: int64(row.Float(uptime)), At: at,
+	}, nil
 }

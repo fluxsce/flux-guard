@@ -22,6 +22,7 @@ const panelIcons: Record<string, string> = {
   broker: 'server',
   group: 'users',
   ops: 'activity',
+  storage: 'database',
   latency: 'gauge',
   scale: 'boxes',
   registry: 'library',

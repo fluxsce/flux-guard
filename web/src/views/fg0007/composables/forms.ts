@@ -208,7 +208,7 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
           { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'password') },
           { field: 'databaseName', label: '认证库', placeholder: '默认 admin', show: authIs('mongo', 'password') },
         ],
-        { tips: '无认证可读 serverStatus。用户名口令当前不走 SCRAM，采集会记为连不上。', show: kindIs('mongo') },
+        { tips: '无认证可读运行状态、复制成员、库占用和正在执行的操作。用户名口令当前不走 SCRAM，采集会记为连不上。', show: kindIs('mongo') },
       ),
       fieldset(
         'kafkaGroup',

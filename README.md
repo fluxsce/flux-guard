@@ -78,20 +78,18 @@
 
 ### 本地开发
 
-数据库组件和界面组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`，控制台依赖 `../niuma-ui`。
+数据库组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`。控制台依赖 npm 上的 [`niuma-ui`](https://www.npmjs.com/package/niuma-ui)。
 
-| 组件 | 仓库 |
+| 组件 | 来源 |
 |------|------|
 | dbx | https://github.com/fluxsce/dbx |
-| niuma-ui | https://github.com/Blair-Shang/niuma-ui |
+| niuma-ui | https://www.npmjs.com/package/niuma-ui |
 
 在 `flux-guard` 根目录执行：
 
 ```bash
 git clone https://github.com/fluxsce/dbx.git ../dbx
-git clone https://github.com/Blair-Shang/niuma-ui.git ../niuma-ui
 cp -n configs/server.yaml.example configs/server.yaml
-pnpm --dir ../niuma-ui install
 pnpm --dir web install
 pnpm dev
 ```

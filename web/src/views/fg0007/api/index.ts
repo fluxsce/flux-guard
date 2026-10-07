@@ -114,6 +114,27 @@ export interface KafkaGroupRow {
   members?: number
 }
 
+export interface MongoMember {
+  name: string
+  state: string
+  health: number
+  lag: number
+  self?: boolean
+}
+
+export interface MongoDatabase {
+  name: string
+  bytes: number
+  empty?: boolean
+}
+
+export interface MongoRunning {
+  op: string
+  ns: string
+  secs: number
+  client?: string
+}
+
 export interface PointDetail {
   dbs?: RedisDb[]
   slow?: RedisSlow[]
@@ -124,6 +145,13 @@ export interface PointDetail {
   groupNote?: string
   topicNote?: string
   brokerNote?: string
+  setName?: string
+  members?: MongoMember[]
+  databases?: MongoDatabase[]
+  running?: MongoRunning[]
+  memberNote?: string
+  dbNote?: string
+  runningNote?: string
 }
 
 export interface Point {

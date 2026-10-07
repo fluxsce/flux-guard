@@ -229,7 +229,7 @@ async function refreshDetail() {
       @back="back"
       @refresh="refreshDetail"
     />
-    <RsEmpty v-else class="fg-kind-blank" title="选择左侧的组件种类" description="每种组件单独列出实例，当前内存、流量和慢操作直接出现在表上。" />
+    <RsEmpty v-else class="fg-kind-blank" title="选择左侧的组件种类" description="每种组件单独列出实例，这一类的当前值直接出现在表上。" />
     </div>
     <FgDataFormModal
       v-model:open="formOpen"

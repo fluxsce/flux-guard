@@ -7,6 +7,7 @@ import { RsButton, RsDatePicker, RsInputNumber, RsSwitch, RsTabs, useRsToast, ty
 import { useSessionStore } from '@/stores/session'
 import KafkaMonitor from './KafkaMonitor.vue'
 import MetricSections from './MetricSections.vue'
+import MongoMonitor from './MongoMonitor.vue'
 import RedisMonitor from './RedisMonitor.vue'
 import TerminalPane from './TerminalPane.vue'
 import { querySeries, type ComponentConn, type Panel, type Point, type PointDetail, type SeriesRange } from '../api'
@@ -46,7 +47,7 @@ const panelSections = computed(() => sectionsFor(props.panels, activePanel.value
 const terminal = computed(() => activePanel.value?.terminalFlag === 'Y')
 const detail = computed<PointDetail>(() => latest.value?.detail ?? {})
 const layout = computed(() => layoutOf(props.conn.kindCode, props.conn.optionText, props.conn.userName, props.conn.secretSet).label)
-const redis = computed(() => props.conn.kindCode === 'redis')
+const ranged = computed(() => props.conn.kindCode === 'redis' || props.conn.kindCode === 'mongo')
 
 function pad(value: number) {
   return String(value).padStart(2, '0')
@@ -104,8 +105,8 @@ function currentRange(): SeriesRange | null {
 }
 
 async function load(window?: SeriesRange | null) {
-  const limit = redis.value ? 4000 : 120
-  const result = await querySeries(props.conn.componentId, limit, redis.value ? window : null)
+  const limit = ranged.value ? 4000 : 120
+  const result = await querySeries(props.conn.componentId, limit, ranged.value ? window : null)
   if (!isApiSuccess(result)) {
     error.value = getApiMessage(result, '曲线加载失败')
     return
@@ -143,13 +144,13 @@ function slideWindow() {
 function arm() {
   window.clearInterval(timer)
   timer = 0
-  if (!redis.value || !auto.value) return
+  if (!ranged.value || !auto.value) return
   const seconds = Math.min(300, Math.max(5, Number(intervalSec.value) || 15))
   timer = window.setInterval(() => slideWindow(), seconds * 1000)
 }
 
 watch(range, () => {
-  if (!redis.value) return
+  if (!ranged.value) return
   if (shortcutWrite) shortcutWrite = false
   else rollingMinutes.value = null
   publish()
@@ -171,16 +172,16 @@ watch(() => props.conn.kindCode, () => {
 })
 
 watch(() => props.conn.componentId, () => {
-  if (redis.value) publish()
+  if (ranged.value) publish()
   else void load()
 })
 watch(() => props.conn.probedTime, () => {
-  if (redis.value) publish()
+  if (ranged.value) publish()
   else void load()
 })
 
 onMounted(() => {
-  if (!redis.value) {
+  if (!ranged.value) {
     void load()
     return
   }
@@ -196,7 +197,7 @@ onUnmounted(() => {
 
 <template>
   <section class="fg-detail">
-    <FgToolbar v-if="redis" plain wrap :title="conn.componentName" :buttons="toolbarButtons">
+    <FgToolbar v-if="ranged" plain wrap :title="conn.componentName" :buttons="toolbarButtons">
       <template #after>
         <div v-if="!terminal" class="fg-monitor-bar">
           <RsDatePicker
@@ -230,7 +231,7 @@ onUnmounted(() => {
     </header>
     <RsTabs v-if="tabItems.length" v-model="panel" class="fg-panels" :items="tabItems" size="sm" panelless />
     <div class="fg-detail-body">
-      <p v-if="redis" class="fg-note">{{ conn.kindName || 'Redis' }} · {{ layout }} · {{ conn.address }}</p>
+      <p v-if="ranged" class="fg-note">{{ conn.kindName || conn.kindCode }} · {{ layout }} · {{ conn.address }}</p>
       <p v-if="board.finding && !terminal" class="fg-finding" :data-level="board.level">{{ board.finding }}</p>
       <p v-else-if="!points.length && !terminal" class="fg-note">还没有采集点。保存后会按间隔拨号，也可以在列表里立即采集。</p>
       <p v-if="error && !terminal" class="fg-finding" data-level="alert">{{ error }}</p>
@@ -239,6 +240,7 @@ onUnmounted(() => {
         <MetricSections v-if="panelSections.length" :sections="panelSections" :points="points" />
         <RedisMonitor v-if="conn.kindCode === 'redis'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <KafkaMonitor v-else-if="conn.kindCode === 'kafka'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
+        <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
       </template>
     </div>
   </section>

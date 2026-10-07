@@ -65,17 +65,14 @@ def section_body(section: dict) -> str:
 
 
 def plan_release(sections: list[dict], published: set[str], version: str) -> str:
-    """Release the package.json version when it is unpublished and has notes."""
+    """Release the package.json version when it is unpublished and has notes.
+
+    Older changelog sections that were never tagged stay as history. A failed
+    release build for those versions does not block this one.
+    """
     version = version.strip()
     if not SEMVER.fullmatch(version):
         raise ValueError("package.json version must be x.y.z")
-    clash = [
-        section["title"]
-        for section in sections
-        if SEMVER.fullmatch(section["title"]) and section["title"] != version and section["title"] not in published
-    ]
-    if clash:
-        raise ValueError(f"CHANGELOG has unpublished {clash[0]}, package.json is {version}")
     if version in published:
         return ""
     unreleased = next((section for section in sections if section["title"] == "Unreleased"), None)

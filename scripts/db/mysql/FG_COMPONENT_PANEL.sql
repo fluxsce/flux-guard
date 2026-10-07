@@ -49,9 +49,14 @@ INSERT INTO `FG_COMPONENT_PANEL` (
 ('default', 'mysql:slow', 'mysql', 'slow', '慢查询', 30, 'N', 'Y', 'slowQueries', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '缓冲池命中和累计慢查询。'),
 ('default', 'mysql:replica', 'mysql', 'replica', '复制', 40, 'N', 'Y', 'replicaLagSec', 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '复制延迟。'),
 ('default', 'mysql:terminal', 'mysql', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'MySQL SQL 客户端。'),
-('default', 'mongo:overview', 'mongo', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色和版本。'),
-('default', 'mongo:connections', 'mongo', 'connections', '连接', 20, 'N', 'Y', 'connectionsCurrent', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '当前连接和可用连接。'),
-('default', 'mongo:ops', 'mongo', 'ops', '操作', 30, 'N', 'Y', 'opQuery', 'ops', 'Y', 'system', 'system', 'INIT', 1, 'Y', '插入、查询、更新和删除的累计次数。'),
+('default', 'mongo:overview', 'mongo', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色、版本和排队。'),
+('default', 'mongo:connections', 'mongo', 'connections', '连接', 20, 'N', 'Y', 'connectionsCurrent', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '当前连接、可用连接和占用。'),
+('default', 'mongo:memory', 'mongo', 'memory', '内存', 30, 'N', 'Y', 'cacheUsedBytes', 'memory', 'Y', 'system', 'system', 'INIT', 1, 'Y', '常驻内存和 WiredTiger 缓存。列表看缓存已用。'),
+('default', 'mongo:ops', 'mongo', 'ops', '操作', 40, 'N', 'Y', 'opsPerSec', 'ops', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的每秒操作。'),
+('default', 'mongo:traffic', 'mongo', 'traffic', '流量', 50, 'N', 'N', NULL, 'traffic', 'Y', 'system', 'system', 'INIT', 1, 'Y', '入站和出站。'),
+('default', 'mongo:replica', 'mongo', 'replica', '复制', 60, 'N', 'Y', 'replicaLagSec', 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '复制延迟和成员状态。'),
+('default', 'mongo:storage', 'mongo', 'storage', '库', 70, 'N', 'N', NULL, 'storage', 'Y', 'system', 'system', 'INIT', 1, 'Y', '各库占用。'),
+('default', 'mongo:slow', 'mongo', 'slow', '慢操作', 80, 'N', 'Y', 'slowOps', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '正在执行且已超过 1 秒的操作。'),
 ('default', 'mongo:terminal', 'mongo', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'MongoDB 命令通道。'),
 ('default', 'kafka:overview', 'kafka', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'Broker、离线分区、未同步分区和日志占用。'),
 ('default', 'kafka:broker', 'kafka', 'broker', 'Broker', 15, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '每台 Broker 的地址、控制器、连通和日志占用。'),
@@ -65,3 +70,6 @@ INSERT INTO `FG_COMPONENT_PANEL` (
 ('default', 'nacos:overview', 'nacos', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通情况。'),
 ('default', 'nacos:registry', 'nacos', 'registry', '配置与服务', 20, 'N', 'Y', 'configCount,serviceCount', 'registry', 'Y', 'system', 'system', 'INIT', 1, 'Y', '配置数和服务数。'),
 ('default', 'nacos:terminal', 'nacos', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'Nacos 控制台操作。');
+UPDATE `FG_COMPONENT_PANEL` SET `noteText` = '连通、角色、版本和排队。' WHERE `tenantId` = 'default' AND `panelId` = 'mongo:overview';
+UPDATE `FG_COMPONENT_PANEL` SET `metricText` = 'connectionsCurrent', `noteText` = '当前连接、可用连接和占用。' WHERE `tenantId` = 'default' AND `panelId` = 'mongo:connections';
+UPDATE `FG_COMPONENT_PANEL` SET `panelName` = '操作', `sortOrder` = 40, `metricText` = 'opsPerSec', `sectionText` = 'ops', `noteText` = '两次采集之间的每秒操作。' WHERE `tenantId` = 'default' AND `panelId` = 'mongo:ops';
