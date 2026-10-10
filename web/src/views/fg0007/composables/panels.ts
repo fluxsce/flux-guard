@@ -19,6 +19,7 @@ const panelIcons: Record<string, string> = {
   keys: 'key',
   connections: 'plug',
   topic: 'layers',
+  partition: 'split',
   broker: 'server',
   group: 'users',
   ops: 'activity',

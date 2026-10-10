@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"fluxguard/protocol"
-	"fluxguard/server/plugin"
 	"fluxguard/server/web/ingest/dao"
 	"fluxguard/server/web/ingest/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
-// Service 接收代理批次，先按 batchId 去重，再交给已登记的写入器，最后调用附加 Sink。
-// 附加 Sink 失败不会回滚已写入的记录，也不会让代理用同一批次重试成功后的转发。
+// Service 接收代理批次，先按 batchId 去重，再交给已登记的写入器。
 type Service struct {
 	db *dbx.DB
 }
@@ -56,18 +54,7 @@ func (s *Service) Accept(ctx context.Context, batch protocol.Batch) (protocol.Re
 	if err != nil {
 		return protocol.Result{}, err
 	}
-
-	var sinkErr error
-	for _, sink := range plugin.Sinks() {
-		if err := sink.Accept(ctx, batch); err != nil {
-			sinkErr = errors.Join(sinkErr, err)
-		}
-	}
-	result := protocol.Result{SampleCount: len(batch.Samples), EventCount: len(batch.Events)}
-	if sinkErr != nil {
-		result.SinkError = sinkErr.Error()
-	}
-	return result, nil
+	return protocol.Result{SampleCount: len(batch.Samples), EventCount: len(batch.Events)}, nil
 }
 
 // HostOf 返回这台代理最近上报的机器资料。

@@ -17,6 +17,7 @@ import (
 	"fluxguard/common/logger"
 	"fluxguard/server/alert"
 	"fluxguard/server/command"
+	"fluxguard/server/component/bridge"
 	"fluxguard/server/config"
 	"fluxguard/server/job/policy"
 	"fluxguard/server/job/registry"
@@ -24,7 +25,7 @@ import (
 	"fluxguard/server/job/status"
 	"fluxguard/server/job/tenant"
 	"fluxguard/server/limits"
-	_ "fluxguard/server/plugin/examplealert"
+	"fluxguard/server/plugin"
 	"fluxguard/server/retention"
 	"fluxguard/server/setting"
 	"fluxguard/server/shell"
@@ -129,6 +130,14 @@ func run() error {
 		defer close(scanDone)
 		alertSvc.Loop(ctx)
 	}()
+	// 插件先按清单拉起。组件侧再按调用结果换掉对应种类的内置探针。须在调度开始拨号之前。
+	if err := plugin.Load(plugin.DirName); err != nil {
+		return err
+	}
+	if err := bridge.Attach(); err != nil {
+		plugin.StopAll()
+		return err
+	}
 	loopsDone := routes.RunLoops(ctx)
 	shellDone := make(chan struct{})
 	go func() {
@@ -164,6 +173,7 @@ func run() error {
 
 	// 阻塞到收到退出信号，或监听失败主动取消。
 	<-ctx.Done()
+	plugin.StopAll()
 	// 停接新连接，等在途请求。超时则强制断开，避免处理函数占着库连接。
 	shut, cancel := context.WithTimeout(context.Background(), limits.ShutdownWait)
 	defer cancel()

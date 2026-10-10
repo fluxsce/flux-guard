@@ -1,5 +1,5 @@
 -- 资源目录在本脚本。初始授权在 FG_AUTH_ROLE_RESOURCE.sql，之后由角色页维护。
--- fg0100 是内置示例插件声明的菜单，灌库时一并写入，避免只装数据库时目录缺失。
+-- fg0100 是示例告警菜单，灌库时写入。页面在 web 路由里挂占位页。
 CREATE TABLE IF NOT EXISTS `FG_AUTH_RESOURCE` (
   `resourceId` VARCHAR(100) NOT NULL COMMENT '资源ID，联合主键',
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',
@@ -96,8 +96,8 @@ INSERT INTO `FG_AUTH_RESOURCE` (
 ('fg0025', 'default', '任务调度', 'fg0025', 'MODULE', '/fg0025', 'group:system', 2, 95, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0025:view', 'default', '查看', 'fg0025:view', 'BUTTON', NULL, 'fg0025', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0025:edit', 'default', '维护', 'fg0025:edit', 'BUTTON', NULL, 'fg0025', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
-('fg0003', 'default', '插件', 'fg0003', 'MODULE', '/fg0003', 'group:system', 2, 100, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
-('fg0003:view', 'default', '查看', 'fg0003:view', 'BUTTON', NULL, 'fg0003', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
+('fg0026', 'default', '插件管理', 'fg0026', 'MODULE', '/fg0026', 'group:system', 2, 96, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
+('fg0026:view', 'default', '查看', 'fg0026:view', 'BUTTON', NULL, 'fg0026', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('group:alert', 'default', '预警管理', 'group:alert', 'GROUP', NULL, NULL, 1, 15, 'bell', 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0041', 'default', '预警模板', 'fg0041', 'MODULE', '/fg0041', 'group:alert', 2, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0041:view', 'default', '查看', 'fg0041:view', 'BUTTON', NULL, 'fg0041', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
@@ -115,3 +115,11 @@ INSERT INTO `FG_AUTH_RESOURCE` (
 ('fg0052', 'default', '代理操作日志', 'fg0052', 'MODULE', '/fg0052', 'group:log', 2, 120, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0052:search', 'default', '查询', 'fg0052:search', 'BUTTON', NULL, 'fg0052', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0052:view', 'default', '查看', 'fg0052:view', 'BUTTON', NULL, 'fg0052', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y');
+
+-- 插件管理从观测号段挪到系统管理。已有库每次启动都会走到这里，没有旧行时不影响。
+UPDATE `FG_AUTH_RESOURCE`
+SET `resourceId` = 'fg0026', `resourceCode` = 'fg0026', `resourceName` = '插件管理', `resourcePath` = '/fg0026', `sortOrder` = 96
+WHERE `tenantId` = 'default' AND `resourceId` = 'fg0003';
+UPDATE `FG_AUTH_RESOURCE`
+SET `resourceId` = 'fg0026:view', `resourceCode` = 'fg0026:view', `parentResourceId` = 'fg0026'
+WHERE `tenantId` = 'default' AND `resourceId` = 'fg0003:view';

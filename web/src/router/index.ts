@@ -31,13 +31,12 @@ export const menuGroups = [
 
 /**
  * 控制台模块路由。地址是 /fluxguard/{模块号}，路径段不写页面含义。
- * 0001–0020 运行观测，0021–0040 系统管理，0041–0050 预警管理，0051–0070 日志管理。目前用到 fg0041 模板、fg0042 渠道、fg0043 事件、fg0051 系统操作日志、fg0052 代理操作日志。预警规则在 fg0005。新增页面只加这一张表，并在权限种子里登记同名模块。
+ * 0001–0020 运行观测，0021–0040 系统管理，0041–0050 预警管理，0051–0070 日志管理。目前用到 fg0026 插件、fg0041 模板、fg0042 渠道、fg0043 事件、fg0051 系统操作日志、fg0052 代理操作日志。预警规则在 fg0005。新增页面只加这一张表，并在权限种子里登记同名模块。
  * 未单独登记的模块号落到最后一条，给插件菜单用。
  */
 export const moduleRoutes: RouteRecordRaw[] = [
   { path: 'fg0001', component: () => import('@/views/fg0001/OverviewView.vue'), meta: { module: 'fg0001', icon: 'layout-dashboard', group: 'group:observe' } },
   { path: 'fg0002', component: () => import('@/views/fg0002/AgentsView.vue'), meta: { module: 'fg0002', icon: 'server', group: 'group:observe', flush: true } },
-  { path: 'fg0003', component: () => import('@/views/fg0003/PluginsView.vue'), meta: { module: 'fg0003', icon: 'puzzle', group: 'group:system' } },
   { path: 'fg0005', component: () => import('@/views/fg0005/HostsView.vue'), meta: { module: 'fg0005', icon: 'cpu', group: 'group:observe', flush: true } },
   { path: 'fg0006', component: () => import('@/views/fg0006/JavaView.vue'), meta: { module: 'fg0006', icon: 'coffee', group: 'group:observe', flush: true } },
   { path: 'fg0007', component: () => import('@/views/fg0007/ComponentsView.vue'), meta: { module: 'fg0007', icon: 'boxes', group: 'group:observe', flush: true } },
@@ -47,6 +46,7 @@ export const moduleRoutes: RouteRecordRaw[] = [
   { path: 'fg0023', component: () => import('@/views/fg0023/ResourcesView.vue'), meta: { module: 'fg0023', icon: 'layers', group: 'group:system', flush: true } },
   { path: 'fg0024', component: () => import('@/views/fg0024/SettingsView.vue'), meta: { module: 'fg0024', icon: 'sliders-horizontal', group: 'group:system', flush: true } },
   { path: 'fg0025', component: () => import('@/views/fg0025/JobsView.vue'), meta: { module: 'fg0025', icon: 'timer', group: 'group:system', flush: true } },
+  { path: 'fg0026', component: () => import('@/views/fg0026/PluginsView.vue'), meta: { module: 'fg0026', icon: 'puzzle', group: 'group:system' } },
   { path: 'fg0041', component: () => import('@/views/fg0041/TemplatesView.vue'), meta: { module: 'fg0041', icon: 'bell-ring', group: 'group:alert', flush: true } },
   { path: 'fg0042', component: () => import('@/views/fg0042/ChannelsView.vue'), meta: { module: 'fg0042', icon: 'send', group: 'group:alert', flush: true } },
   { path: 'fg0043', component: () => import('@/views/fg0043/EventsView.vue'), meta: { module: 'fg0043', icon: 'bell', group: 'group:alert', flush: true } },

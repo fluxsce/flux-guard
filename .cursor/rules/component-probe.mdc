@@ -1,0 +1,106 @@
+---
+description: 外置插件的 manifest、通道认证和文件传输。中央点名调用，插件不能自己扩大能力。
+globs: server/plugin/**/*.go,server/component/**/*.go,protocol/**/*.go,cmd/server/**/*.go
+alwaysApply: false
+---
+
+# 外置插件
+
+中央进程掌握种类目录、调度、入库和页面。插件是独立进程，用什么语言都行，但只能说 `protocol` 里这一版契约。`server/plugin` 只按清单拉起进程并交回调用结果。指标入库、维护和文件规则在 `server/component/bridge`。
+
+每个插件是 `SERVICE`，清单集中放在：
+
+```text
+plugins/manifests/<编码>.yaml
+plugins/<编码>/<可执行文件>
+```
+
+没放这份清单时，组件继续用内置探针。清单里写了 `bridge.connection_kind` 之后，`bridge` 用这个进程交回的结果替换该种类的内置探针。插件管理本身不认识指标表。
+
+## 清单
+
+`protocol/plugin.go` 只定义帧和信封。一份清单按固定分节写：`bridge` 是命名空间和组件种类，`session` 列出会注入组件口令的方法，`runtime` 给出 Windows 与 Unix 各自的可执行文件和语言，`ipc` 给出通道、地址和协议，`lifecycle.startup` 目前是 `lazy`。`id` 形如 `com.fluxguard.kafka`。可执行文件相对 `plugins` 目录，必须落在这个目录内。`methods` 列出允许调用的方法。只有 `maintain` 可以再列 `ops` 和参数名。`permissions` 目前只允许空列表。组件口令不写进清单。
+
+## 调用
+
+插件进程监听本机管道。Windows 是命名管道，其它系统是可执行文件旁边的套接字。中央拉起时把地址放进该进程的 `FG_PLUGIN_ADDRESS`。这不是组件口令，也不是语言运行时路径。一帧是 4 字节小端长度加上一段 UTF-8 JSON。中央生成 `id` 和 `traceId`。应答里的 `v`、`id`、`traceId` 必须原样带回，否则这次结果不能记到这次调用上。`result` 是业务 JSON 再编码成的字符串。失败时 `ok` 为 false，`error` 是说明，`errorCode` 是稳定错误码。信封里不另放通道令牌。组件口令只出现在 `probe` 和 `maintain` 的参数里。
+
+同一条连接上一来一回，多条连接同时进行。空闲连接最多留 32 条、30 秒，下一笔优先复用。已经写出去再失败时不重发。一笔超时只关掉自己的连接。插件的接入循环要把每条连接分开处理，同一条连接可以连续做多笔。
+
+方法只有四个：
+
+| 方法 | 做什么 | 参数里有没有组件口令 |
+|---|---|---|
+| `probe` | 交回目录里的指标 | 有 |
+| `maintain` | 执行清单里声明的维护操作 | 有 |
+| `file.put` | 中央把一份文件交给进程 | 没有 |
+| `file.get` | 中央按文件名取回内容 | 没有 |
+
+文件名只能是字母、数字、点、下划线和短横线，不能带路径。单次不超过 256KB。`sha256` 对不上就丢掉。中央不接受进程指定的本机路径。
+
+## 禁止做的事
+
+```go
+// 禁止：把未登记的方法转给进程
+call(ctx, "shell", map[string]string{"cmd": "rm -rf /"})
+
+// 禁止：文件参数里带绝对路径或组件口令
+FilePutParams{Name: "/etc/passwd", Body: secret}
+
+// 禁止：口令放进命令行、清单、日志或 JAVA_HOME 这类环境变量
+exec.Command(bin, "-password", secret)
+```
+
+```yaml
+id: com.fluxguard.kafka
+name: Kafka
+version: 1.0.0
+bridge:
+  namespace: kafka
+  connection_kind: kafka
+session:
+  inject_credentials: true
+  credential_methods:
+    - probe
+    - maintain
+runtime:
+  executable: kafka/dist/kafka-probe/kafka-probe.exe
+  executable_windows: kafka/dist/kafka-probe/kafka-probe.exe
+  executable_unix: kafka/dist/kafka-probe/kafka-probe
+  lang: java
+ipc:
+  transport: named_pipe
+  transport_windows: named_pipe
+  transport_unix: unix_socket
+  address: '\\.\pipe\fluxguard.kafka'
+  address_windows: '\\.\pipe\fluxguard.kafka'
+  address_unix: kafka/dist/kafka-probe/kafka.sock
+  protocol: length_prefixed_json
+lifecycle:
+  startup: lazy
+permissions: []
+methods:
+  - name: probe
+  - name: maintain
+    ops:
+      - name: create_topic
+        args: [name]
+  - name: file.put
+  - name: file.get
+```
+
+外置运行时跟插件放在一起，用相对路径启动。不要求机器另装语言运行时。`FG_PLUGIN_ADDRESS` 只在这个子进程里，机器上不另设语言运行时变量。
+
+## 进程
+
+一个外置插件一个进程。清单的启动方式是 `lazy`，第一次调用再拉起，中央退出时全部停下。同一个进程同时接受多条本机连接，几十台实例的采集和用户操作可以一起进行。不再每次调用新建进程。
+
+| 动作 | 结果 |
+|---|---|
+| `Load` | 校验清单并登记，此时不启动进程。清单无效则去掉这次已经登记的。不写采集表 |
+| `Attach` | `bridge` 按清单里的 `component` 换掉内置探针。种类不在目录里则失败，进程仍由 plugin 保持 |
+| `Start` | 已停止或已退出的可以再拉起 |
+| `Stop` | 停掉这一个。之后的调用不会偷偷再启动 |
+| `StopAll` | 中央退出时停掉全部 |
+
+进程自己退出后，下一次调用会再拉起。只有 `Stop` 之后不会自动再启动。

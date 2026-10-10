@@ -89,6 +89,17 @@ export interface KafkaBrokerRow {
   controller: boolean
   up: boolean
   logBytes?: number
+  leaders?: number
+  replicas?: number
+}
+
+export interface KafkaPartitionRow {
+  topic: string
+  part: number
+  leader: number
+  isr: number
+  replicas: number
+  problem: string
 }
 
 export interface KafkaTopicRow {
@@ -112,6 +123,7 @@ export interface KafkaGroupRow {
   topicCount?: number
   state?: string
   members?: number
+  behind?: number
 }
 
 export interface MongoMember {
@@ -141,9 +153,11 @@ export interface PointDetail {
   clusterId?: string
   brokers?: KafkaBrokerRow[]
   topics?: KafkaTopicRow[]
+  partitions?: KafkaPartitionRow[]
   groups?: KafkaGroupRow[]
   groupNote?: string
   topicNote?: string
+  partitionNote?: string
   brokerNote?: string
   setName?: string
   members?: MongoMember[]

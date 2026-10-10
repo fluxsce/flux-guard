@@ -1,14 +1,15 @@
 package plugin
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
-// Registry 保存本服务器进程加载的扩展。
+// Registry 保存本进程已加载的外置插件目录。进程由 Load 拉起。
 type Registry struct {
-	mu      sync.RWMutex
-	sinks   []Sink
-	modules []Module
-	infos   []Info
-	codes   map[string]struct{}
+	mu    sync.RWMutex
+	infos []Info
+	codes map[string]struct{}
 }
 
 // NewRegistry 返回空注册表。
@@ -16,69 +17,45 @@ func NewRegistry() *Registry {
 	return &Registry{codes: map[string]struct{}{}}
 }
 
-// Default 是服务器进程的扩展表。扩展在 init 里登记。
+// Default 是服务器进程的插件目录。
 var Default = NewRegistry()
-
-// RegisterSink 登记转发扩展。
-func RegisterSink(s Sink) { Default.RegisterSink(s) }
-
-// RegisterModule 登记菜单扩展。
-func RegisterModule(m Module) { Default.RegisterModule(m) }
-
-// Sinks 返回已登记转发扩展的副本。
-func Sinks() []Sink { return Default.Sinks() }
-
-// Modules 返回已登记菜单扩展的副本。
-func Modules() []Module { return Default.Modules() }
 
 // Infos 返回目录副本。
 func Infos() []Info { return Default.Infos() }
 
-// RegisterSink 登记转发扩展。编码重复时 panic。
-func (r *Registry) RegisterSink(s Sink) {
-	r.add(s.Code(), Info{Code: s.Code(), Name: s.Name(), Kind: "SINK", Scope: "SERVER", BuiltinFlag: "Y"})
-	r.mu.Lock()
-	r.sinks = append(r.sinks, s)
-	r.mu.Unlock()
-}
-
-// RegisterModule 登记菜单扩展。编码重复时 panic。
-func (r *Registry) RegisterModule(m Module) {
-	r.add(m.Code(), Info{Code: m.Code(), Name: m.Name(), Kind: "MODULE", Scope: "SERVER", BuiltinFlag: "Y"})
-	r.mu.Lock()
-	r.modules = append(r.modules, m)
-	r.mu.Unlock()
-}
-
-func (r *Registry) add(code string, info Info) {
+// addExternal 登记一份外置插件。编码已经存在时返回错误，不打断进程。
+func (r *Registry) addExternal(info Info) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.codes == nil {
 		r.codes = map[string]struct{}{}
 	}
-	if _, ok := r.codes[code]; ok {
-		panic("服务器扩展编码重复: " + code)
+	if _, ok := r.codes[info.Code]; ok {
+		return fmt.Errorf("插件编码重复: %s", info.Code)
 	}
-	r.codes[code] = struct{}{}
+	r.codes[info.Code] = struct{}{}
 	r.infos = append(r.infos, info)
+	return nil
 }
 
-// Sinks 返回转发扩展副本。
-func (r *Registry) Sinks() []Sink {
+func (r *Registry) has(code string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Sink, len(r.sinks))
-	copy(out, r.sinks)
-	return out
+	_, ok := r.codes[code]
+	return ok
 }
 
-// Modules 返回菜单扩展副本。
-func (r *Registry) Modules() []Module {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]Module, len(r.modules))
-	copy(out, r.modules)
-	return out
+func (r *Registry) remove(code string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.codes, code)
+	next := make([]Info, 0, len(r.infos))
+	for _, info := range r.infos {
+		if info.Code != code {
+			next = append(next, info)
+		}
+	}
+	r.infos = next
 }
 
 // Infos 返回目录副本。

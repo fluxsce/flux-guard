@@ -1,5 +1,5 @@
-// Package protocol 是代理和服务器之间的通讯协议。
-// 它定义上报的字段、路径、鉴权头和应答，不加载扩展，也不是一个进程。
+// Package protocol 是代理、外置组件进程和服务器之间的通讯协议。
+// 它定义上报的字段、路径、鉴权头，以及外置插件的长度前缀信封和跟踪号。插件清单在 plugins/manifests。不加载扩展，也不是一个进程。
 package protocol
 
 import "time"
@@ -100,8 +100,7 @@ type Batch struct {
 
 // Result 是上报接口的成功应答。
 type Result struct {
-	Duplicate   bool   `json:"duplicate"`
-	SampleCount int    `json:"sampleCount"`
-	EventCount  int    `json:"eventCount"`
-	SinkError   string `json:"sinkError,omitempty"`
+	Duplicate   bool `json:"duplicate"`
+	SampleCount int  `json:"sampleCount"`
+	EventCount  int  `json:"eventCount"`
 }

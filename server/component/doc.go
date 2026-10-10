@@ -6,9 +6,11 @@
 //	panel     每种组件的监控页签。终端按种类分开。初始行在 FG_COMPONENT_PANEL.sql
 //	conn      连接表 FG_COMPONENT_CONN。口令加密存放，查询不返回明文
 //	sched     按每条连接的间隔拨号。一台拨不通只记下这一条
-//	redis mysql mongo kafka zk nacos
-//	          各自采集。曲线写入对应的 FG_COMPONENT_*_METRIC，只插入。
+//	redis mysql mongo zk nacos
+//	          编进本进程的采集。Kafka 由 plugins/kafka 里的官方客户端插件采集。
+//	          曲线写入对应的 FG_COMPONENT_*_METRIC，只插入。
 //	          列表要看的当前值覆盖到 FG_COMPONENT_*，每个连接一行。
+//	          换成独立进程时，server/plugin 只拉起进程并交回结果，bridge 按结果写入采集表。
 //	pane      当前值表的写入和单表读取。不看监控时不扫采集表。
 //
 // 控制台模块是 fg0007。

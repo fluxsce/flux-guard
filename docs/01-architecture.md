@@ -180,8 +180,6 @@ sequenceDiagram
 
 | 组件 | 目录 | 做什么 |
 |------|------|--------|
-| 转发 | `server/plugin` | 批次写入近期库之后，再送到时序库或告警 |
-| 菜单 | `server/plugin` | 向权限目录声明菜单和按钮，不自己挂 HTTP |
 | 口令与令牌摘要 | `server/secret` | 登录口令只存 bcrypt，不能解密。上报令牌进来时用 SHA-256 校验，同一把令牌另存密文，供拨代理时出示 |
 
 ## 目录
@@ -196,9 +194,9 @@ server/web          管理端装配；模块在 views 下按目录扩展
 server/web/ingest   上报接收入口，分层与 views 相同：routes 在 init 自注册，另有 controllers、service、dao。不进模块号，路径仍是 POST /fluxguard/api/ingest/v1/batches
 server/command      命令队列：先拨代理，拨不通改为待取。子包 models / service / routes；根包是门面
 server/alert        预警模板、渠道、事件与投递。子包 models / validate / channel / template / event / service；根包是门面
-server/component    组件直连采集。catalog 是种类目录，conn 是连接，sched 按间隔拨号，redis / mysql / mongo / kafka / zk / nacos 各自写入采集表
+server/component    组件直连采集。catalog 是种类目录，conn 是连接，sched 按间隔拨号，redis / mysql / mongo / zk / nacos 是编进进程的探针。Kafka 由 plugins/kafka 的官方客户端插件采集。bridge 把外置插件的调用结果写入采集表
 server/shell        交互终端会话 FG_SHELL，字节只留在本进程内存管道；开闭与回车命令写入 FG_SHELL_AUDIT
-server/plugin       server 内置组件：菜单、转发，以及 examplealert
+server/plugin       外置插件进程。按 plugins/manifests/*.yaml 启动和停止，只把一次调用的结果交回。帧和信封在 protocol
 server/config       本进程监听配置。产品版本不在 YAML 里
 agents/host         主机采集：CPU、内存、磁盘、流量、连接、句柄、进程内存
 agents/app          Go 应用采集：本进程运行时
@@ -224,13 +222,9 @@ scripts/db/sqlite   同一套表的 SQLite 脚本，不含部门
 
 `cmd/host` 与 `cmd/app` 是两个 Go 代理进程。它们各自采集，再调用 `common/report` 按 `protocol` 上报。换一种语言实现代理时，不需要这两个进程，只需要遵守 `protocol`。
 
-## 服务器组件怎么挂上
+## 外置插件怎么挂上
 
-编进 server 进程的菜单和转发在 `init` 里登记，由 `cmd/server` 空白导入 `server/plugin` 下的包。编码重复会在启动时 panic。采集不在这个进程里。
-
-`server/plugin/examplealert` 是服务器的内置菜单。资源 `fg0100` 写在 `FG_AUTH_RESOURCE.sql`，路径 `/alerts`。初始授权跟其它模块一样，由 `FG_AUTH_ROLE_RESOURCE.sql` 生成。启动时不再补目录行。控制台侧栏来自 `/fluxguard/auth/menus`，所以新菜单不用改侧栏代码。页面组件仍要在 `web/src/router` 挂上；没有专页时落到占位页。之后谁能看见，在角色页勾选后保存。
-
-转发失败时，主机记录和事件已经写入，接口仍返回成功，并带上 `sinkError`。这是骨架限制。生产要把转发放进出箱表，由 server 里的转发组件按 `batchId` 自己去重。
+每个插件一份 `plugins/manifests/<编码>.yaml`。清单按 `bridge`、`session`、`runtime`、`ipc`、`lifecycle` 分节，写出编码、语义化版本、组件种类、会注入口令的方法、Windows 与 Unix 的可执行文件、本机通道和 `lazy` 启动。可执行文件相对 `plugins` 目录。`id` 形如 `com.fluxguard.kafka`。`server/plugin` 启动时加载这个目录并登记，第一次调用再拉起进程，种类是 `SERVICE`，退出时全部停下，只把调用结果交回。采集入库、维护参数和文件校验在 `server/component/bridge`。调用哪一个方法以清单为准。组件口令不写进清单，只在 `session.credential_methods` 列出的方法里送出。通道地址写在 `ipc` 里，中央放进该进程的 `FG_PLUGIN_ADDRESS`。多笔调用各走一条连接，空闲连接会留下复用。同一个插件可以同时处理多笔。调度一轮最多同时采集 32 路，名额满了的留到下一轮。帧是 4 字节小端长度加一帧 JSON，应答带回 `id` 与 `traceId`，失败带稳定 `errorCode`。进程不拿库、不挂 HTTP。
 
 ## 管理端模块
 
@@ -242,7 +236,6 @@ server/web/moduleimports    唯一的模块导入清单
 server/web/views/auth       登录、退出、当前用户、菜单
 server/web/views/fg0001     总览（0001–0020 运行观测）
 server/web/views/fg0002     代理
-server/web/views/fg0003     扩展目录
 server/web/views/fg0005     主机列表（当前值）、曲线和主机预警规则
 server/web/views/fg0006     Java 应用列表（当前值）和历史曲线
 server/web/views/fg0007     组件监控：按种类列出实例，详情按页签看当前值和曲线
@@ -251,6 +244,7 @@ server/web/views/fg0022     角色
 server/web/views/fg0023     资源
 server/web/views/fg0024     环境设置（接口超时、会话、分页、环境变量、上报令牌）
 server/web/views/fg0025     任务调度（Job 接口：手动 / 间隔 / 指定时间 / cron，超时与失败重试，参数对象，执行结果与历史日志）
+server/web/views/fg0026     插件管理（只读目录：版本、接入的组件、进程状态和清单里的方法。不提供启停）
 server/web/views/fg0041     预警模板（标题和正文按渠道种类。0041–0050 是预警号段，不必占满）
 server/web/views/fg0042     通知渠道（邮件、企业微信、钉钉、QQ、飞书、Webhook、短信；渠道关联模板）
 server/web/views/fg0043     预警事件（确认、恢复，页内带投递记录）

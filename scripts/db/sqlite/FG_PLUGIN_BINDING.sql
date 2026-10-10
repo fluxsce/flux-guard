@@ -25,10 +25,3 @@ CREATE TABLE IF NOT EXISTS FG_PLUGIN_BINDING (
 CREATE INDEX IF NOT EXISTS IDX_FG_BIND_TARGET ON FG_PLUGIN_BINDING(tenantId, targetType, targetId);
 CREATE INDEX IF NOT EXISTS IDX_FG_BIND_PLUGIN ON FG_PLUGIN_BINDING(tenantId, pluginId);
 CREATE INDEX IF NOT EXISTS IDX_FG_PLUGIN_BINDING_ADD ON FG_PLUGIN_BINDING(tenantId, addTime);
-
-INSERT INTO FG_PLUGIN_BINDING (
-  bindingId, tenantId, pluginId, targetType, targetId, enabledFlag,
-  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
-) VALUES
-('bind-alert', 'default', 'plugin-examplealert', 'SERVER', 'server', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
-('bind-recent', 'default', 'plugin-recent', 'SERVER', 'server', 'Y', 'system', 'system', 'INIT', 1, 'Y');

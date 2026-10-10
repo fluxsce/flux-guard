@@ -57,3 +57,11 @@ WHERE tenantId = 'default' AND activeFlag = 'Y' AND resourceStatus = 'Y'
     OR resourceCode LIKE '%:view'
     OR resourceCode IN ('fg0007:redis', 'fg0007:mysql', 'fg0007:mongo', 'fg0007:kafka', 'fg0007:zk', 'fg0007:nacos')
   );
+
+-- 跟 FG_AUTH_RESOURCE 里的模块改名对齐。先改按钮，避免编码替换碰到模块行。
+UPDATE FG_AUTH_ROLE_RESOURCE
+SET resourceId = 'fg0026:view', roleResourceId = REPLACE(roleResourceId, 'fg0003_view', 'fg0026_view')
+WHERE resourceId = 'fg0003:view';
+UPDATE FG_AUTH_ROLE_RESOURCE
+SET resourceId = 'fg0026', roleResourceId = REPLACE(roleResourceId, 'fg0003', 'fg0026')
+WHERE resourceId = 'fg0003';

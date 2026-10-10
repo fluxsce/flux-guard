@@ -18,7 +18,6 @@ import (
 	"fluxguard/server/web/request"
 	dbx "github.com/fluxsce/dbx/db"
 
-	_ "fluxguard/server/component/kafka"
 	_ "fluxguard/server/component/mongo"
 	_ "fluxguard/server/component/mysql"
 	_ "fluxguard/server/component/nacos"

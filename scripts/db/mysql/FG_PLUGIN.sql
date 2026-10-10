@@ -28,10 +28,4 @@ CREATE TABLE IF NOT EXISTS `FG_PLUGIN` (
   KEY `IDX_FG_PLUGIN_ADD` (`tenantId`, `addTime`)
 ) ENGINE=InnoDB COMMENT='插件目录表';
 
-INSERT INTO `FG_PLUGIN` (
-  `pluginId`, `tenantId`, `pluginCode`, `pluginName`, `pluginKind`, `pluginScope`,
-  `builtinFlag`, `pluginStatus`, `entryPoint`,
-  `addWho`, `editWho`, `oprSeqFlag`, `currentVersion`, `activeFlag`
-) VALUES
-('plugin-examplealert', 'default', 'examplealert', '示例告警', 'MODULE', 'SERVER', 'Y', 'Y', 'fluxguard/server/plugin/examplealert', 'system', 'system', 'INIT', 1, 'Y'),
-('plugin-recent', 'default', 'recent', '近期样本库', 'SINK', 'SERVER', 'Y', 'Y', 'fluxguard/server/ingest', 'system', 'system', 'INIT', 1, 'Y');
+-- 插件元数据不在这张表里灌行。清单是 plugins/manifests/<编码>.yaml。

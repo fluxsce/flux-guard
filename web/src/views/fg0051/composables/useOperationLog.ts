@@ -32,6 +32,7 @@ export const moduleNames: Record<string, string> = {
   fg0001: '总览',
   fg0002: '采集代理',
   fg0003: '插件',
+  fg0026: '插件管理',
   fg0005: '主机监控',
   fg0006: 'Java 监控',
   fg0007: '组件监控',

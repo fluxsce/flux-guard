@@ -22,6 +22,9 @@ db:
   password: "" # 登录口令
   database: "" # MySQL 的库名。sqlite 且 dsn 为空时，这里写文件路径
 
+# 外置插件不写在这里。清单是 plugins/manifests/<编码>.yaml，按 bridge、session、runtime、ipc、lifecycle 分节。
+# 中央第一次调用再拉起，退出时停下。组件口令只放在清单点名的方法参数里，经本机管道送出，不要写进清单或命令参数。
+
 # 日志。写到文件里，关掉窗口还能查。单个文件到大小就换新的，旧文件只留有限份和天数。
 log:
   file: logs/server.log # 日志文件。留空则只显示在窗口里

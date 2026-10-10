@@ -25,10 +25,3 @@ CREATE TABLE IF NOT EXISTS `FG_PLUGIN_BINDING` (
   KEY `IDX_FG_BIND_PLUGIN` (`tenantId`, `pluginId`),
   KEY `IDX_FG_PLUGIN_BINDING_ADD` (`tenantId`, `addTime`)
 ) ENGINE=InnoDB COMMENT='插件绑定表';
-
-INSERT INTO `FG_PLUGIN_BINDING` (
-  `bindingId`, `tenantId`, `pluginId`, `targetType`, `targetId`, `enabledFlag`,
-  `addWho`, `editWho`, `oprSeqFlag`, `currentVersion`, `activeFlag`
-) VALUES
-('bind-alert', 'default', 'plugin-examplealert', 'SERVER', 'server', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
-('bind-recent', 'default', 'plugin-recent', 'SERVER', 'server', 'Y', 'system', 'system', 'INIT', 1, 'Y');

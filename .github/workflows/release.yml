@@ -12,7 +12,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  kafka-plugin:
+    if: ${{ !contains(github.event.head_commit.message, '[release notes]') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Maven
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=3.9.15
+          curl -fsSL -o "${RUNNER_TEMP}/maven.tgz" "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${ver}/apache-maven-${ver}-bin.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/maven.tgz" -C "${RUNNER_TEMP}"
+          bin="${RUNNER_TEMP}/apache-maven-${ver}/bin"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            bin=$(cd "${bin}" && pwd -W)
+          fi
+          echo "${bin}" >> "${GITHUB_PATH}"
+      - name: Build Kafka plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File plugins/kafka/build.ps1
+            test -f plugins/kafka/dist/kafka-probe/kafka-probe.exe
+          else
+            bash plugins/kafka/build.sh
+            test -x plugins/kafka/dist/kafka-probe/kafka-probe
+          fi
+          test -f plugins/manifests/kafka.yaml
+      - name: Stage plugin image
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="${RUNNER_TEMP}/plugin-stage"
+          mkdir -p "${stage}/kafka/dist" "${stage}/manifests"
+          cp -a plugins/kafka/dist/kafka-probe "${stage}/kafka/dist/"
+          cp -a plugins/manifests/kafka.yaml "${stage}/manifests/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/plugin-stage
+          if-no-files-found: error
+
   publish:
+    needs: kafka-plugin
     if: ${{ !contains(github.event.head_commit.message, '[release notes]') }}
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +97,10 @@ jobs:
           java-version: "17"
       - name: Use checked-out dbx
         run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: kafka-probe-*
+          path: .ci/plugins
       - name: Test
         run: go test -count=1 ./...
       - name: Publish changelog version
@@ -99,6 +164,23 @@ jobs:
             cp -a configs/java.yaml.example "${stage}/java/configs/"
             cp -a dist/flux-guard-agent-java.jar "${stage}/java/flux-guard-agent-java.jar"
             cp -a scripts "${dir}/"
+            plugin_src=".ci/plugins/kafka-probe-${goos}-${goarch}"
+            case "${goos}-${goarch}" in
+              linux-amd64|windows-amd64|darwin-arm64)
+                test -d "${plugin_src}/kafka/dist/kafka-probe"
+                test -f "${plugin_src}/manifests/kafka.yaml"
+                mkdir -p "${dir}/plugins"
+                cp -a "${plugin_src}/kafka" "${dir}/plugins/"
+                mkdir -p "${dir}/plugins/manifests"
+                cp -a "${plugin_src}/manifests/kafka.yaml" "${dir}/plugins/manifests/"
+                if [[ "${goos}" == "windows" ]]; then
+                  test -f "${dir}/plugins/kafka/dist/kafka-probe/kafka-probe.exe"
+                else
+                  test -f "${dir}/plugins/kafka/dist/kafka-probe/kafka-probe"
+                  find "${dir}/plugins/kafka/dist/kafka-probe" -type f \( -name kafka-probe -o -name java \) -exec chmod 755 {} +
+                fi
+                ;;
+            esac
             mkdir -p "${stage}/host/scripts" "${stage}/app/scripts"
             cp -a scripts/run "${stage}/host/scripts/run"
             cp -a scripts/run "${stage}/app/scripts/run"

@@ -7,6 +7,8 @@
 /certs/
 /agents/java/build/
 /agents/java/*.jar
+/plugins/kafka/target/
+/plugins/kafka/dist/
 *.exe
 *.dll
 *.so

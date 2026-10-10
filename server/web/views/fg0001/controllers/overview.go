@@ -36,7 +36,7 @@ func (c *OverviewController) Overview(g *gin.Context) {
 	httpx.WriteOK(g, map[string]any{
 		"agentCount":       len(agents),
 		"onlineCount":      online,
-		"pluginCount":      len(plugin.Infos()) + 1,
+		"pluginCount":      len(plugin.Infos()),
 		"eventCount":       stats.EventCount,
 		"lastReceivedTime": stats.LastReceivedTime,
 	})
