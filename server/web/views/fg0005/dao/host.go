@@ -36,6 +36,7 @@ func Detail(db *dbx.DB, tenantID, agentID string) models.HostDetail {
 		Nets:   []models.NetRow{},
 		Cores:  []models.CoreRow{},
 		Procs:  []models.ProcRow{},
+		ProcIO: []models.ProcIORow{},
 		Alerts: []models.HostAlert{},
 	}
 	if db == nil || agentID == "" {
@@ -47,6 +48,7 @@ func Detail(db *dbx.DB, tenantID, agentID string) models.HostDetail {
 	detail.Nets = queryNets(db, args)
 	detail.Cores = queryCores(db, args)
 	detail.Procs = queryProcs(db, args)
+	detail.ProcIO = queryProcIO(db, args)
 	detail.TCP = queryTCP(db, args)
 	detail.FD = queryFD(db, args)
 	detail.Alerts = queryAlerts(db, args)
@@ -228,6 +230,39 @@ func queryProcs(db *dbx.DB, args dbx.Args) []models.ProcRow {
 	}
 	if out == nil {
 		return []models.ProcRow{}
+	}
+	return out
+}
+
+func queryProcIO(db *dbx.DB, args dbx.Args) []models.ProcIORow {
+	args, ok := bindLatestBatch(db, "FG_HOST_PROC_IO", args)
+	if !ok {
+		return []models.ProcIORow{}
+	}
+	rows, err := db.Query(context.Background(), `
+		SELECT processId, processName, readBytesPerSec, writeBytesPerSec, observedTime
+		FROM FG_HOST_PROC_IO
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND observedTime = @observedTime AND batchId = @batchId
+		ORDER BY readBytesPerSec + writeBytesPerSec DESC, processName`, args)
+	if err != nil {
+		return []models.ProcIORow{}
+	}
+	defer rows.Close()
+	var out []models.ProcIORow
+	for rows.Next() {
+		var item models.ProcIORow
+		var readBps, writeBps, observed any
+		if err := rows.Scan(&item.ProcessID, &item.ProcessName, &readBps, &writeBps, &observed); err != nil {
+			return out
+		}
+		item.ReadBytesPerSec = asFloat(readBps)
+		item.WriteBytesPerSec = asFloat(writeBps)
+		item.ObservedTime = timeText(observed)
+		out = append(out, item)
+	}
+	if out == nil {
+		return []models.ProcIORow{}
 	}
 	return out
 }

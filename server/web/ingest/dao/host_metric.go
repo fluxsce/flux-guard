@@ -71,7 +71,8 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 	ios := map[string]*diskIOSnap{}
 	nics := map[string]*netSnap{}
 	tops := map[string]*procTopSnap{}
-	var hasCPU, hasMem, hasCore, hasDisk, hasIO, hasNet, hasTCP, hasFD, hasProc bool
+	procIOs := map[string]*procIOSnap{}
+	var hasCPU, hasMem, hasCore, hasDisk, hasIO, hasNet, hasTCP, hasFD, hasProc, hasProcIO bool
 	for _, sample := range batch.Samples {
 		name := strings.TrimSpace(sample.MetricName)
 		at := sample.ObservedAt
@@ -145,6 +146,9 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 		case strings.HasPrefix(name, "host.fd."):
 			applyFD(&fd, name, sample.MetricValue, at)
 			hasFD = true
+		case strings.HasPrefix(name, "host.proc.io."):
+			applyProcIO(procIOs, sample, at)
+			hasProcIO = true
 		case strings.HasPrefix(name, "host.proc."):
 			applyProc(&proc, tops, sample, at)
 			hasProc = true
@@ -192,6 +196,11 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 	}
 	if hasProc {
 		if err := writeProc(ctx, tx, batch, proc, tops); err != nil {
+			return err
+		}
+	}
+	if hasProcIO {
+		if err := writeProcIO(ctx, tx, batch, procIOs); err != nil {
 			return err
 		}
 	}

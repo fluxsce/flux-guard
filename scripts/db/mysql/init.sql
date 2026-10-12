@@ -50,6 +50,7 @@ source FG_HOST_TCP.sql;
 source FG_HOST_FD.sql;
 source FG_HOST_PROC.sql;
 source FG_HOST_PROC_TOP.sql;
+source FG_HOST_PROC_IO.sql;
 source FG_PLUGIN.sql;
 source FG_PLUGIN_BINDING.sql;
 source FG_INGEST_BATCH.sql;

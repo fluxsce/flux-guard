@@ -65,7 +65,9 @@ function openMonitor(row: HostMonitor) {
 
 function onDetailRefresh(range: SeriesRange) {
   seriesRange.value = range
-  void load()
+  if (!viewing.value || !active.value) return
+  // 监控页自己刷新曲线和明细。主机列表留在进入、查询、翻页和手动刷新。
+  void loadDetail(active.value, true, range)
 }
 
 function back() {

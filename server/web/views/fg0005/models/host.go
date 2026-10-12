@@ -78,6 +78,15 @@ type ProcRow struct {
 	ObservedTime string  `json:"observedTime"`
 }
 
+// ProcIORow 一个读写靠前的进程。速率是这一采集间隔里实际落到存储的字节。
+type ProcIORow struct {
+	ProcessID        string  `json:"processId"`
+	ProcessName      string  `json:"processName"`
+	ReadBytesPerSec  float64 `json:"readBytesPerSec"`
+	WriteBytesPerSec float64 `json:"writeBytesPerSec"`
+	ObservedTime     string  `json:"observedTime"`
+}
+
 // TcpRow 一台机器的当前传输层连接。
 type TcpRow struct {
 	EstablishedCount int64 `json:"establishedCount"`
@@ -140,6 +149,7 @@ type HostDetail struct {
 	Nets   []NetRow    `json:"nets"`
 	Cores  []CoreRow   `json:"cores"`
 	Procs  []ProcRow   `json:"procs"`
+	ProcIO []ProcIORow `json:"procIos"`
 	TCP    TcpRow      `json:"tcp"`
 	FD     FdRow       `json:"fd"`
 	Alerts []HostAlert `json:"alerts"`

@@ -78,6 +78,6 @@ func mysqlDSN(db config.DB) (string, error) {
 	cfg.Addr = net.JoinHostPort(host, strconv.Itoa(port))
 	cfg.DBName = name
 	cfg.ParseTime = true
-	cfg.Loc = time.Local
+	cfg.Loc = time.UTC
 	return cfg.FormatDSN(), nil
 }

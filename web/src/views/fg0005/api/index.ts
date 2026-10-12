@@ -1,4 +1,4 @@
-import { createApi } from '@/api/request'
+import { createApi, type RequestConfig } from '@/api/request'
 import { moduleApiPrefix } from '@/api/requestPath'
 import type { PageData } from '@/api/pagination'
 
@@ -72,6 +72,13 @@ export interface HostProc {
   cpuPercent: number
 }
 
+export interface HostProcIO {
+  processId: string
+  processName: string
+  readBytesPerSec: number
+  writeBytesPerSec: number
+}
+
 export interface HostTcp {
   establishedCount: number
   listenCount: number
@@ -111,6 +118,7 @@ export interface HostDetail {
   nets: HostNet[]
   cores: HostCore[]
   procs: HostProc[]
+  procIos: HostProcIO[]
   tcp: HostTcp
   fd: HostFd
   alerts: HostAlert[]
@@ -120,8 +128,8 @@ export function queryHosts(params: Record<string, string | number>) {
   return fg0005.get<PageData<HostMonitor>>('/queryHosts', params)
 }
 
-export function queryHostDetail(agentId: string) {
-  return fg0005.get('/queryHostDetail', { agentId })
+export function queryHostDetail(agentId: string, config?: RequestConfig) {
+  return fg0005.get('/queryHostDetail', { agentId }, config)
 }
 
 export interface CurvePoint {
@@ -145,13 +153,13 @@ export interface SeriesRange {
   to: string
 }
 
-export function queryHostSeries(agentId: string, range?: SeriesRange | null) {
+export function queryHostSeries(agentId: string, range?: SeriesRange | null, config?: RequestConfig) {
   const params: Record<string, string> = { agentId }
   if (range?.from && range.to) {
     params.from = range.from
     params.to = range.to
   }
-  return fg0005.get('/queryHostSeries', params)
+  return fg0005.get('/queryHostSeries', params, config)
 }
 
 export interface Rule {

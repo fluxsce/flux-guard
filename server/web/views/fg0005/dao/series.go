@@ -36,6 +36,8 @@ const procSQL = `SELECT observedTime, procCount, runningCount, sleepingCount, zo
 
 const procTopSQL = `SELECT observedTime, processId, processName, rssBytes, cpuPercent FROM FG_HOST_PROC_TOP WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, cpuPercent DESC, pointId DESC`
 
+const procIOSQL = `SELECT observedTime, processId, processName, readBytesPerSec, writeBytesPerSec FROM FG_HOST_PROC_IO WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+
 var nicSQL = `SELECT observedTime, nicName, receiveBytesPerSec, transmitBytesPerSec, receiveErrs, transmitErrs, receiveDrop, transmitDrop FROM FG_HOST_NET WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'` + hostnic.SkipSQL("nicName") + ` ORDER BY observedTime DESC, pointId DESC`
 
 // Series 返回一台机器的曲线点，旧的在前。每张表只查一次。未给时间窗时每种曲线取最近 120 个点。
@@ -186,6 +188,22 @@ func appendProc(db *dbx.DB, build *seriesBuild, clause string, args dbx.Args, li
 		}
 		build.add(label, "percent", "进程CPU", row[0], asFloat(row[4]))
 		build.add(label, "bytes", "进程RSS", row[0], asFloat(row[3]))
+	}
+	for _, row := range queryWide(db, applySpan(procIOSQL, clause), args, limit*diskSeriesLimit, 5) {
+		pid := strings.TrimSpace(textOf(row[1]))
+		name := strings.TrimSpace(textOf(row[2]))
+		if pid == "" {
+			continue
+		}
+		if name == "" {
+			name = pid
+		}
+		label := name + " " + pid
+		if !build.allow("进程IO", label) {
+			continue
+		}
+		build.add(label+" 读", "rate", "进程IO", row[0], asFloat(row[3]))
+		build.add(label+" 写", "rate", "进程IO", row[0], asFloat(row[4]))
 	}
 }
 

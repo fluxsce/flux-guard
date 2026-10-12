@@ -27,13 +27,14 @@ func ParseTime(text string) (time.Time, bool) {
 }
 
 // TimeValue 把驱动返回的时间收成 UTC。SQLite 给文本，MySQL 给 time.Time。
+// DATETIME 没有时区，库存的是 UTC 墙钟。驱动若按本地时区解析，再调用 UTC() 会把钟点再减一次偏移。
 func TimeValue(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
 		if t.IsZero() {
 			return time.Time{}, false
 		}
-		return t.UTC(), true
+		return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC), true
 	case string:
 		return ParseTime(t)
 	case []byte:

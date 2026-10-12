@@ -52,9 +52,16 @@ function formatMetric(metric: MetricDef, value: unknown) {
 }
 
 function clockLabel(value: unknown) {
-  const text = String(value ?? '')
-  const matched = text.match(/(\d{2}:\d{2}:\d{2})/)
-  return matched?.[1] ?? text
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  const zoned = /(?:Z|[+-]\d{2}:\d{2})$/.test(text)
+  const date = new Date(zoned ? text : `${text.replace(' ', 'T')}Z`)
+  if (Number.isNaN(date.getTime())) {
+    const matched = text.match(/(\d{2}:\d{2}:\d{2})/)
+    return matched?.[1] ?? text
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 function pointValue(metric: MetricDef, point: Point) {

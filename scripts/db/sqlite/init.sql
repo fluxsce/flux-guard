@@ -51,6 +51,7 @@ PRAGMA foreign_keys = ON;
 .read FG_HOST_FD.sql
 .read FG_HOST_PROC.sql
 .read FG_HOST_PROC_TOP.sql
+.read FG_HOST_PROC_IO.sql
 .read FG_PLUGIN.sql
 .read FG_PLUGIN_BINDING.sql
 .read FG_INGEST_BATCH.sql

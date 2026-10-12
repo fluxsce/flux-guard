@@ -56,6 +56,8 @@ func TestListAndDetail(t *testing.T) {
 			{MetricName: "host.proc.count", MetricValue: 40},
 			{MetricName: "host.proc.zombie.count", MetricValue: 1},
 			{MetricName: "host.proc.rss.bytes", MetricValue: 4096, Labels: map[string]string{"name": "nginx", "pid": "12"}},
+			{MetricName: "host.proc.io.read.bytes_per_sec", MetricValue: 1048576, Labels: map[string]string{"name": "java", "pid": "88"}},
+			{MetricName: "host.proc.io.write.bytes_per_sec", MetricValue: 4096, Labels: map[string]string{"name": "java", "pid": "88"}},
 		},
 	})
 	if err != nil {
@@ -85,6 +87,9 @@ func TestListAndDetail(t *testing.T) {
 	if detail.TCP.EstablishedCount != 12 || detail.FD.AllocatedCount != 900 || len(detail.Procs) != 1 || detail.Procs[0].ProcessName != "nginx" {
 		t.Fatalf("runtime detail=%+v", detail)
 	}
+	if len(detail.ProcIO) != 1 || detail.ProcIO[0].ProcessName != "java" || detail.ProcIO[0].ReadBytesPerSec != 1048576 || detail.ProcIO[0].WriteBytesPerSec != 4096 {
+		t.Fatalf("proc io=%+v", detail.ProcIO)
+	}
 	series := Series(db, "default", item.AgentID, SeriesSpan{})
 	latest := map[string]float64{}
 	for _, curve := range series.Curves {
@@ -101,6 +106,9 @@ func TestListAndDetail(t *testing.T) {
 	}
 	if latest["进程数"] != 40 || latest["僵尸"] != 1 || latest["句柄数"] != 900 {
 		t.Fatalf("proc=%+v", latest)
+	}
+	if latest["java 88 读"] != 1048576 || latest["java 88 写"] != 4096 {
+		t.Fatalf("proc io series=%+v", latest)
 	}
 	if _, hasCap := latest["句柄上限"]; hasCap {
 		t.Fatal("zero file-max should be omitted")

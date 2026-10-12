@@ -105,6 +105,7 @@ var hostSampleTables = []string{
 	"FG_HOST_TCP",
 	"FG_HOST_PROC",
 	"FG_HOST_PROC_TOP",
+	"FG_HOST_PROC_IO",
 }
 
 // componentSampleTables 是组件直连采集。FG_COMPONENT_CONN 与 FG_COMPONENT_KIND 不在此列。

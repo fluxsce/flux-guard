@@ -37,10 +37,11 @@ const chartHelp: Record<string, string> = {
   内存: '含物理内存与交换。交换是磁盘上的后备：内存不够时系统把闲置页挪过去，交换已用上升通常表示内存吃紧。',
   负载: '过去 1/5/15 分钟的平均可运行队列长度。持续高于 CPU 核数说明算力或等待偏紧。',
   句柄: '进程打开的文件描述符 / 句柄数。Linux 上限单独一轴，避免把已用数压成贴底的线；占比太低时仪表显示已分配数。Windows 通常只有已分配数、无可用上限。',
-  磁盘吞吐: '各设备读写字节速率（字节/秒），由相邻两次累计字节差除以时间得出。',
-  '磁盘 IOPS': '各设备读写次数速率（次/秒），由累计读写次数差除以时间得出。',
-  磁盘延迟: '单次 IO 平均服务时间（毫秒）= 累计耗时增量 / 次数增量。',
-  磁盘繁忙: '盘被占用时间占比 = ΔIoTime / Δ墙钟。Linux 有数据；Windows 通常无 IoTime，会一直是 0%。',
+  磁盘吞吐: '同 iostat 的 rkB/s、wkB/s，这里按字节/秒显示。数值是相邻两次采集的平均（代理默认约 15 秒），不是 iostat 1 秒那一行。',
+  '磁盘 IOPS': '同 iostat 的 r/s、w/s（已完成次数，不含 rrqm/wrqm）。同样是采集间隔内的平均。',
+  磁盘延迟: '同 iostat 的 r_await、w_await（含排队），不是 svctm。这一间隔里次数很少时，一次慢 IO 会把平均值拉高。',
+  磁盘繁忙: '同 iostat 的 %util（ΔIoTime / Δ墙钟）。采集间隔比 iostat 长时，短脉冲会被摊平。Windows 通常无 IoTime，会一直是 0%。',
+  进程IO: '各进程实际落到存储的读、写速度，单位与磁盘吞吐相同。只保留这一间隔里读或写靠前的进程，不能对应到某一块盘。读不到其他用户的进程时这张图是空的。',
   连接: 'TCP 各状态连接数与累计重传。ESTABLISHED 多为业务连接，TIME_WAIT / CLOSE_WAIT 偏高需留意。',
   连接状态: '当前时刻各 TCP 状态的连接数快照。',
 }
@@ -327,8 +328,25 @@ function valueAxis(unit: string, colors: ReturnType<typeof ink>, split: boolean)
   }
 }
 
+function chartSpanMs(times: string[]) {
+  if (times.length < 2) return 0
+  const start = Date.parse(times[0])
+  const end = Date.parse(times[times.length - 1])
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.abs(end - start)
+}
+
+/** 三小时以内标到秒。采集大约 5 秒一次，只写到分钟时同一分钟里的点会对在同一个刻度上。 */
+function axisTick(time: string, spanMs: number) {
+  const text = clock(time)
+  if (text.length < 19) return text
+  if (spanMs > 0 && spanMs <= 3 * 60 * 60 * 1000) return text.slice(11, 19)
+  return text.slice(5, 16)
+}
+
 function lineOption(curves: HostCurve[]): ChartOption {
   const times = [...new Set(curves.flatMap((curve) => curve.points.map((point) => point.observedTime)))].sort()
+  const spanMs = chartSpanMs(times)
   const colors = ink()
   const units = [...new Set(curves.map((curve) => curve.unit))]
   const byName = new Map(curves.map((curve) => [curve.name, curve]))
@@ -352,7 +370,8 @@ function lineOption(curves: HostCurve[]): ChartOption {
       })
       const hidden = rows.length - shown.length
       if (hidden > 0) body.push(`另有 ${hidden} 项为 0`)
-      return [rows[0]?.axisValue, ...body].filter(Boolean).join('<br/>')
+      const when = rows[0]?.axisValue ? clock(rows[0].axisValue) : ''
+      return [when, ...body].filter(Boolean).join('<br/>')
     }),
     legend: {
       type: curves.length > 4 ? 'scroll' : 'plain',
@@ -367,8 +386,13 @@ function lineOption(curves: HostCurve[]): ChartOption {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: times.map((time) => clock(time).slice(5, 16)),
-      axisLabel: { color: colors.text, fontSize: 11 },
+      data: times,
+      axisLabel: {
+        color: colors.text,
+        fontSize: 11,
+        hideOverlap: true,
+        formatter: (value: string) => axisTick(value, spanMs),
+      },
       axisLine: { lineStyle: { color: colors.line } },
     },
     yAxis: units.map((unit, index) => valueAxis(unit, colors, index === 0)),

@@ -44,7 +44,9 @@ type ioSnap struct {
 }
 
 type procCPU struct {
-	user, system float64
+	user, system          float64
+	readBytes, writeBytes uint64
+	hasCPU, hasIO         bool
 }
 
 type nicSnap struct {
@@ -325,11 +327,12 @@ func nicSamples(ctx context.Context, now time.Time, prev, cur *history) []protoc
 }
 
 type procMem struct {
-	name string
-	pid  int32
-	rss  uint64
-	cpu  float64
-	has  bool
+	name              string
+	pid               int32
+	rss               uint64
+	cpu               float64
+	readBps, writeBps float64
+	has, hasIO        bool
 }
 
 func procSamples(ctx context.Context, now time.Time, prev, cur *history) []protocol.Sample {
@@ -367,18 +370,34 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 			name = "unknown"
 		}
 		item := procMem{name: name, pid: proc.Pid, rss: info.RSS}
+		snap := procCPU{}
 		if times, err := proc.TimesWithContext(ctx); err == nil && times != nil {
-			cpuNow := procCPU{user: times.User, system: times.System}
-			cur.proc[proc.Pid] = cpuNow
+			snap.user = times.User
+			snap.system = times.System
+			snap.hasCPU = true
 			if prev != nil {
-				if old, ok := prev.proc[proc.Pid]; ok {
-					if pct, ok := procPercent(cpuNow, old, dt, cores); ok {
+				if old, ok := prev.proc[proc.Pid]; ok && old.hasCPU {
+					if pct, ok := procPercent(snap, old, dt, cores); ok {
 						item.cpu = pct
 						item.has = true
 					}
 				}
 			}
 		}
+		// read_bytes / write_bytes 是实际落到存储的字节。读不到其他用户的进程时跳过。
+		if ioStat, err := proc.IOCountersWithContext(ctx); err == nil && ioStat != nil {
+			snap.readBytes = ioStat.ReadBytes
+			snap.writeBytes = ioStat.WriteBytes
+			snap.hasIO = true
+			if prev != nil && dt > 0 {
+				if old, ok := prev.proc[proc.Pid]; ok && old.hasIO {
+					item.readBps = perSec(snap.readBytes, old.readBytes, dt)
+					item.writeBps = perSec(snap.writeBytes, old.writeBytes, dt)
+					item.hasIO = true
+				}
+			}
+		}
+		cur.proc[proc.Pid] = snap
 		all = append(all, item)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].rss > all[j].rss })
@@ -405,6 +424,46 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 		}
 		n++
 		out = append(out, point("host.proc.cpu.percent", item.cpu, labels("name", item.name, "pid", itoa(item.pid)), now))
+	}
+	return append(out, procIOPoints(now, all)...)
+}
+
+// procIOPoints 上报这一间隔里读或写靠前的进程。同一进程读和写都带上，表上能对上同一次采样。
+func procIOPoints(now time.Time, all []procMem) []protocol.Sample {
+	active := make([]procMem, 0, len(all))
+	for _, item := range all {
+		if !item.hasIO || (item.readBps == 0 && item.writeBps == 0) {
+			continue
+		}
+		active = append(active, item)
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	chosen := map[int32]procMem{}
+	take := func(higher func(a, b procMem) bool) {
+		sort.Slice(active, func(i, j int) bool { return higher(active[i], active[j]) })
+		n := 0
+		for _, item := range active {
+			if _, ok := chosen[item.pid]; ok {
+				continue
+			}
+			if n >= maxProc {
+				return
+			}
+			chosen[item.pid] = item
+			n++
+		}
+	}
+	take(func(a, b procMem) bool { return a.readBps > b.readBps })
+	take(func(a, b procMem) bool { return a.writeBps > b.writeBps })
+	out := make([]protocol.Sample, 0, len(chosen)*2)
+	for _, item := range chosen {
+		lab := labels("name", item.name, "pid", itoa(item.pid))
+		out = append(out,
+			point("host.proc.io.read.bytes_per_sec", item.readBps, lab, now),
+			point("host.proc.io.write.bytes_per_sec", item.writeBps, lab, now),
+		)
 	}
 	return out
 }

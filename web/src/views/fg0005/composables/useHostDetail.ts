@@ -31,7 +31,8 @@ export function useHostDetail() {
       loading.value = true
     }
     try {
-      const result = await queryHostDetail(row.agentId)
+      const quiet = keep ? { showLoading: false as const } : undefined
+      const result = await queryHostDetail(row.agentId, quiet)
       if (current !== seq) return
       if (!isApiSuccess(result)) {
         error.value = getApiMessage(result, '加载明细失败')
@@ -39,7 +40,7 @@ export function useHostDetail() {
         return
       }
       detail.value = parseApiData<HostDetail>(result) ?? null
-      const series = await queryHostSeries(row.agentId, range)
+      const series = await queryHostSeries(row.agentId, range, quiet)
       if (current !== seq) return
       if (!isApiSuccess(series)) {
         error.value = getApiMessage(series, '加载曲线失败')

@@ -38,7 +38,7 @@ func TestResolveMySQLHost(t *testing.T) {
 	if driver != "mysql" || !strings.Contains(dsn, "tcp(127.0.0.1:3306)/flux_guard") {
 		t.Fatalf("%s %s", driver, dsn)
 	}
-	if !strings.Contains(dsn, "parseTime=true") {
+	if !strings.Contains(dsn, "parseTime=true") || strings.Contains(dsn, "loc=Local") {
 		t.Fatal(dsn)
 	}
 	if got := Describe(driver, dsn); got != "mysql 127.0.0.1:3306/flux_guard" {

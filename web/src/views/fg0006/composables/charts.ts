@@ -106,8 +106,25 @@ export function gaugeOption(name: string, value: number, caption = ''): ChartOpt
   }
 }
 
+function chartSpanMs(times: string[]) {
+  if (times.length < 2) return 0
+  const start = Date.parse(times[0])
+  const end = Date.parse(times[times.length - 1])
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.abs(end - start)
+}
+
+/** 三小时以内标到秒。只写到分钟时，同一分钟里的点会对在同一个刻度上。 */
+function axisTick(time: string, spanMs: number) {
+  const text = clock(time)
+  if (text.length < 19) return text
+  if (spanMs > 0 && spanMs <= 3 * 60 * 60 * 1000) return text.slice(11, 19)
+  return text.slice(5, 16)
+}
+
 function lineOption(curves: JavaCurve[]): ChartOption {
   const times = [...new Set(curves.flatMap((curve) => curve.points.map((point) => point.observedTime)))].sort()
+  const spanMs = chartSpanMs(times)
   const colors = ink()
   const unit = curves[0]?.unit ?? ''
   const byName = new Map(curves.map((curve) => [curve.name, curve]))
@@ -127,7 +144,8 @@ function lineOption(curves: JavaCurve[]): ChartOption {
           const curve = byName.get(row.seriesName ?? '')
           return `${row.marker ?? ''}${row.seriesName ?? ''} ${formatValue(curve?.unit ?? unit, Number(row.value))}`
         })
-        return [rows[0]?.axisValue, ...body].filter(Boolean).join('<br/>')
+        const when = rows[0]?.axisValue ? clock(rows[0].axisValue) : ''
+        return [when, ...body].filter(Boolean).join('<br/>')
       },
     },
     legend: { type: curves.length > 4 ? 'scroll' : 'plain', top: 0, textStyle: { color: colors.text, fontSize: 12 } },
@@ -135,8 +153,13 @@ function lineOption(curves: JavaCurve[]): ChartOption {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: times.map((time) => clock(time).slice(5, 16)),
-      axisLabel: { color: colors.text, fontSize: 11 },
+      data: times,
+      axisLabel: {
+        color: colors.text,
+        fontSize: 11,
+        hideOverlap: true,
+        formatter: (value: string) => axisTick(value, spanMs),
+      },
       axisLine: { lineStyle: { color: colors.line } },
     },
     yAxis: {

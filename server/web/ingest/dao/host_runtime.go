@@ -35,6 +35,12 @@ type procTopSnap struct {
 	at        time.Time
 }
 
+type procIOSnap struct {
+	pid, name         string
+	readBps, writeBps float64
+	at                time.Time
+}
+
 func applyTCP(row *tcpSnap, name string, value float64, at time.Time) {
 	row.at = at
 	n := asInt(value)
@@ -163,6 +169,52 @@ func writeFD(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row fdSnap) 
 		"observedTime": store.FormatTime(row.at), "addWho": batch.AgentID,
 	}))
 	return err
+}
+
+func applyProcIO(rows map[string]*procIOSnap, sample protocol.Sample, at time.Time) {
+	pid := clip(labelOf(sample, "pid"), 32)
+	if pid == "" {
+		return
+	}
+	item := rows[pid]
+	if item == nil {
+		item = &procIOSnap{pid: pid, name: clip(labelOf(sample, "name"), 100)}
+		if item.name == "" {
+			item.name = pid
+		}
+		rows[pid] = item
+	}
+	if procName := clip(labelOf(sample, "name"), 100); procName != "" {
+		item.name = procName
+	}
+	item.at = at
+	switch strings.TrimSpace(sample.MetricName) {
+	case "host.proc.io.read.bytes_per_sec":
+		item.readBps = sample.MetricValue
+	case "host.proc.io.write.bytes_per_sec":
+		item.writeBps = sample.MetricValue
+	}
+}
+
+func writeProcIO(ctx context.Context, tx *dbx.DB, batch protocol.Batch, rows map[string]*procIOSnap) error {
+	for _, item := range rows {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO FG_HOST_PROC_IO (
+			  pointId, batchId, agentId, tenantId, processId, processName, readBytesPerSec, writeBytesPerSec, observedTime,
+			  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
+			) VALUES (
+			  @pointId, @batchId, @agentId, @tenantId, @processId, @processName, @readBytesPerSec, @writeBytesPerSec, @observedTime,
+			  @addWho, 'system', 'INGEST', 1, 'Y'
+			)`, withPoint(batch, dbx.Args{
+			"agentId": batch.AgentID, "tenantId": batch.TenantID,
+			"processId": item.pid, "processName": item.name,
+			"readBytesPerSec": item.readBps, "writeBytesPerSec": item.writeBps,
+			"observedTime": store.FormatTime(item.at), "addWho": batch.AgentID,
+		})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeProc(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row procSnap, tops map[string]*procTopSnap) error {

@@ -69,7 +69,11 @@ func AsText(value any) string {
 	case []byte:
 		return string(typed)
 	case time.Time:
-		return store.FormatTime(typed.UTC())
+		when, ok := store.TimeValue(typed)
+		if !ok {
+			return ""
+		}
+		return store.FormatTime(when)
 	default:
 		if when, ok := store.TimeValue(value); ok {
 			return store.FormatTime(when)

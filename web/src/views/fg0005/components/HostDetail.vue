@@ -147,6 +147,19 @@ function latestValue(name: string) {
   return typeof point?.value === 'number' ? point.value : undefined
 }
 
+function ratio(used: number | undefined, total: number | undefined) {
+  if (used == null || total == null || total <= 0) return undefined
+  return (used / total) * 100
+}
+
+function latestObserved() {
+  for (const curve of props.curves) {
+    const time = curve.points[curve.points.length - 1]?.observedTime
+    if (time) return time
+  }
+  return ''
+}
+
 function pairCaption(used: number | undefined, total: number | undefined) {
   if (!total) return ''
   return `${bytes(used ?? 0)} / ${bytes(total)}`
@@ -171,8 +184,12 @@ function fdCaption() {
 
 const gauges = computed(() => {
   const cores = latestValue('CPU核数')
-  const cpuCaption = cores ? `${fixed((props.host.cpuUsagePercent / 100) * cores, 1)} / ${fixed(cores, 0)} 核` : ''
-  const memCaption = pairCaption(latestValue('内存已用') ?? props.host.memUsedBytes, latestValue('内存总量') ?? props.host.memTotalBytes)
+  const cpuPercent = ratio(latestValue('占用核'), cores) ?? props.host.cpuUsagePercent
+  const cpuCaption = cores ? `${fixed(latestValue('占用核') ?? (cpuPercent / 100) * cores, 1)} / ${fixed(cores, 0)} 核` : ''
+  const memUsed = latestValue('内存已用') ?? props.host.memUsedBytes
+  const memTotal = latestValue('内存总量') ?? props.host.memTotalBytes
+  const memPercent = ratio(latestValue('内存已用'), latestValue('内存总量')) ?? props.host.memUsedPercent
+  const memCaption = pairCaption(memUsed, memTotal)
   const fd = props.detail?.fd
   const fdAllocated = fd?.allocatedCount ?? props.host.fdAllocated
   const fdMaximum = fd?.maximumCount ?? 0
@@ -182,10 +199,11 @@ const gauges = computed(() => {
     fdMaximum > 0 && fdPercent >= 0.05
       ? gaugeOption('句柄', fdPercent, fdCaption())
       : gaugeCountOption('句柄', fdAllocated, fdCaption())
+  const fullest = [...(props.detail?.disks ?? [])].sort((left, right) => right.usedPercent - left.usedPercent)[0]
   return [
-    { option: gaugeOption('CPU', props.host.cpuUsagePercent, cpuCaption) },
-    { option: gaugeOption('内存', props.host.memUsedPercent, memCaption) },
-    { option: gaugeOption('磁盘', props.host.diskUsedPercent, diskCaption()) },
+    { option: gaugeOption('CPU', cpuPercent, cpuCaption) },
+    { option: gaugeOption('内存', memPercent, memCaption) },
+    { option: gaugeOption('磁盘', fullest?.usedPercent ?? props.host.diskUsedPercent, diskCaption()) },
     {
       option: fdGauge,
       help: '进程打开的文件描述符 / 句柄数。Linux 上限很大时仪表显示已分配数，占比够高才显示百分比。Windows 通常只有已分配数、无可用上限。',
@@ -257,6 +275,21 @@ const procColumns: RsTableColumn<HostDetail['procs'][number]>[] = [
   { key: 'rssBytes', title: '内存', dataIndex: 'rssBytes', align: 'right', sortable: true, formatter: (value) => bytes(value) },
   { key: 'cpuPercent', title: 'CPU', dataIndex: 'cpuPercent', align: 'right', sortable: true, formatter: (value) => percent(value) },
 ]
+
+const procIOColumns: RsTableColumn<HostDetail['procIos'][number]>[] = [
+  { key: 'processName', title: '进程', dataIndex: 'processName', ellipsis: true, sortable: true },
+  {
+    key: 'processId',
+    title: 'PID',
+    dataIndex: 'processId',
+    width: 88,
+    align: 'right',
+    sortable: true,
+    sorter: (left, right) => Number(left.processId) - Number(right.processId),
+  },
+  { key: 'readBytesPerSec', title: '读', dataIndex: 'readBytesPerSec', align: 'right', sortable: true, formatter: (value) => rate(value) },
+  { key: 'writeBytesPerSec', title: '写', dataIndex: 'writeBytesPerSec', align: 'right', sortable: true, formatter: (value) => rate(value) },
+]
 </script>
 
 <template>
@@ -286,9 +319,9 @@ const procColumns: RsTableColumn<HostDetail['procs'][number]>[] = [
     <div class="fg-host-detail-body">
       <p class="fg-note">
         {{ host.osName || '—' }} · {{ host.ipAddress || '—' }}
-        · 内存 {{ bytes(host.memUsedBytes) }} / {{ bytes(host.memTotalBytes) }}
-        · 负载 {{ fixed(host.loadAvg1, 2) }}
-        · {{ clock(host.reportedTime) }}
+        · 内存 {{ bytes(latestValue('内存已用') ?? host.memUsedBytes) }} / {{ bytes(latestValue('内存总量') ?? host.memTotalBytes) }}
+        · 负载 {{ fixed(latestValue('负载') ?? host.loadAvg1, 2) }}
+        · {{ clock(latestObserved() || host.reportedTime) }}
       </p>
       <p v-if="loading && !detail" class="fg-note">正在加载</p>
       <ul v-if="alerts.length" class="fg-alerts">
@@ -330,6 +363,21 @@ const procColumns: RsTableColumn<HostDetail['procs'][number]>[] = [
           <template v-if="detail.fd.maximumCount > 0"> / {{ count(detail.fd.maximumCount) }}（{{ percent(detail.fd.usedPercent) }}）</template>
           。连接合计 {{ count(tcpStates(detail.tcp).reduce((sum, item) => sum + item.count, 0)) }}。
         </p>
+        <h3 class="fg-section">进程读写</h3>
+        <RsEmpty v-if="!detail.procIos || detail.procIos.length === 0" title="没有进程读写" />
+        <RsTable
+          v-else
+          class="fg-detail-table"
+          :columns="procIOColumns"
+          :data="detail.procIos"
+          row-key="processId"
+          size="sm"
+          cell-focus="none"
+          null-label="—"
+          :rounded="false"
+          :context-menu="false"
+          :height="tableHeight(detail.procIos.length)"
+        />
         <h3 class="fg-section">进程明细</h3>
         <RsEmpty v-if="detail.procs.length === 0" title="没有进程占用" />
         <RsTable
