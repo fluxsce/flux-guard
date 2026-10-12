@@ -14,6 +14,7 @@ type loaded struct {
 	svc         *service
 	methods     map[string]struct{}
 	ops         map[string]map[string]struct{}
+	calls       map[string]map[string]struct{}
 	credentials map[string]struct{}
 }
 
@@ -48,7 +49,7 @@ func Load(dir string) error {
 		if err != nil {
 			return fail(err)
 		}
-		m, methods, ops, creds, err := decodeManifest(dir, raw)
+		m, methods, ops, calls, creds, err := decodeManifest(dir, raw)
 		if err != nil {
 			return fail(err)
 		}
@@ -61,7 +62,7 @@ func Load(dir string) error {
 			}
 			return fail(fmt.Errorf("这种组件已经有插件"))
 		}
-		if err := install(m, methods, ops, creds); err != nil {
+		if err := install(m, methods, ops, calls, creds); err != nil {
 			return fail(err)
 		}
 		added = append(added, m.ID)
@@ -149,13 +150,13 @@ func States() []ProcState {
 	return out
 }
 
-func install(m Manifest, methods map[string]struct{}, ops map[string]map[string]struct{}, creds map[string]struct{}) error {
+func install(m Manifest, methods map[string]struct{}, ops, calls map[string]map[string]struct{}, creds map[string]struct{}) error {
 	info := Info{Code: m.ID, Name: m.Name, Kind: KindService, Scope: ScopeServer, BuiltinFlag: "N"}
 	if err := Default.addExternal(info); err != nil {
 		return err
 	}
 	svc := newService(m.ID, filepath.Dir(m.Argv[0]), m.Argv, m.Addr)
-	item := &loaded{manifest: m, svc: svc, methods: methods, ops: ops, credentials: creds}
+	item := &loaded{manifest: m, svc: svc, methods: methods, ops: ops, calls: calls, credentials: creds}
 	activeMu.Lock()
 	active[m.ID] = item
 	activeMu.Unlock()

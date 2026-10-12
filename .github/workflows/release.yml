@@ -39,9 +39,18 @@ jobs:
         run: |
           set -euo pipefail
           ver=3.9.15
-          curl -fsSL -o "${RUNNER_TEMP}/maven.tgz" "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${ver}/apache-maven-${ver}-bin.tar.gz"
-          tar -xzf "${RUNNER_TEMP}/maven.tgz" -C "${RUNNER_TEMP}"
-          bin="${RUNNER_TEMP}/apache-maven-${ver}/bin"
+          dest="${RUNNER_TEMP}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            # RUNNER_TEMP is D:\...; Git Bash tar treats "D:" as a remote host.
+            dest="$(cygpath -u "${RUNNER_TEMP}")"
+          fi
+          curl -fsSL -o "${dest}/maven.tgz" "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${ver}/apache-maven-${ver}-bin.tar.gz"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            tar --force-local -xzf "${dest}/maven.tgz" -C "${dest}"
+          else
+            tar -xzf "${dest}/maven.tgz" -C "${dest}"
+          fi
+          bin="${dest}/apache-maven-${ver}/bin"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             bin=$(cd "${bin}" && pwd -W)
           fi
@@ -58,14 +67,24 @@ jobs:
             test -x plugins/kafka/dist/kafka-probe/kafka-probe
           fi
           test -f plugins/manifests/kafka.yaml
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File plugins/zk/build.ps1
+            test -f plugins/zk/dist/zk-probe/zk-probe.exe
+          else
+            bash plugins/zk/build.sh
+            test -x plugins/zk/dist/zk-probe/zk-probe
+          fi
+          test -f plugins/manifests/zk.yaml
       - name: Stage plugin image
         shell: bash
         run: |
           set -euo pipefail
           stage="${RUNNER_TEMP}/plugin-stage"
-          mkdir -p "${stage}/kafka/dist" "${stage}/manifests"
+          mkdir -p "${stage}/kafka/dist" "${stage}/zk/dist" "${stage}/manifests"
           cp -a plugins/kafka/dist/kafka-probe "${stage}/kafka/dist/"
+          cp -a plugins/zk/dist/zk-probe "${stage}/zk/dist/"
           cp -a plugins/manifests/kafka.yaml "${stage}/manifests/"
+          cp -a plugins/manifests/zk.yaml "${stage}/manifests/"
       - uses: actions/upload-artifact@v4
         with:
           name: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -168,16 +187,22 @@ jobs:
             case "${goos}-${goarch}" in
               linux-amd64|windows-amd64|darwin-arm64)
                 test -d "${plugin_src}/kafka/dist/kafka-probe"
+                test -d "${plugin_src}/zk/dist/zk-probe"
                 test -f "${plugin_src}/manifests/kafka.yaml"
+                test -f "${plugin_src}/manifests/zk.yaml"
                 mkdir -p "${dir}/plugins"
                 cp -a "${plugin_src}/kafka" "${dir}/plugins/"
+                cp -a "${plugin_src}/zk" "${dir}/plugins/"
                 mkdir -p "${dir}/plugins/manifests"
                 cp -a "${plugin_src}/manifests/kafka.yaml" "${dir}/plugins/manifests/"
+                cp -a "${plugin_src}/manifests/zk.yaml" "${dir}/plugins/manifests/"
                 if [[ "${goos}" == "windows" ]]; then
                   test -f "${dir}/plugins/kafka/dist/kafka-probe/kafka-probe.exe"
+                  test -f "${dir}/plugins/zk/dist/zk-probe/zk-probe.exe"
                 else
                   test -f "${dir}/plugins/kafka/dist/kafka-probe/kafka-probe"
-                  find "${dir}/plugins/kafka/dist/kafka-probe" -type f \( -name kafka-probe -o -name java \) -exec chmod 755 {} +
+                  test -f "${dir}/plugins/zk/dist/zk-probe/zk-probe"
+                  find "${dir}/plugins/kafka/dist/kafka-probe" "${dir}/plugins/zk/dist/zk-probe" -type f \( -name kafka-probe -o -name zk-probe -o -name java \) -exec chmod 755 {} +
                 fi
                 ;;
             esac

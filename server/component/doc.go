@@ -2,8 +2,8 @@
 //
 // 主机和 Java 仍由代理上报。数据库、Redis、Kafka 这类组件在控制台填写连接，由本进程拨号。
 //
-//	catalog   组件目录。种类、默认端口和指标名以代码为准。初始行在 FG_COMPONENT_KIND.sql
-//	panel     每种组件的监控页签。终端按种类分开。初始行在 FG_COMPONENT_PANEL.sql
+//	catalog   本进程的采集列。指标编码在代码里。种类名称、端口和备注读 FG_COMPONENT_KIND
+//	panel     监控页签读 FG_COMPONENT_PANEL。终端按种类分开。启动时不另写页签
 //	conn      连接表 FG_COMPONENT_CONN。口令加密存放，查询不返回明文
 //	sched     按每条连接的间隔拨号。一台拨不通只记下这一条
 //	redis mysql mongo zk nacos

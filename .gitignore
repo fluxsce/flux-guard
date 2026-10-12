@@ -9,6 +9,8 @@
 /agents/java/*.jar
 /plugins/kafka/target/
 /plugins/kafka/dist/
+/plugins/zk/target/
+/plugins/zk/dist/
 *.exe
 *.dll
 *.so

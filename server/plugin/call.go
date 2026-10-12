@@ -40,6 +40,25 @@ func dropSecret(params any) any {
 	return obj
 }
 
+// CallArgs 返回清单里这个独立方法允许的参数名。方法未单独登记参数时 ok 为 false。
+func CallArgs(id, method string) (map[string]struct{}, bool) {
+	activeMu.Lock()
+	item := active[id]
+	activeMu.Unlock()
+	if item == nil {
+		return nil, false
+	}
+	args, ok := item.calls[method]
+	if !ok {
+		return nil, false
+	}
+	out := make(map[string]struct{}, len(args))
+	for key := range args {
+		out[key] = struct{}{}
+	}
+	return out, true
+}
+
 // MaintainArgs 返回清单里这项维护操作允许的参数名。操作未登记时 ok 为 false。
 func MaintainArgs(id, op string) (map[string]struct{}, bool) {
 	activeMu.Lock()

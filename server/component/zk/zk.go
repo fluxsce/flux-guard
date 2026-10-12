@@ -1,4 +1,5 @@
 // Package zk 用四字命令 mntr 采集，并写入 FG_COMPONENT_ZK_METRIC。
+// 清单里的 zk 插件接上之后，采集和维护改由那个进程负责。
 package zk
 
 import (

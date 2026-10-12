@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-10
+
+### 新增
+- MongoDB 传输可选明文或 TLS。认证支持 SCRAM-SHA-256、SCRAM-SHA-1、LDAP PLAIN、X.509、AWS IAM 和 OIDC 访问令牌。SCRAM 的认证库默认 admin，其余默认 $external。原先保存成「用户名口令」的连接按 SCRAM-SHA-256 采集。
+
 ## [1.0.6] - 2026-10-10
 
 ### 新增

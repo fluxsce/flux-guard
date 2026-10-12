@@ -104,14 +104,20 @@ func (r runner) Probe(ctx context.Context, db *dbx.DB, target conn.Open) (models
 }
 
 func (r runner) Series(ctx context.Context, db *dbx.DB, tenantID, componentID string, limit int) ([]models.Point, error) {
-	spec, ok := catalog.Get(r.component)
+	table, ok := catalog.MetricTable(r.component)
 	if !ok {
 		return nil, fmt.Errorf("不支持的组件种类")
 	}
-	return series.Read(ctx, db, spec.MetricTable, tenantID, componentID, catalog.Columns(r.component), limit, series.Span{})
+	return series.Read(ctx, db, table, tenantID, componentID, catalog.Columns(r.component), limit, series.Span{})
 }
 
 func (r runner) Exec(ctx context.Context, target conn.Open, command string, args map[string]string) (string, error) {
+	if listed, ok := plugin.CallArgs(r.id, command); ok {
+		if err := checkListed(listed, args); err != nil {
+			return "", err
+		}
+		return r.callMethod(ctx, target, command, args)
+	}
 	if err := checkOp(r.id, command, args); err != nil {
 		return "", err
 	}
@@ -120,14 +126,26 @@ func (r runner) Exec(ctx context.Context, target conn.Open, command string, args
 	if err := plugin.Call(ctx, r.id, methodMaintain, maintainParams(target, command, args), target.Secret, &res); err != nil {
 		return "", err
 	}
+	return textResult(res)
+}
+
+func (r runner) callMethod(ctx context.Context, target conn.Open, command string, args map[string]string) (string, error) {
+	target.KindCode = r.component
+	var res MaintainResult
+	if err := plugin.Call(ctx, r.id, command, methodParams(target, args), target.Secret, &res); err != nil {
+		return "", err
+	}
+	return textResult(res)
+}
+
+func textResult(res MaintainResult) (string, error) {
 	if res.Error != "" {
 		return "", fmt.Errorf("%s", res.Error)
 	}
-	output := res.Output
-	if len(output) > maxOutput {
-		output = output[:maxOutput]
+	if len(res.Output) > maxOutput {
+		return "", fmt.Errorf("返回超过 10MB")
 	}
-	return output, nil
+	return res.Output, nil
 }
 
 func checkOp(id, name string, args map[string]string) error {
@@ -135,6 +153,10 @@ func checkOp(id, name string, args map[string]string) error {
 	if !known {
 		return fmt.Errorf("这种组件没有这项操作")
 	}
+	return checkListed(allowed, args)
+}
+
+func checkListed(allowed map[string]struct{}, args map[string]string) error {
 	if len(args) > maxArgs {
 		return fmt.Errorf("操作参数过多")
 	}
@@ -153,6 +175,13 @@ func probeParams(target conn.Open) ProbeParams {
 	return ProbeParams{
 		Kind: target.KindCode, Address: target.Address, User: target.UserName,
 		Secret: target.Secret, Database: target.DatabaseName, Option: target.OptionText,
+	}
+}
+
+func methodParams(target conn.Open, args map[string]string) MethodParams {
+	return MethodParams{
+		Address: target.Address, User: target.UserName, Secret: target.Secret,
+		Database: target.DatabaseName, Option: target.OptionText, Args: args,
 	}
 }
 
@@ -200,8 +229,8 @@ func detailText(raw json.RawMessage) (string, error) {
 }
 
 func insertPoint(ctx context.Context, db *dbx.DB, kind string, target conn.Open, status models.Status, values map[string]float64, detail string) error {
-	spec, ok := catalog.Get(kind)
-	if !ok || !ident.MatchString(spec.MetricTable) {
+	table, ok := catalog.MetricTable(kind)
+	if !ok || !ident.MatchString(table) {
 		return fmt.Errorf("采集表无效")
 	}
 	cols := catalog.Columns(kind)
@@ -229,7 +258,7 @@ func insertPoint(ctx context.Context, db *dbx.DB, kind string, target conn.Open,
 	for i, name := range names {
 		holders[i] = "@" + name
 	}
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", spec.MetricTable, strings.Join(names, ", "), strings.Join(holders, ", "))
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(names, ", "), strings.Join(holders, ", "))
 	if _, err := db.Exec(ctx, query, args); err != nil {
 		return err
 	}

@@ -5,13 +5,15 @@ import { seriesOption } from '../composables/charts'
 import type { BoardCard, BoardSection } from '../composables/boards'
 import type { Point } from '../api'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     sections: BoardSection[]
     points: Point[]
     charts?: boolean
+    showCards?: boolean
+    chartHeight?: string
   }>(),
-  { charts: true },
+  { charts: true, showCards: true, chartHeight: '200px' },
 )
 
 function accent(level: BoardCard['level']) {
@@ -31,7 +33,7 @@ function span(section: BoardSection) {
   <div class="fg-sections">
     <section v-for="section in sections" :key="section.title" class="fg-panel" :data-span="span(section)">
       <h3>{{ section.title }}</h3>
-      <div class="fg-cards">
+      <div v-if="props.showCards" class="fg-cards">
         <RsStatCard
           v-for="item in section.cards"
           :key="item.label"
@@ -46,7 +48,7 @@ function span(section: BoardSection) {
           </template>
         </RsStatCard>
       </div>
-      <MetricChart v-if="charts && section.metrics.length && points.length" :option="seriesOption(section.metrics, points)" height="200px" />
+      <MetricChart v-if="charts && section.metrics.length && points.length" :option="seriesOption(section.metrics, points)" :height="chartHeight" />
     </section>
   </div>
 </template>

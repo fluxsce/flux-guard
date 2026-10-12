@@ -1,5 +1,5 @@
 // Package mongo 读取 serverStatus、复制状态、库占用和正在执行的操作，并写入 FG_COMPONENT_MONGO_METRIC。
-// 需要口令的实例当前记为连不上，不实现 SCRAM。
+// 传输可以是明文或 TLS。认证可以不填，或使用 SCRAM、LDAP PLAIN、X.509、AWS IAM、OIDC。
 package mongo
 
 import (
@@ -46,21 +46,23 @@ func (probe) Series(ctx context.Context, db *dbx.DB, tenantID, componentID strin
 }
 
 func collect(ctx context.Context, target conn.Open) (Sample, models.Status) {
-	if target.UserName != "" || target.Secret != "" {
-		return newSample(), models.Status{Error: "MongoDB 口令登录尚未接入"}
+	plan, err := authMode(target)
+	if err != nil {
+		return newSample(), models.Status{Error: err.Error()}
 	}
 	addr, err := netx.HostPort(target.Address, 27017)
 	if err != nil {
 		return newSample(), models.Status{Error: err.Error()}
 	}
-	dialer := net.Dialer{Timeout: 3 * time.Second}
-	raw, err := dialer.DialContext(ctx, "tcp", addr)
+	raw, err := dialMongo(ctx, addr, plan)
 	if err != nil {
 		return newSample(), models.Status{Error: err.Error()}
 	}
 	defer raw.Close()
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = raw.SetDeadline(deadline)
+	if plan.mechanism != "" {
+		if err := authenticate(raw, plan); err != nil {
+			return newSample(), models.Status{Error: row.Cut(err.Error(), 100)}
+		}
 	}
 	doc, err := call(raw, bsonDoc(bsonInt32("serverStatus", 1), bsonString("$db", "admin")))
 	if err != nil {

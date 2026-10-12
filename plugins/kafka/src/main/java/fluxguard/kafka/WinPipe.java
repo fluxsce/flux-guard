@@ -68,11 +68,12 @@ final class WinPipe {
         @Override
         public byte[] readFully(int n) throws IOException {
             byte[] out = new byte[n];
+            byte[] chunk = new byte[Math.min(n, 64 * 1024)];
             int off = 0;
             while (off < n) {
-                byte[] chunk = new byte[n - off];
+                int size = Math.min(chunk.length, n - off);
                 IntByReference read = new IntByReference();
-                boolean ok = Kernel32.INSTANCE.ReadFile(handle, chunk, chunk.length, read, null);
+                boolean ok = Kernel32.INSTANCE.ReadFile(handle, chunk, size, read, null);
                 int got = read.getValue();
                 if (!ok || got <= 0) {
                     int code = Kernel32.INSTANCE.GetLastError();

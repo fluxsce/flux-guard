@@ -1,15 +1,25 @@
 package panel
 
 import (
+	"context"
 	"testing"
 
 	"fluxguard/server/component/catalog"
+	"fluxguard/server/store"
 )
 
 func TestPanelsCoverKinds(t *testing.T) {
-	kinds := []string{"redis", "mysql", "mongo", "kafka", "zk", "nacos"}
-	for _, kind := range kinds {
-		items := Of(kind)
+	ctx := context.Background()
+	db, cleanup, err := store.OpenTemp(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	for _, kind := range catalog.Codes() {
+		items, err := Of(ctx, db, "default", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(items) < 2 {
 			t.Fatalf("%s panels missing", kind)
 		}
@@ -24,7 +34,10 @@ func TestPanelsCoverKinds(t *testing.T) {
 		for _, code := range catalog.Columns(kind) {
 			known[code] = struct{}{}
 		}
-		metrics := ListMetrics(kind)
+		metrics, err := ListMetrics(ctx, db, "default", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(metrics) == 0 {
 			t.Fatalf("%s list should show a current value", kind)
 		}

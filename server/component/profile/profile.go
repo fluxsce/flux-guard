@@ -34,22 +34,7 @@ func Normalize(kind, option, user, secret, database string, creating bool) (Spec
 		}
 		return Spec{Option: "server:password", User: user, Database: database}, nil
 	case catalog.Mongo:
-		if auth == "" {
-			auth = "none"
-		}
-		if auth != "none" && auth != "password" {
-			return Spec{}, fmt.Errorf("不支持的 MongoDB 认证方式")
-		}
-		if auth == "none" {
-			return Spec{Option: "standalone:none", ClearSecret: true}, nil
-		}
-		if user == "" || (creating && strings.TrimSpace(secret) == "") {
-			return Spec{}, fmt.Errorf("MongoDB 用户名口令需要同时填写")
-		}
-		if database == "" {
-			database = "admin"
-		}
-		return Spec{Option: "standalone:password", User: user, Database: database}, nil
+		return mongoSpec(deploy, auth, user, secret, database, creating)
 	case catalog.Kafka:
 		if deploy == "" {
 			deploy = "cluster"
@@ -96,6 +81,61 @@ func Normalize(kind, option, user, secret, database string, creating bool) (Spec
 func Split(option string) (deploy, auth string) {
 	deploy, auth, _ = strings.Cut(strings.TrimSpace(option), ":")
 	return deploy, auth
+}
+
+func mongoSpec(deploy, auth, user, secret, database string, creating bool) (Spec, error) {
+	if deploy == "" {
+		deploy = "standalone"
+	}
+	if deploy != "standalone" && deploy != "tls" {
+		return Spec{}, fmt.Errorf("MongoDB 传输应为明文或 TLS")
+	}
+	if auth == "" {
+		auth = "none"
+	}
+	if auth == "password" {
+		auth = "scram256"
+	}
+	if auth == "x509" {
+		deploy = "tls"
+	}
+	switch auth {
+	case "none":
+		return Spec{Option: deploy + ":none", ClearSecret: true}, nil
+	case "scram256", "scram1":
+		if user == "" || (creating && strings.TrimSpace(secret) == "") {
+			return Spec{}, fmt.Errorf("MongoDB 认证需要用户名和口令")
+		}
+		if database == "" {
+			database = "admin"
+		}
+		return Spec{Option: deploy + ":" + auth, User: user, Database: database}, nil
+	case "plain":
+		if user == "" || (creating && strings.TrimSpace(secret) == "") {
+			return Spec{}, fmt.Errorf("LDAP 需要用户名和口令")
+		}
+		if database == "" {
+			database = "$external"
+		}
+		return Spec{Option: deploy + ":plain", User: user, Database: database}, nil
+	case "aws":
+		if user == "" || (creating && strings.TrimSpace(secret) == "") {
+			return Spec{}, fmt.Errorf("AWS 认证需要访问密钥编号和访问密钥")
+		}
+		return Spec{Option: deploy + ":aws", User: user, Database: "$external"}, nil
+	case "x509":
+		if creating && strings.TrimSpace(secret) == "" {
+			return Spec{}, fmt.Errorf("请填写客户端证书和私钥")
+		}
+		return Spec{Option: "tls:x509", User: user, Database: "$external"}, nil
+	case "oidc":
+		if creating && strings.TrimSpace(secret) == "" {
+			return Spec{}, fmt.Errorf("请填写访问令牌")
+		}
+		return Spec{Option: deploy + ":oidc", User: user, Database: "$external"}, nil
+	default:
+		return Spec{}, fmt.Errorf("不支持的 MongoDB 认证方式")
+	}
 }
 
 func redisSpec(deploy, auth, user, secret, database string, creating bool) (Spec, error) {

@@ -60,6 +60,22 @@ func bsonSub(name string, doc []byte) []byte {
 	return append(append([]byte{0x03}, cstring(name)...), doc...)
 }
 
+func bsonBinary(name string, v []byte) []byte {
+	out := append([]byte{0x05}, cstring(name)...)
+	var n [4]byte
+	binary.LittleEndian.PutUint32(n[:], uint32(len(v)))
+	out = append(out, n[:]...)
+	out = append(out, 0)
+	return append(out, v...)
+}
+
+func bsonNumber(name string, v int64) []byte {
+	if v >= math.MinInt32 && v <= math.MaxInt32 {
+		return bsonInt32(name, int32(v))
+	}
+	return bsonInt64(name, v)
+}
+
 func cstring(name string) []byte {
 	return append([]byte(name), 0)
 }
@@ -131,7 +147,17 @@ func decodeValue(typ byte, b []byte) (any, int, error) {
 		if n < 0 || 5+n > len(b) {
 			return nil, 0, fmt.Errorf("MongoDB 应答无效")
 		}
-		return nil, 5 + n, nil
+		raw := b[5 : 5+n]
+		// 旧式二进制在数据前再带一段长度。SASL 载荷用的是普通二进制。
+		if b[4] == 0x02 && len(raw) >= 4 {
+			inner := int(binary.LittleEndian.Uint32(raw[:4]))
+			if inner >= 0 && 4+inner <= len(raw) {
+				raw = raw[4 : 4+inner]
+			}
+		}
+		out := make([]byte, len(raw))
+		copy(out, raw)
+		return out, 5 + n, nil
 	case 0x07:
 		if len(b) < 12 {
 			return nil, 0, fmt.Errorf("MongoDB 应答无效")
@@ -270,6 +296,24 @@ func num(v any) float64 {
 func text(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+func intOf(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int32:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func bytesOf(v any) []byte {
+	b, _ := v.([]byte)
+	return b
 }
 
 func truthy(v any) bool {

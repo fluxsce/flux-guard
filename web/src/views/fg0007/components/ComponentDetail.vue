@@ -47,7 +47,26 @@ const panelSections = computed(() => sectionsFor(props.panels, activePanel.value
 const terminal = computed(() => activePanel.value?.terminalFlag === 'Y')
 const detail = computed<PointDetail>(() => latest.value?.detail ?? {})
 const layout = computed(() => layoutOf(props.conn.kindCode, props.conn.optionText, props.conn.userName, props.conn.secretSet).label)
-const ranged = computed(() => props.conn.kindCode === 'redis' || props.conn.kindCode === 'mongo')
+const ranged = computed(() => {
+  const kind = props.conn.kindCode
+  return kind === 'redis' || kind === 'mongo' || kind === 'kafka'
+})
+const kafkaSignals = ['Broker', '离线分区', '未同步分区', '低于最小 ISR', '最大分区延迟', '再均衡']
+const signalCards = computed(() => {
+  if (props.conn.kindCode !== 'kafka' || terminal.value) return []
+  const want = new Set(kafkaSignals)
+  return board.value.sections.flatMap((section) => section.cards).filter((card) => want.has(card.label))
+})
+const chartSections = computed(() => {
+  if (props.conn.kindCode !== 'kafka' || terminal.value) return panelSections.value
+  if ((activePanel.value?.panelCode ?? 'overview') === 'overview') return board.value.sections
+  return panelSections.value
+})
+const kafkaDesk = computed(() => {
+  if (props.conn.kindCode !== 'kafka' || terminal.value) return false
+  const code = activePanel.value?.panelCode ?? ''
+  return code === 'broker' || code === 'topic' || code === 'group' || code === 'partition'
+})
 
 function pad(value: number) {
   return String(value).padStart(2, '0')
@@ -160,8 +179,31 @@ watch([auto, intervalSec], arm)
 
 const toolbarButtons = computed<FgToolbarButton[]>(() => [
   { key: 'back', label: '返回', icon: 'arrow-left', aiRisk: 'read', onClick: () => emit('back') },
-  { key: 'refresh', label: '刷新', icon: 'rotate-ccw', code: 'fg0007:view', aiRisk: 'read', onClick: () => slideWindow() },
+  {
+    key: 'refresh',
+    label: '刷新',
+    icon: 'rotate-ccw',
+    code: 'fg0007:view',
+    aiRisk: 'read',
+    onClick: () => {
+      if (props.conn.kindCode === 'kafka') emit('refresh')
+      else slideWindow()
+    },
+  },
 ])
+
+const signalNames: Record<string, string> = {
+  Broker: 'Broker',
+  离线分区: '离线',
+  未同步分区: '未同步',
+  '低于最小 ISR': '最小 ISR',
+  再均衡: '再均衡',
+  最大分区延迟: '最大延迟',
+}
+
+function signalName(label: string) {
+  return signalNames[label] || label
+}
 
 watch(visiblePanels, (list) => {
   if (!list.some((item) => item.panelCode === panel.value)) panel.value = list[0]?.panelCode ?? 'overview'
@@ -197,8 +239,14 @@ onUnmounted(() => {
 
 <template>
   <section class="fg-detail">
-    <FgToolbar v-if="ranged" plain wrap :title="conn.componentName" :buttons="toolbarButtons">
-      <template #after>
+    <FgToolbar v-if="ranged" plain :buttons="toolbarButtons">
+      <template #title>
+        <span class="fg-desk-title">
+          <strong>{{ conn.componentName }}</strong>
+          <span class="fg-desk-meta">{{ conn.kindName || conn.kindCode }} · {{ layout }} · {{ conn.address }}</span>
+        </span>
+      </template>
+      <template #right>
         <div v-if="!terminal" class="fg-monitor-bar">
           <RsDatePicker
             v-model="range"
@@ -230,14 +278,24 @@ onUnmounted(() => {
       <RsButton size="sm" variant="secondary" icon="rotate-ccw" @click="emit('refresh')">刷新</RsButton>
     </header>
     <RsTabs v-if="tabItems.length" v-model="panel" class="fg-panels" :items="tabItems" size="sm" panelless />
-    <div class="fg-detail-body">
-      <p v-if="ranged" class="fg-note">{{ conn.kindName || conn.kindCode }} · {{ layout }} · {{ conn.address }}</p>
+    <div class="fg-detail-body" :class="{ 'fg-detail-body--desk': kafkaDesk }">
       <p v-if="board.finding && !terminal" class="fg-finding" :data-level="board.level">{{ board.finding }}</p>
       <p v-else-if="!points.length && !terminal" class="fg-note">还没有采集点。保存后会按间隔拨号，也可以在列表里立即采集。</p>
       <p v-if="error && !terminal" class="fg-finding" data-level="alert">{{ error }}</p>
+      <div v-if="signalCards.length" class="fg-signals">
+        <span v-for="item in signalCards" :key="item.label" class="fg-signal" :data-level="item.level">
+          <span class="fg-signal__name">{{ signalName(item.label) }}</span>
+          <strong>{{ item.value }}</strong>
+        </span>
+      </div>
       <TerminalPane v-if="terminal" :kind-code="conn.kindCode" :kind-name="conn.kindName || conn.kindCode" />
       <template v-else>
-        <MetricSections v-if="panelSections.length" :sections="panelSections" :points="points" />
+        <MetricSections
+          v-if="chartSections.length && !kafkaDesk"
+          :sections="chartSections"
+          :points="points"
+          :show-cards="conn.kindCode !== 'kafka'"
+        />
         <RedisMonitor v-if="conn.kindCode === 'redis'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <KafkaMonitor v-else-if="conn.kindCode === 'kafka'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
@@ -255,19 +313,36 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--fg-panel-bg, var(--rs-surface));
 }
+.fg-desk-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.fg-desk-title strong {
+  flex: none;
+  font-weight: 650;
+}
+.fg-desk-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--rs-text-secondary, #4d647c);
+  font-size: 12px;
+  font-weight: 400;
+}
 .fg-monitor-bar {
   display: inline-flex;
   flex: 0 0 auto;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px 12px;
-  width: max-content;
-  max-width: 100%;
 }
 .fg-range {
-  width: 340px;
-  max-width: 42vw;
-  flex: 0 1 340px;
+  width: 26.5rem;
+  flex: 0 0 26.5rem;
 }
 .fg-auto {
   display: inline-flex;
@@ -278,7 +353,7 @@ onUnmounted(() => {
   font-size: 13px;
   white-space: nowrap;
 }
-.fg-auto :deep(.fg-interval) {
+.fg-interval {
   width: 72px;
   flex: 0 0 72px;
 }
@@ -337,6 +412,58 @@ onUnmounted(() => {
   min-height: 0;
   padding: 12px 16px 24px;
   overflow: auto;
+}
+.fg-detail-body--desk {
+  overflow: hidden;
+  gap: 8px;
+  padding-top: 8px;
+  padding-bottom: 12px;
+}
+.fg-detail-body--desk > * {
+  flex: none;
+}
+.fg-detail-body--desk .fg-kafka {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.fg-signals {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--fg-panel-border, var(--rs-border));
+  background: var(--rs-surface);
+}
+.fg-signal {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 10px;
+  border-right: 1px solid var(--fg-panel-border, var(--rs-border));
+  white-space: nowrap;
+}
+.fg-signal:last-child {
+  border-right: 0;
+}
+.fg-signal__name {
+  overflow: hidden;
+  color: var(--rs-text-secondary, #4d647c);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+.fg-signal strong {
+  flex: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.fg-signal[data-level='alert'] strong {
+  color: #e23b55;
+}
+.fg-signal[data-level='watch'] strong {
+  color: #c49212;
 }
 .fg-finding,
 .fg-note {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RsCard, RsTable, RsTooltip, type RsTableColumn } from '@/ui'
-import type { KafkaBrokerRow, KafkaGroupRow, KafkaPartitionRow, KafkaTopicRow, PointDetail } from '../api'
+import { RsTable, RsTooltip, type RsTableColumn } from '@/ui'
+import type { KafkaBrokerRow, KafkaGroupRow, KafkaOffsetRow, KafkaPartitionRow, KafkaTopicRow, PointDetail } from '../api'
 
 const props = defineProps<{
   panelCode: string
@@ -43,33 +43,17 @@ function stateText(state?: string) {
   return states[state] || state
 }
 
-function topicsText(item: KafkaGroupRow) {
-  if (!item.topic) return '—'
-  if ((item.topicCount ?? 0) > 1) return `${item.topic} 等 ${item.topicCount} 个`
-  return item.topic
-}
-
-function slowText(item: KafkaGroupRow) {
-  if (item.maxLag == null || item.maxLag < 0) return '—'
-  let where = item.topic || ''
-  if (item.part != null && item.part >= 0) {
-    where = item.topic ? `${item.topic}-${item.part}` : String(item.part)
-  }
-  if (!where) return String(item.maxLag)
-  return `${where} · ${item.maxLag}`
-}
-
-function behindText(item: KafkaGroupRow) {
-  if (item.behind == null || item.behind < 0) return '—'
-  return String(item.behind)
-}
-
 function leaderText(id: number) {
   return id < 0 ? '—' : String(id)
 }
 
 function num(left: number | undefined, right: number | undefined) {
   return (left ?? -1) - (right ?? -1)
+}
+
+function hostText(host?: string) {
+  if (!host) return ''
+  return host.startsWith('/') ? host.slice(1) : host
 }
 
 type BrokerRow = KafkaBrokerRow & {
@@ -84,6 +68,7 @@ type TopicRow = KafkaTopicRow & {
   replicaText: string
   skewCount: number
   belowCount: number
+  faults: string
 }
 
 type PartRow = KafkaPartitionRow & {
@@ -92,13 +77,20 @@ type PartRow = KafkaPartitionRow & {
   isrText: string
 }
 
-type GroupRow = KafkaGroupRow & {
+type ConsumeRow = {
+  id: string
+  group: string
+  state?: string
   stateLabel: string
-  memberText: string
+  topic: string
+  partText: string
+  currentText: string
+  endText: string
+  lag: number
   lagLabel: string
-  behindLabel: string
-  slow: string
-  topicsLabel: string
+  consumerId: string
+  host: string
+  clientId: string
 }
 
 const brokers = computed<BrokerRow[]>(() =>
@@ -113,16 +105,6 @@ const brokers = computed<BrokerRow[]>(() =>
   })),
 )
 
-const topics = computed<TopicRow[]>(() =>
-  (props.detail.topics ?? []).map((item) => ({
-    ...item,
-    label: topicName(item),
-    replicaText: replicas(item),
-    skewCount: item.skew || 0,
-    belowCount: item.belowMin || 0,
-  })),
-)
-
 const partitions = computed<PartRow[]>(() =>
   (props.detail.partitions ?? []).map((item) => ({
     ...item,
@@ -132,16 +114,75 @@ const partitions = computed<PartRow[]>(() =>
   })),
 )
 
-const groups = computed<GroupRow[]>(() =>
-  (props.detail.groups ?? []).map((item) => ({
+function faultText(name: string) {
+  const rows = partitions.value.filter((row) => row.topic === name)
+  if (!rows.length) return '—'
+  const shown = rows.slice(0, 4).map((row) => `${row.part} ${row.problem}`)
+  if (rows.length > shown.length) return `${shown.join('，')} 等 ${rows.length} 个`
+  return shown.join('，')
+}
+
+const topics = computed<TopicRow[]>(() =>
+  (props.detail.topics ?? []).map((item) => ({
     ...item,
-    stateLabel: stateText(item.state),
-    memberText: item.members == null ? '—' : String(item.members),
-    lagLabel: lagText(item.lag),
-    behindLabel: behindText(item),
-    slow: slowText(item),
-    topicsLabel: topicsText(item),
+    label: topicName(item),
+    replicaText: replicas(item),
+    skewCount: item.skew || 0,
+    belowCount: item.belowMin || 0,
+    faults: faultText(item.name),
   })),
+)
+
+function offsetText(value: number | undefined) {
+  if (value == null || value < 0) return '—'
+  return String(value)
+}
+
+function offsetsOf(item: KafkaGroupRow): KafkaOffsetRow[] {
+  if (item.offsets?.length) return item.offsets
+  if (item.lags?.length) {
+    return item.lags.map((row) => ({ topic: row.topic, part: row.part, lag: row.lag }))
+  }
+  if (item.topic) {
+    return [{ topic: item.topic, part: item.part ?? -1, lag: item.maxLag ?? item.lag }]
+  }
+  return []
+}
+
+function consumeRow(item: KafkaGroupRow, row: KafkaOffsetRow): ConsumeRow {
+  const part = row.part ?? -1
+  return {
+    id: `${item.name}\u0000${row.topic}\u0000${part}`,
+    group: item.name,
+    state: item.state,
+    stateLabel: stateText(item.state),
+    topic: row.topic || '—',
+    partText: part < 0 ? '—' : String(part),
+    currentText: offsetText(row.current),
+    endText: offsetText(row.end),
+    lag: row.lag,
+    lagLabel: lagText(row.lag),
+    consumerId: row.consumerId || '—',
+    host: hostText(row.host) || '—',
+    clientId: row.clientId || '—',
+  }
+}
+
+const linkNote = computed(() => {
+  const notes = (props.detail.groups ?? [])
+    .flatMap((item) => [item.offsetNote, item.topicLinkNote])
+    .filter((item): item is string => Boolean(item))
+  return [...new Set(notes)].join(' ')
+})
+
+const consumes = computed<ConsumeRow[]>(() =>
+  (props.detail.groups ?? []).flatMap((item) => {
+    const rows = offsetsOf(item)
+    if (!rows.length) {
+      return [consumeRow(item, { topic: '—', part: -1, lag: item.lag })]
+    }
+    return rows.map((row) => consumeRow(item, row))
+  }),
 )
 
 function leaderLevel(item: BrokerRow) {
@@ -161,6 +202,12 @@ function problemLevel(problem: string) {
   return undefined
 }
 
+function faultLevel(text: string) {
+  if (text.includes('离线') || text.includes('低于最小 ISR')) return 'alert'
+  if (text !== '—') return 'watch'
+  return undefined
+}
+
 function stateLevel(state?: string) {
   if (state === 'PreparingRebalance' || state === 'CompletingRebalance' || state === 'Dead') return 'watch'
   return undefined
@@ -177,12 +224,13 @@ const brokerColumns: RsTableColumn<BrokerRow>[] = [
   { key: 'address', title: '地址', dataIndex: 'address', filterable: true, sortable: true },
   { key: 'role', title: '角色', dataIndex: 'role', width: 96, filterable: true, sortable: true },
   { key: 'link', title: '连通', dataIndex: 'link', width: 88, filterable: true, sortable: true },
-  { key: 'leaders', title: '负责分区', dataIndex: 'leaders', align: 'right', sortable: true, filterable: true },
-  { key: 'replicas', title: '副本', dataIndex: 'replicas', align: 'right', sortable: true, filterable: true },
+  { key: 'leaders', title: '负责分区', dataIndex: 'leaders', width: 96, align: 'right', sortable: true, filterable: true },
+  { key: 'replicas', title: '副本', dataIndex: 'replicas', width: 80, align: 'right', sortable: true, filterable: true },
   {
     key: 'logText',
     title: '日志',
     dataIndex: 'logText',
+    minWidth: 96,
     align: 'right',
     filterable: true,
     sortable: true,
@@ -191,11 +239,11 @@ const brokerColumns: RsTableColumn<BrokerRow>[] = [
 ]
 
 const topicColumns: RsTableColumn<TopicRow>[] = [
-  { key: 'label', title: '名称', dataIndex: 'label', filterable: true, sortable: true, ellipsis: true },
+  { key: 'label', title: '主题', dataIndex: 'label', width: 220, filterable: true, sortable: true, ellipsis: true },
   { key: 'partitions', title: '分区', dataIndex: 'partitions', width: 72, align: 'right', sortable: true, filterable: true },
   {
     key: 'replicaText',
-    title: '副本',
+    title: '副本因子',
     dataIndex: 'replicaText',
     width: 88,
     align: 'right',
@@ -203,14 +251,15 @@ const topicColumns: RsTableColumn<TopicRow>[] = [
     sortable: true,
     sorter: (left, right) => num(left.replicas, right.replicas) || num(left.replicaMax, right.replicaMax),
   },
-  { key: 'offline', title: '离线', dataIndex: 'offline', width: 72, align: 'right', sortable: true, filterable: true },
-  { key: 'under', title: '未同步', dataIndex: 'under', width: 88, align: 'right', sortable: true, filterable: true },
+  { key: 'offline', title: '离线分区', dataIndex: 'offline', width: 88, align: 'right', sortable: true, filterable: true },
+  { key: 'under', title: '未同步', dataIndex: 'under', width: 80, align: 'right', sortable: true, filterable: true },
   { key: 'skewCount', title: '首选偏离', dataIndex: 'skewCount', width: 96, align: 'right', sortable: true, filterable: true },
   { key: 'belowCount', title: '低于最小 ISR', dataIndex: 'belowCount', width: 120, align: 'right', sortable: true, filterable: true },
+  { key: 'faults', title: '异常分区', dataIndex: 'faults', minWidth: 160, filterable: true, sortable: true, ellipsis: true },
 ]
 
 const partColumns: RsTableColumn<PartRow>[] = [
-  { key: 'topic', title: '主题', dataIndex: 'topic', filterable: true, sortable: true, ellipsis: true },
+  { key: 'topic', title: '主题', dataIndex: 'topic', width: 220, filterable: true, sortable: true, ellipsis: true },
   { key: 'part', title: '分区', dataIndex: 'part', width: 72, align: 'right', sortable: true, filterable: true },
   {
     key: 'leaderText',
@@ -223,213 +272,218 @@ const partColumns: RsTableColumn<PartRow>[] = [
     sorter: (left, right) => num(left.leader, right.leader),
   },
   { key: 'isrText', title: 'ISR', dataIndex: 'isrText', width: 88, align: 'right', filterable: true, sortable: true },
-  { key: 'problem', title: '问题', dataIndex: 'problem', width: 120, filterable: true, sortable: true },
+  { key: 'problem', title: '问题', dataIndex: 'problem', minWidth: 120, filterable: true, sortable: true },
 ]
 
-const groupColumns: RsTableColumn<GroupRow>[] = [
-  { key: 'name', title: '消费组', dataIndex: 'name', filterable: true, sortable: true, ellipsis: true },
-  { key: 'stateLabel', title: '状态', dataIndex: 'stateLabel', width: 88, filterable: true, sortable: true },
-  {
-    key: 'memberText',
-    title: '成员',
-    dataIndex: 'memberText',
-    width: 72,
-    align: 'right',
-    filterable: true,
-    sortable: true,
-    sorter: (left, right) => num(left.members, right.members),
-  },
+const consumeColumns: RsTableColumn<ConsumeRow>[] = [
+  { key: 'group', title: '消费组', dataIndex: 'group', width: 120, filterable: true, sortable: true, ellipsis: true },
+  { key: 'stateLabel', title: '状态', dataIndex: 'stateLabel', width: 80, filterable: true, sortable: true },
+  { key: 'topic', title: '主题', dataIndex: 'topic', width: 180, filterable: true, sortable: true, ellipsis: true },
+  { key: 'partText', title: '分区', dataIndex: 'partText', width: 64, align: 'right', filterable: true, sortable: true },
+  { key: 'currentText', title: '当前位点', dataIndex: 'currentText', width: 120, align: 'right', filterable: true, sortable: true },
+  { key: 'endText', title: '日志末端', dataIndex: 'endText', width: 120, align: 'right', filterable: true, sortable: true },
   {
     key: 'lagLabel',
     title: '延迟',
     dataIndex: 'lagLabel',
-    width: 88,
+    width: 72,
     align: 'right',
     filterable: true,
     sortable: true,
     sorter: (left, right) => num(left.lag, right.lag),
   },
-  {
-    key: 'behindLabel',
-    title: '落后分区',
-    dataIndex: 'behindLabel',
-    width: 96,
-    align: 'right',
-    filterable: true,
-    sortable: true,
-    sorter: (left, right) => num(left.behind, right.behind),
-  },
-  { key: 'slow', title: '最慢分区', dataIndex: 'slow', filterable: true, sortable: true },
-  { key: 'topicsLabel', title: '主题', dataIndex: 'topicsLabel', filterable: true, sortable: true, ellipsis: true },
+  { key: 'consumerId', title: '消费者', dataIndex: 'consumerId', width: 220, filterable: true, sortable: true, ellipsis: true },
+  { key: 'host', title: '主机', dataIndex: 'host', width: 140, filterable: true, sortable: true, ellipsis: true },
+  { key: 'clientId', title: '客户端', dataIndex: 'clientId', minWidth: 140, filterable: true, sortable: true, ellipsis: true },
 ]
 </script>
 
 <template>
-  <RsCard v-if="panelCode === 'broker'" class="fg-monitor" title="Broker" size="sm" :padding="false">
-    <template #actions>
-      <RsTooltip icon content="来自集群元数据。连通是从这里再拨一次该 Broker。负责分区是它当前担任 Leader 的数量。日志是这台机器上的日志目录占用。" aria-label="Broker 说明" />
-    </template>
+  <div v-if="panelCode === 'broker'" class="fg-kafka">
     <p v-if="detail.clusterId" class="fg-note">集群 {{ detail.clusterId }}</p>
     <p v-if="detail.brokerNote" class="fg-note">{{ detail.brokerNote }}</p>
     <p v-if="!brokers.length" class="fg-note">还没有 Broker。元数据里没有公告节点时，这里是空的。</p>
-    <RsTable
-      v-else
-      :columns="brokerColumns"
-      :data="brokers"
-      row-key="id"
-      size="sm"
-      cell-focus="none"
-      null-label="—"
-      :rounded="false"
-      :virtual="false"
-      :context-menu="false"
-    >
-      <template #header-leaders>
-        <RsTooltip icon content="这台 Broker 当前担任 Leader 的分区数。明显多于其它节点时标出来。">负责分区</RsTooltip>
-      </template>
-      <template #header-replicas>
-        <RsTooltip icon content="副本落在这台 Broker 上的分区数，含它担任 Leader 的分区。">副本</RsTooltip>
-      </template>
-      <template #link="{ row }">
-        <span :data-level="(row as BrokerRow).up ? undefined : 'alert'">{{ (row as BrokerRow).link }}</span>
-      </template>
-      <template #leaders="{ row }">
-        <span :data-level="leaderLevel(row as BrokerRow)">{{ (row as BrokerRow).leaders ?? 0 }}</span>
-      </template>
-    </RsTable>
-  </RsCard>
-  <RsCard v-else-if="panelCode === 'topic'" class="fg-monitor" title="Topic" size="sm" :padding="false">
-    <template #actions>
-      <RsTooltip icon content="健康的内部主题不列出。主题很多时，优先保留离线和未同步的。" aria-label="Topic 说明" />
-    </template>
+    <div v-else class="fg-table">
+      <RsTable
+        :columns="brokerColumns"
+        :data="brokers"
+        row-key="id"
+        size="sm"
+        fill
+        resizable
+        cell-focus="none"
+        null-label="—"
+        :rounded="false"
+        :virtual="false"
+        :context-menu="false"
+      >
+        <template #header-leaders>
+          <RsTooltip icon content="这台 Broker 当前担任 Leader 的分区数。明显多于其它节点时标出来。">负责分区</RsTooltip>
+        </template>
+        <template #header-replicas>
+          <RsTooltip icon content="副本落在这台 Broker 上的分区数，含它担任 Leader 的分区。">副本</RsTooltip>
+        </template>
+        <template #link="{ row }">
+          <span :data-level="(row as BrokerRow).up ? undefined : 'alert'">{{ (row as BrokerRow).link }}</span>
+        </template>
+        <template #leaders="{ row }">
+          <span :data-level="leaderLevel(row as BrokerRow)">{{ (row as BrokerRow).leaders ?? 0 }}</span>
+        </template>
+      </RsTable>
+    </div>
+  </div>
+  <div v-else-if="panelCode === 'topic'" class="fg-kafka">
     <p v-if="detail.topicNote" class="fg-note">{{ detail.topicNote }}</p>
+    <p v-if="detail.partitionNote" class="fg-note">{{ detail.partitionNote }}</p>
     <p v-if="!topics.length" class="fg-note">还没有 Topic。集群里没有主题时，这里是空的。</p>
-    <RsTable
-      v-else
-      :columns="topicColumns"
-      :data="topics"
-      row-key="name"
-      size="sm"
-      cell-focus="none"
-      null-label="—"
-      :rounded="false"
-      :virtual="false"
-      :context-menu="false"
-    >
-      <template #header-replicaText>
-        <RsTooltip icon content="分区配置的副本数。各分区不一样时显示范围。">副本</RsTooltip>
-      </template>
-      <template #header-offline>
-        <RsTooltip icon content="没有可用 Leader 的分区数。">离线</RsTooltip>
-      </template>
-      <template #header-under>
-        <RsTooltip icon content="副本没有跟上 Leader 的分区数。">未同步</RsTooltip>
-      </template>
-      <template #header-skewCount>
-        <RsTooltip icon content="Leader 不在首选副本上的分区数。">首选偏离</RsTooltip>
-      </template>
-      <template #header-belowCount>
-        <RsTooltip icon content="同步副本数低于 min.insync.replicas 的分区。主题有单独配置时按主题算。">低于最小 ISR</RsTooltip>
-      </template>
-      <template #offline="{ row }">
-        <span :data-level="(row as TopicRow).offline > 0 ? 'alert' : undefined">{{ (row as TopicRow).offline }}</span>
-      </template>
-      <template #under="{ row }">
-        <span :data-level="(row as TopicRow).under > 0 ? 'watch' : undefined">{{ (row as TopicRow).under }}</span>
-      </template>
-      <template #skewCount="{ row }">
-        <span :data-level="(row as TopicRow).skewCount > 0 ? 'watch' : undefined">{{ (row as TopicRow).skewCount }}</span>
-      </template>
-      <template #belowCount="{ row }">
-        <span :data-level="(row as TopicRow).belowCount > 0 ? 'alert' : undefined">{{ (row as TopicRow).belowCount }}</span>
-      </template>
-    </RsTable>
-  </RsCard>
-  <RsCard v-else-if="panelCode === 'partition'" class="fg-monitor" title="分区" size="sm" :padding="false">
-    <template #actions>
-      <RsTooltip icon content="只列出离线、未同步、低于最小 ISR 或首选副本偏离的分区。优先显示离线和未同步。" aria-label="分区说明" />
-    </template>
+    <div v-else class="fg-table">
+      <RsTable
+        :columns="topicColumns"
+        :data="topics"
+        row-key="name"
+        size="sm"
+        fill
+        resizable
+        cell-focus="none"
+        null-label="—"
+        :rounded="false"
+        :virtual="false"
+        :context-menu="false"
+      >
+        <template #header-partitions>
+          <RsTooltip icon content="这个主题的分区个数。">分区</RsTooltip>
+        </template>
+        <template #header-replicaText>
+          <RsTooltip icon content="分区配置的副本因子。各分区不一样时显示范围。">副本因子</RsTooltip>
+        </template>
+        <template #header-offline>
+          <RsTooltip icon content="没有可用 Leader 的分区数。">离线分区</RsTooltip>
+        </template>
+        <template #header-under>
+          <RsTooltip icon content="同步副本数小于副本因子的分区数。">未同步</RsTooltip>
+        </template>
+        <template #header-skewCount>
+          <RsTooltip icon content="Leader 不在首选副本上的分区数。">首选偏离</RsTooltip>
+        </template>
+        <template #header-belowCount>
+          <RsTooltip icon content="同步副本数低于 min.insync.replicas 的分区。主题有单独配置时按主题算。">低于最小 ISR</RsTooltip>
+        </template>
+        <template #header-faults>
+          <RsTooltip icon content="离线、未同步、低于最小 ISR 或首选副本偏离的分区号。">异常分区</RsTooltip>
+        </template>
+        <template #offline="{ row }">
+          <span :data-level="(row as TopicRow).offline > 0 ? 'alert' : undefined">{{ (row as TopicRow).offline }}</span>
+        </template>
+        <template #under="{ row }">
+          <span :data-level="(row as TopicRow).under > 0 ? 'watch' : undefined">{{ (row as TopicRow).under }}</span>
+        </template>
+        <template #skewCount="{ row }">
+          <span :data-level="(row as TopicRow).skewCount > 0 ? 'watch' : undefined">{{ (row as TopicRow).skewCount }}</span>
+        </template>
+        <template #belowCount="{ row }">
+          <span :data-level="(row as TopicRow).belowCount > 0 ? 'alert' : undefined">{{ (row as TopicRow).belowCount }}</span>
+        </template>
+        <template #faults="{ row }">
+          <span :data-level="faultLevel((row as TopicRow).faults)">{{ (row as TopicRow).faults }}</span>
+        </template>
+      </RsTable>
+    </div>
+  </div>
+  <div v-else-if="panelCode === 'group'" class="fg-kafka">
+    <p v-if="detail.groupNote" class="fg-note">{{ detail.groupNote }}</p>
+    <p v-if="linkNote" class="fg-note">{{ linkNote }}</p>
+    <p v-if="!consumes.length" class="fg-note">没有消费组，或协调者暂时读不到。</p>
+    <div v-else class="fg-table">
+      <RsTable
+        :columns="consumeColumns"
+        :data="consumes"
+        row-key="id"
+        size="sm"
+        fill
+        resizable
+        cell-focus="none"
+        null-label="—"
+        :rounded="false"
+        :virtual="false"
+        :context-menu="false"
+      >
+        <template #header-currentText>
+          <RsTooltip icon content="这个组在该分区已提交的 offset。">当前位点</RsTooltip>
+        </template>
+        <template #header-endText>
+          <RsTooltip icon content="该分区当前的最新 offset。">日志末端</RsTooltip>
+        </template>
+        <template #header-lagLabel>
+          <RsTooltip icon content="日志末端减去当前位点。位点对齐时是 0。">延迟</RsTooltip>
+        </template>
+        <template #header-consumerId>
+          <RsTooltip icon content="分配到这个分区的成员编号。">消费者</RsTooltip>
+        </template>
+        <template #header-host>
+          <RsTooltip icon content="该成员连上来的地址。">主机</RsTooltip>
+        </template>
+        <template #header-clientId>
+          <RsTooltip icon content="该成员的 client.id。">客户端</RsTooltip>
+        </template>
+        <template #stateLabel="{ row }">
+          <span :data-level="stateLevel((row as ConsumeRow).state)">{{ (row as ConsumeRow).stateLabel }}</span>
+        </template>
+        <template #lagLabel="{ row }">
+          <span :data-level="lagLevel((row as ConsumeRow).lag)">{{ (row as ConsumeRow).lagLabel }}</span>
+        </template>
+      </RsTable>
+    </div>
+  </div>
+  <div v-else-if="panelCode === 'partition'" class="fg-kafka">
     <p v-if="detail.partitionNote" class="fg-note">{{ detail.partitionNote }}</p>
     <p v-if="!partitions.length" class="fg-note">没有离线、未同步或首选偏离的分区。</p>
-    <RsTable
-      v-else
-      :columns="partColumns"
-      :data="partitions"
-      row-key="id"
-      size="sm"
-      cell-focus="none"
-      null-label="—"
-      :rounded="false"
-      :virtual="false"
-      :context-menu="false"
-    >
-      <template #header-isrText>
-        <RsTooltip icon content="同步副本数 / 配置副本数。">ISR</RsTooltip>
-      </template>
-      <template #problem="{ row }">
-        <span :data-level="problemLevel((row as PartRow).problem)">{{ (row as PartRow).problem }}</span>
-      </template>
-    </RsTable>
-  </RsCard>
-  <RsCard v-else-if="panelCode === 'group'" class="fg-monitor" title="消费组" size="sm" :padding="false">
-    <template #actions>
-      <RsTooltip icon content="延迟是这个组各分区还没消费的条数合计。落后分区是延迟大于 0 的分区个数。最慢分区是其中落后最多的一个。" aria-label="消费组说明" />
-    </template>
-    <p v-if="detail.groupNote" class="fg-note">{{ detail.groupNote }}</p>
-    <p v-if="!groups.length" class="fg-note">没有消费组，或协调者暂时读不到。</p>
-    <RsTable
-      v-else
-      :columns="groupColumns"
-      :data="groups"
-      row-key="name"
-      size="sm"
-      cell-focus="none"
-      null-label="—"
-      :rounded="false"
-      :virtual="false"
-      :context-menu="false"
-    >
-      <template #header-lagLabel>
-        <RsTooltip icon content="这个组还没消费的消息条数。">延迟</RsTooltip>
-      </template>
-      <template #header-behindLabel>
-        <RsTooltip icon content="延迟大于 0 的分区个数。">落后分区</RsTooltip>
-      </template>
-      <template #stateLabel="{ row }">
-        <span :data-level="stateLevel((row as GroupRow).state)">{{ (row as GroupRow).stateLabel }}</span>
-      </template>
-      <template #lagLabel="{ row }">
-        <span :data-level="lagLevel((row as GroupRow).lag)">{{ (row as GroupRow).lagLabel }}</span>
-      </template>
-      <template #behindLabel="{ row }">
-        <span :data-level="((row as GroupRow).behind ?? 0) > 0 ? 'watch' : undefined">{{ (row as GroupRow).behindLabel }}</span>
-      </template>
-    </RsTable>
-  </RsCard>
+    <div v-else class="fg-table">
+      <RsTable
+        :columns="partColumns"
+        :data="partitions"
+        row-key="id"
+        size="sm"
+        fill
+        resizable
+        cell-focus="none"
+        null-label="—"
+        :rounded="false"
+        :virtual="false"
+        :context-menu="false"
+      >
+        <template #header-isrText>
+          <RsTooltip icon content="同步副本数 / 配置副本数。">ISR</RsTooltip>
+        </template>
+        <template #problem="{ row }">
+          <span :data-level="problemLevel((row as PartRow).problem)">{{ (row as PartRow).problem }}</span>
+        </template>
+      </RsTable>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.fg-monitor {
-  flex: none;
-  align-self: stretch;
+.fg-kafka {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
-.fg-monitor :deep(.rs-table),
-.fg-monitor :deep(.rs-table-shell) {
-  height: auto;
-  max-height: none;
-  overflow: visible;
-}
-.fg-monitor :deep(.rs-table--content-visibility .rs-table__row) {
-  content-visibility: visible;
+.fg-table {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 .fg-note {
   margin: 0;
-  padding: 12px 14px 0;
+  padding: 0 0 8px;
   color: var(--rs-text-secondary, #4d647c);
   font-size: 13px;
-}
-.fg-note:last-child {
-  padding-bottom: 14px;
 }
 span[data-level='alert'] {
   color: #e23b55;

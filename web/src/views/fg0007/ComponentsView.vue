@@ -178,7 +178,7 @@ async function refreshDetail() {
 
 <template>
   <div class="fg-page fg-component-host" :id="moduleId" data-fg-ai="surface" :data-fg-module="moduleId">
-    <aside class="fg-kind-nav">
+    <aside v-show="!viewing" class="fg-kind-nav">
       <div class="fg-kind-title">组件</div>
       <RsMenu v-if="kindItems.length" v-model="kindCode" :items="kindItems" class="fg-kind-menu" aria-label="组件种类" />
       <p v-else class="fg-kind-empty">没有可查看的种类</p>

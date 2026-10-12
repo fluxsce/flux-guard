@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	minInterval = 15
-	maxInterval = 86400
+	minInterval    = 15
+	maxInterval    = 86400
+	maxUserRunes   = 255
+	maxSecretRunes = 16000
 )
 
 // Open 是拨号时用的连接，含已解密口令。不进入查询接口。
@@ -44,6 +46,7 @@ type Filter struct {
 	KindCode      string
 	ComponentName string
 	StatusFlag    string
+	UpFlag        string
 }
 
 var orderCols = map[string]struct{}{
@@ -72,7 +75,7 @@ func Save(ctx context.Context, db *dbx.DB, in models.Input, creating bool) (mode
 		return models.Conn{}, fmt.Errorf("请填写不超过 255 字的地址")
 	}
 	userName := strings.TrimSpace(in.UserName)
-	if len(userName) > 64 {
+	if len(userName) > maxUserRunes {
 		return models.Conn{}, fmt.Errorf("用户名过长")
 	}
 	databaseName := strings.TrimSpace(in.DatabaseName)
@@ -106,7 +109,7 @@ func Save(ctx context.Context, db *dbx.DB, in models.Input, creating bool) (mode
 		status = "Y"
 	}
 	secret := in.Secret
-	if utf8.RuneCountInString(secret) > 200 {
+	if utf8.RuneCountInString(secret) > maxSecretRunes {
 		return models.Conn{}, fmt.Errorf("口令过长")
 	}
 	componentID := strings.TrimSpace(in.ComponentID)
@@ -216,15 +219,16 @@ func Get(ctx context.Context, db *dbx.DB, tenantID, componentID string) (models.
 	var item models.Conn
 	var probed, add, edit any
 	err := store.Scan(ctx, db, `
-		SELECT componentId, kindCode, componentName, address, COALESCE(userName, ''),
-		       CASE WHEN secretEnc IS NULL OR secretEnc = '' THEN 'N' ELSE 'Y' END,
-		       COALESCE(databaseName, ''), COALESCE(optionText, ''), intervalSec, statusFlag,
-		       upFlag, COALESCE(versionText, ''), COALESCE(roleName, ''), COALESCE(errorText, ''),
-		       COALESCE(summaryText, ''), probedTime, COALESCE(noteText, ''), addTime, editTime
-		FROM FG_COMPONENT_CONN
-		WHERE tenantId = @tenantId AND componentId = @componentId AND activeFlag = 'Y'`,
+		SELECT c.componentId, c.kindCode, COALESCE(k.kindName, ''), c.componentName, c.address, COALESCE(c.userName, ''),
+		       CASE WHEN c.secretEnc IS NULL OR c.secretEnc = '' THEN 'N' ELSE 'Y' END,
+		       COALESCE(c.databaseName, ''), COALESCE(c.optionText, ''), c.intervalSec, c.statusFlag,
+		       c.upFlag, COALESCE(c.versionText, ''), COALESCE(c.roleName, ''), COALESCE(c.errorText, ''),
+		       COALESCE(c.summaryText, ''), c.probedTime, COALESCE(c.noteText, ''), c.addTime, c.editTime
+		FROM FG_COMPONENT_CONN c
+		LEFT JOIN FG_COMPONENT_KIND k ON k.tenantId = c.tenantId AND k.kindCode = c.kindCode AND k.activeFlag = 'Y'
+		WHERE c.tenantId = @tenantId AND c.componentId = @componentId AND c.activeFlag = 'Y'`,
 		dbx.Args{"tenantId": tenantID, "componentId": componentID},
-		&item.ComponentID, &item.KindCode, &item.ComponentName, &item.Address, &item.UserName, &item.SecretSet,
+		&item.ComponentID, &item.KindCode, &item.KindName, &item.ComponentName, &item.Address, &item.UserName, &item.SecretSet,
 		&item.DatabaseName, &item.OptionText, &item.IntervalSec, &item.StatusFlag, &item.UpFlag,
 		&item.VersionText, &item.RoleName, &item.ErrorText, &item.SummaryText,
 		&probed, &item.NoteText, &add, &edit)
@@ -237,9 +241,6 @@ func Get(ctx context.Context, db *dbx.DB, tenantID, componentID string) (models.
 	item.ProbedTime = row.Text(probed)
 	item.AddTime = row.Text(add)
 	item.EditTime = row.Text(edit)
-	if kind, ok := catalog.Get(item.KindCode); ok {
-		item.KindName = kind.KindName
-	}
 	return item, nil
 }
 
@@ -252,19 +253,23 @@ func List(ctx context.Context, db *dbx.DB, tenantID string, filter Filter, page 
 		page.OrderBy = ""
 	}
 	args := dbx.Args{"tenantId": tenantID}
-	where := " WHERE tenantId = @tenantId AND activeFlag = 'Y'"
-	where += store.EqClause(args, "kindCode", "kindCode", filter.KindCode)
-	where += store.LikeClause(args, "componentName", "nameLike", filter.ComponentName)
-	where += store.EqClause(args, "statusFlag", "statusFlag", filter.StatusFlag)
-	countSQL := "SELECT COUNT(*) FROM FG_COMPONENT_CONN" + where
+	where := " WHERE c.tenantId = @tenantId AND c.activeFlag = 'Y'"
+	where += store.EqClause(args, "c.kindCode", "kindCode", filter.KindCode)
+	where += store.LikeClause(args, "c.componentName", "nameLike", filter.ComponentName)
+	where += store.EqClause(args, "c.statusFlag", "statusFlag", filter.StatusFlag)
+	if filter.UpFlag == "Y" || filter.UpFlag == "N" {
+		where += store.EqClause(args, "c.upFlag", "upFlag", filter.UpFlag)
+	}
+	countSQL := "SELECT COUNT(*) FROM FG_COMPONENT_CONN c" + where
 	listSQL := `
-		SELECT componentId, kindCode, componentName, address, COALESCE(userName, ''),
-		       CASE WHEN secretEnc IS NULL OR secretEnc = '' THEN 'N' ELSE 'Y' END,
-		       COALESCE(databaseName, ''), COALESCE(optionText, ''), intervalSec, statusFlag,
-		       upFlag, COALESCE(versionText, ''), COALESCE(roleName, ''), COALESCE(errorText, ''),
-		       COALESCE(summaryText, ''), probedTime, COALESCE(noteText, ''), addTime, editTime
-		FROM FG_COMPONENT_CONN` + where + `
-		ORDER BY componentName`
+		SELECT c.componentId, c.kindCode, COALESCE(k.kindName, ''), c.componentName, c.address, COALESCE(c.userName, ''),
+		       CASE WHEN c.secretEnc IS NULL OR c.secretEnc = '' THEN 'N' ELSE 'Y' END,
+		       COALESCE(c.databaseName, ''), COALESCE(c.optionText, ''), c.intervalSec, c.statusFlag,
+		       c.upFlag, COALESCE(c.versionText, ''), COALESCE(c.roleName, ''), COALESCE(c.errorText, ''),
+		       COALESCE(c.summaryText, ''), c.probedTime, COALESCE(c.noteText, ''), c.addTime, c.editTime
+		FROM FG_COMPONENT_CONN c
+		LEFT JOIN FG_COMPONENT_KIND k ON k.tenantId = c.tenantId AND k.kindCode = c.kindCode AND k.activeFlag = 'Y'` + where + `
+		ORDER BY c.componentName`
 	rows, total, err := db.QueryPage(ctx, countSQL, listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
@@ -275,9 +280,6 @@ func List(ctx context.Context, db *dbx.DB, tenantID string, filter Filter, page 
 		item, err := scanConn(rows.Scan)
 		if err != nil {
 			return nil, 0, err
-		}
-		if kind, ok := catalog.Get(item.KindCode); ok {
-			item.KindName = kind.KindName
 		}
 		out = append(out, item)
 	}
@@ -341,7 +343,7 @@ func Draft(ctx context.Context, db *dbx.DB, in models.Input) (Open, error) {
 		return Open{}, fmt.Errorf("请填写不超过 255 字的地址")
 	}
 	userName := strings.TrimSpace(in.UserName)
-	if len(userName) > 64 {
+	if len(userName) > maxUserRunes {
 		return Open{}, fmt.Errorf("用户名过长")
 	}
 	databaseName := strings.TrimSpace(in.DatabaseName)
@@ -367,7 +369,7 @@ func Draft(ctx context.Context, db *dbx.DB, in models.Input) (Open, error) {
 		}
 		secret = existing.Secret
 	}
-	if utf8.RuneCountInString(secret) > 200 {
+	if utf8.RuneCountInString(secret) > maxSecretRunes {
 		return Open{}, fmt.Errorf("口令过长")
 	}
 	return Open{
@@ -448,7 +450,7 @@ type scanner func(dest ...any) error
 func scanConn(scan scanner) (models.Conn, error) {
 	var item models.Conn
 	var probed, add, edit any
-	err := scan(&item.ComponentID, &item.KindCode, &item.ComponentName, &item.Address, &item.UserName, &item.SecretSet,
+	err := scan(&item.ComponentID, &item.KindCode, &item.KindName, &item.ComponentName, &item.Address, &item.UserName, &item.SecretSet,
 		&item.DatabaseName, &item.OptionText, &item.IntervalSec, &item.StatusFlag, &item.UpFlag,
 		&item.VersionText, &item.RoleName, &item.ErrorText, &item.SummaryText, &probed, &item.NoteText, &add, &edit)
 	if err != nil {

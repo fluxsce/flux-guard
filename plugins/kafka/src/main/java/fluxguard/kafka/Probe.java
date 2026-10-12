@@ -11,6 +11,8 @@ import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsSpec;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
+import org.apache.kafka.clients.admin.MemberAssignment;
+import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -32,6 +34,10 @@ final class Probe {
     private static final int TOPIC_CAP = 80;
     private static final int GROUP_CAP = 80;
     private static final int PART_CAP = 40;
+    private static final int LAG_CAP = 24;
+    private static final int CLIENT_CAP = 12;
+    private static final int TOPIC_LINK_CAP = 40;
+    private static final int OFFSET_CAP = 160;
 
     private Probe() {
     }
@@ -205,6 +211,21 @@ final class Probe {
             row.put("state", state);
             row.put("members", group.members().size());
             row.put("behind", lag.known ? lag.behind : -1);
+            writeGroupLink(row, group, lag);
+            int shown = Math.min(LAG_CAP, lag.parts.size());
+            if (shown > 0) {
+                ArrayNode lags = row.putArray("lags");
+                for (int i = 0; i < shown; i++) {
+                    PartLag item = lag.parts.get(i);
+                    ObjectNode one = lags.addObject();
+                    one.put("topic", item.topic);
+                    one.put("part", item.part);
+                    one.put("lag", item.lag);
+                }
+            }
+            if (lag.behind > shown) {
+                row.put("lagNote", "落后分区 " + lag.behind + " 个，这里列出延迟最高的 " + shown + " 个。");
+            }
             groupRows.add(row);
         }
         if (!anyLag) {
@@ -381,7 +402,17 @@ final class Probe {
                     lag.part = entry.getKey().partition();
                     lag.topic = entry.getKey().topic();
                 }
+                PartLag item = new PartLag();
+                item.topic = entry.getKey().topic();
+                item.part = entry.getKey().partition();
+                item.current = entry.getValue().offset();
+                item.end = end.offset();
+                item.lag = diff;
+                lag.parts.add(item);
             }
+            lag.parts.sort(Comparator.comparingLong((PartLag item) -> item.lag).reversed()
+                    .thenComparing(item -> item.topic)
+                    .thenComparingInt(item -> item.part));
             lag.topics = topics.size();
         } catch (Exception ignored) {
             return new Lag();
@@ -423,6 +454,144 @@ final class Probe {
             return out;
         }
         return out;
+    }
+
+    /** 协调者、成员连接，以及这个组在每个主题上的分配和延迟。 */
+    private static void writeGroupLink(ObjectNode row, ConsumerGroupDescription group, Lag lag) {
+        Node coordinator = group.coordinator();
+        if (coordinator != null && coordinator.id() >= 0) {
+            row.put("coordinatorId", coordinator.id());
+            String host = coordinator.host() == null ? "" : coordinator.host();
+            if (!host.isEmpty() && coordinator.port() > 0) {
+                row.put("coordinator", host + ":" + coordinator.port());
+            }
+        }
+        String assignor = group.partitionAssignor();
+        if (assignor != null && !assignor.isEmpty()) {
+            row.put("assignor", assignor);
+        }
+        ArrayNode clients = row.putArray("clients");
+        int shown = 0;
+        Map<String, Integer> assigned = new HashMap<>();
+        for (MemberDescription member : group.members()) {
+            if (shown < CLIENT_CAP) {
+                ObjectNode one = clients.addObject();
+                one.put("clientId", member.clientId() == null ? "" : member.clientId());
+                one.put("host", member.host() == null ? "" : member.host());
+                shown++;
+            }
+            MemberAssignment assignment = member.assignment();
+            if (assignment == null || assignment.topicPartitions() == null) {
+                continue;
+            }
+            for (TopicPartition tp : assignment.topicPartitions()) {
+                assigned.merge(tp.topic(), 1, Integer::sum);
+            }
+        }
+        if (group.members().size() > shown) {
+            row.put("clientNote", "成员 " + group.members().size() + " 个，这里列出 " + shown + " 个连接。");
+        }
+        stampOwners(group, lag);
+        Map<String, long[]> byTopic = new HashMap<>();
+        for (PartLag item : lag.parts) {
+            long[] slot = byTopic.computeIfAbsent(item.topic, key -> new long[] {0, -1, -1, 0});
+            slot[0] += item.lag;
+            slot[3]++;
+            if (item.lag >= slot[1]) {
+                slot[1] = item.lag;
+                slot[2] = item.part;
+            }
+        }
+        List<String> names = new ArrayList<>();
+        names.addAll(assigned.keySet());
+        for (String name : byTopic.keySet()) {
+            if (!assigned.containsKey(name)) {
+                names.add(name);
+            }
+        }
+        names.sort(Comparator.comparingLong((String name) -> {
+            long[] slot = byTopic.get(name);
+            return slot == null ? 0 : slot[0];
+        }).reversed().thenComparing(name -> name));
+        if (names.isEmpty()) {
+            return;
+        }
+        ArrayNode list = row.putArray("topics");
+        int count = 0;
+        for (String name : names) {
+            if (count >= TOPIC_LINK_CAP) {
+                break;
+            }
+            ObjectNode one = list.addObject();
+            one.put("topic", name);
+            one.put("parts", assigned.getOrDefault(name, 0));
+            long[] slot = byTopic.get(name);
+            one.put("lag", slot == null ? 0 : slot[0]);
+            one.put("maxLag", slot == null ? 0 : slot[1]);
+            one.put("part", slot == null ? -1 : (int) slot[2]);
+            one.put("behind", slot == null ? 0 : (int) slot[3]);
+            count++;
+        }
+        if (names.size() > count) {
+            row.put("topicLinkNote", "订阅主题 " + names.size() + " 个，这里列出延迟最高的 " + count + " 个。");
+        }
+        writeOffsets(row, lag);
+    }
+
+    /** 把分区分配上的消费者、主机、client.id 写回该分区的位点。 */
+    private static void stampOwners(ConsumerGroupDescription group, Lag lag) {
+        Map<TopicPartition, MemberDescription> owners = new HashMap<>();
+        for (MemberDescription member : group.members()) {
+            MemberAssignment assignment = member.assignment();
+            if (assignment == null || assignment.topicPartitions() == null) {
+                continue;
+            }
+            for (TopicPartition tp : assignment.topicPartitions()) {
+                owners.putIfAbsent(tp, member);
+            }
+        }
+        for (PartLag item : lag.parts) {
+            MemberDescription member = owners.get(new TopicPartition(item.topic, item.part));
+            if (member == null) {
+                continue;
+            }
+            item.consumerId = member.consumerId() == null ? "" : member.consumerId();
+            item.clientId = member.clientId() == null ? "" : member.clientId();
+            item.host = member.host() == null ? "" : member.host();
+        }
+    }
+
+    /** 与 kafka-consumer-groups --describe 同一行：主题、分区、当前位点、日志末端、延迟、消费者。 */
+    private static void writeOffsets(ObjectNode row, Lag lag) {
+        if (lag.parts.isEmpty()) {
+            return;
+        }
+        ArrayNode offsets = row.putArray("offsets");
+        int shown = 0;
+        for (PartLag item : lag.parts) {
+            if (shown >= OFFSET_CAP) {
+                break;
+            }
+            ObjectNode one = offsets.addObject();
+            one.put("topic", item.topic);
+            one.put("part", item.part);
+            one.put("current", item.current);
+            one.put("end", item.end);
+            one.put("lag", item.lag);
+            if (!item.consumerId.isEmpty()) {
+                one.put("consumerId", item.consumerId);
+            }
+            if (!item.clientId.isEmpty()) {
+                one.put("clientId", item.clientId);
+            }
+            if (!item.host.isEmpty()) {
+                one.put("host", item.host);
+            }
+            shown++;
+        }
+        if (lag.parts.size() > shown) {
+            row.put("offsetNote", "提交位点 " + lag.parts.size() + " 个分区，这里列出延迟最高的 " + shown + " 个。");
+        }
     }
 
     private static String groupState(ConsumerGroupDescription group) {
@@ -473,5 +642,17 @@ final class Probe {
         String topic = "";
         int topics;
         int behind;
+        List<PartLag> parts = new ArrayList<>();
+    }
+
+    private static final class PartLag {
+        String topic = "";
+        int part = -1;
+        long current = -1;
+        long end = -1;
+        long lag;
+        String consumerId = "";
+        String clientId = "";
+        String host = "";
     }
 }

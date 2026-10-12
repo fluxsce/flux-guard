@@ -36,7 +36,7 @@ export {
   RsTree,
   rsConfirm,
   useRsToast,
-} from 'niuma-ui'
+} from 'ensis-ui'
 export type {
   RsContextMenuItem,
   RsLoadingBarApi,
@@ -48,4 +48,4 @@ export type {
   RsTabItem,
   RsTerminalExpose,
   RsTreeNode,
-} from 'niuma-ui'
+} from 'ensis-ui'

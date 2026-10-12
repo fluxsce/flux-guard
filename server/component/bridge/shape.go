@@ -11,9 +11,10 @@ const (
 	methodFileGet  = "file.get"
 	maxFile        = 256 * 1024
 	maxDetail      = 32 * 1024
-	maxOutput      = 8000
-	maxArgs        = 16
-	maxArgLen      = 200
+	// maxOutput 是一次维护操作交回的正文上限。采集明细仍用 maxDetail。
+	maxOutput = 10 << 20
+	maxArgs   = 16
+	maxArgLen = 200
 )
 
 // ProbeParams 是采集参数。组件口令只放在这里，不进清单。
@@ -35,6 +36,16 @@ type ProbeResult struct {
 	Summary string             `json:"summary,omitempty"`
 	Values  map[string]float64 `json:"values,omitempty"`
 	Detail  json.RawMessage    `json:"detail,omitempty"`
+}
+
+// MethodParams 是一次独立方法调用。Args 的键必须是清单里该方法登记的参数名。
+type MethodParams struct {
+	Address  string            `json:"address"`
+	User     string            `json:"user,omitempty"`
+	Secret   string            `json:"secret,omitempty"`
+	Database string            `json:"database,omitempty"`
+	Option   string            `json:"option,omitempty"`
+	Args     map[string]string `json:"args,omitempty"`
 }
 
 // MaintainParams 是一项维护操作。Args 的键必须是清单里预先登记的参数名。

@@ -175,7 +175,7 @@ func TestConcurrentCalls(t *testing.T) {
 
 func TestLoadRejectsUnknownField(t *testing.T) {
 	raw := []byte("id: com.fluxguard.kafka\nname: Kafka\nshell: true\n")
-	if _, _, _, _, err := decodeManifest(t.TempDir(), raw); err == nil {
+	if _, _, _, _, _, err := decodeManifest(t.TempDir(), raw); err == nil {
 		t.Fatal("expected closed manifest")
 	}
 }

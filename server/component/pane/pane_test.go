@@ -19,19 +19,20 @@ func TestPaneWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	for _, kind := range catalog.All() {
-		if kind.PaneTable == "" || !ident.MatchString(kind.PaneTable) {
-			t.Fatalf("%s 缺少当前值表", kind.KindCode)
+	for _, kind := range catalog.Codes() {
+		table, ok := catalog.PaneTable(kind)
+		if !ok || !ident.MatchString(table) {
+			t.Fatalf("%s 缺少当前值表", kind)
 		}
 		var count any
-		if err := store.Scan(ctx, db, fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('%s')`, kind.PaneTable), nil, &count); err != nil {
+		if err := store.Scan(ctx, db, fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('%s')`, table), nil, &count); err != nil {
 			t.Fatal(err)
 		}
 		n := int(row.Float(count))
 		if n == 0 || n > MaxColumns {
-			t.Fatalf("%s 列数 %d，应在 1 到 %d", kind.PaneTable, n, MaxColumns)
+			t.Fatalf("%s 列数 %d，应在 1 到 %d", table, n, MaxColumns)
 		}
-		rows, err := db.Query(ctx, fmt.Sprintf(`SELECT name FROM pragma_table_info('%s')`, kind.PaneTable), nil)
+		rows, err := db.Query(ctx, fmt.Sprintf(`SELECT name FROM pragma_table_info('%s')`, table), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +46,7 @@ func TestPaneWidth(t *testing.T) {
 			text := row.Text(name)
 			if len(text) > MaxColumns {
 				rows.Close()
-				t.Fatalf("%s.%s 字段名超过 %d", kind.PaneTable, text, MaxColumns)
+				t.Fatalf("%s.%s 字段名超过 %d", table, text, MaxColumns)
 			}
 			names[text] = struct{}{}
 		}
@@ -53,9 +54,13 @@ func TestPaneWidth(t *testing.T) {
 		if err := rows.Err(); err != nil {
 			t.Fatal(err)
 		}
-		for _, code := range panel.ListMetrics(kind.KindCode) {
+		codes, err := panel.ListMetrics(ctx, db, "default", kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, code := range codes {
 			if _, ok := names[code]; !ok {
-				t.Fatalf("%s 缺少列表列 %s", kind.PaneTable, code)
+				t.Fatalf("%s 缺少列表列 %s", table, code)
 			}
 		}
 	}
@@ -69,7 +74,7 @@ func TestTouchLatest(t *testing.T) {
 	}
 	defer cleanup()
 	args := dbx.Args{
-		"tenantId": "t1", "componentId": "c1", "observedTime": "2026-10-01 09:00:00",
+		"tenantId": "default", "componentId": "c1", "observedTime": "2026-10-01 09:00:00",
 		"usedMemoryBytes": 1024, "memUsagePercent": 12.5, "aofOk": -1, "slowlogLen": 3,
 	}
 	for key, value := range row.Stamp("system", "") {
@@ -83,7 +88,11 @@ func TestTouchLatest(t *testing.T) {
 	if err := Touch(ctx, db, catalog.Redis, args); err != nil {
 		t.Fatal(err)
 	}
-	found, err := Latest(ctx, db, "FG_COMPONENT_REDIS", "t1", []string{"c1"}, panel.ListMetrics(catalog.Redis))
+	cols, err := panel.ListMetrics(ctx, db, "default", catalog.Redis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := Latest(ctx, db, "FG_COMPONENT_REDIS", "default", []string{"c1"}, cols)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +101,7 @@ func TestTouchLatest(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	var n any
-	if err := store.Scan(ctx, db, `SELECT COUNT(*) FROM FG_COMPONENT_REDIS WHERE tenantId = @tenantId`, dbx.Args{"tenantId": "t1"}, &n); err != nil {
+	if err := store.Scan(ctx, db, `SELECT COUNT(*) FROM FG_COMPONENT_REDIS WHERE tenantId = @tenantId`, dbx.Args{"tenantId": "default"}, &n); err != nil {
 		t.Fatal(err)
 	}
 	if int(row.Float(n)) != 1 {

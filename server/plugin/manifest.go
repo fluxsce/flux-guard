@@ -29,10 +29,12 @@ type Op struct {
 	Args []string `yaml:"args"`
 }
 
-// Method 是一份插件清单里登记的方法。只有 maintain 可以带 Ops。
+// Method 是一份插件清单里登记的方法。
+// maintain 用 Ops 列出同一类里的多项操作。职责不同的调用单独列为方法，参数名写在 Args。
 type Method struct {
-	Name string `yaml:"name"`
-	Ops  []Op   `yaml:"ops"`
+	Name string   `yaml:"name"`
+	Args []string `yaml:"args"`
+	Ops  []Op     `yaml:"ops"`
 }
 
 // Bridge 说明这份插件接到哪一种组件。ConnectionKind 为空表示不替换内置探针。
@@ -89,19 +91,19 @@ type Manifest struct {
 	Addr        string    `yaml:"-"`
 }
 
-func decodeManifest(root string, raw []byte) (Manifest, map[string]struct{}, map[string]map[string]struct{}, map[string]struct{}, error) {
+func decodeManifest(root string, raw []byte) (Manifest, map[string]struct{}, map[string]map[string]struct{}, map[string]map[string]struct{}, map[string]struct{}, error) {
 	if len(raw) == 0 || len(raw) > maxManifest {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单无效")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	var m Manifest
 	if err := dec.Decode(&m); err != nil {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单无效")
 	}
 	var extra struct{}
 	if err := dec.Decode(&extra); err == nil {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单无效")
 	}
 	m.ID = strings.TrimSpace(m.ID)
 	m.Name = strings.TrimSpace(m.Name)
@@ -111,42 +113,42 @@ func decodeManifest(root string, raw []byte) (Manifest, map[string]struct{}, map
 	m.Lifecycle.Startup = strings.TrimSpace(m.Lifecycle.Startup)
 	m.Runtime.Lang = strings.TrimSpace(m.Runtime.Lang)
 	if !idOK(m.ID) {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件编码无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件编码无效")
 	}
 	if m.Name == "" || utf8.RuneCountInString(m.Name) > 64 || hasControl(m.Name) {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件缺少名称")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件缺少名称")
 	}
 	if !versionOK(m.Version) {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件缺少版本")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件缺少版本")
 	}
 	if !nameOK(m.Bridge.Namespace) {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单里的命名空间无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单里的命名空间无效")
 	}
 	if m.Bridge.ConnectionKind != "" && m.Bridge.ConnectionKind != m.Bridge.Namespace {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单里的组件种类无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单里的组件种类无效")
 	}
 	m.Component = m.Bridge.ConnectionKind
 	if m.Lifecycle.Startup != startupLazy {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单里的启动方式无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单里的启动方式无效")
 	}
 	if !langOK(m.Runtime.Lang) {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单里的语言无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单里的语言无效")
 	}
 	if len(m.Permissions) > 0 {
-		return Manifest{}, nil, nil, nil, fmt.Errorf("插件清单里的权限无效")
+		return Manifest{}, nil, nil, nil, nil, fmt.Errorf("插件清单里的权限无效")
 	}
-	methods, ops, err := methodsOf(m.Methods)
+	methods, ops, calls, err := methodsOf(m.Methods)
 	if err != nil {
-		return Manifest{}, nil, nil, nil, err
+		return Manifest{}, nil, nil, nil, nil, err
 	}
 	creds, err := credentialsOf(m.Session, methods)
 	if err != nil {
-		return Manifest{}, nil, nil, nil, err
+		return Manifest{}, nil, nil, nil, nil, err
 	}
 	if err := resolveRuntime(root, &m); err != nil {
-		return Manifest{}, nil, nil, nil, err
+		return Manifest{}, nil, nil, nil, nil, err
 	}
-	return m, methods, ops, creds, nil
+	return m, methods, ops, calls, creds, nil
 }
 
 func credentialsOf(session Session, methods map[string]struct{}) (map[string]struct{}, error) {
@@ -173,34 +175,63 @@ func credentialsOf(session Session, methods map[string]struct{}) (map[string]str
 	return set, nil
 }
 
-func methodsOf(list []Method) (map[string]struct{}, map[string]map[string]struct{}, error) {
+func methodsOf(list []Method) (map[string]struct{}, map[string]map[string]struct{}, map[string]map[string]struct{}, error) {
 	if len(list) == 0 {
-		return nil, nil, fmt.Errorf("插件清单里的方法名无效")
+		return nil, nil, nil, fmt.Errorf("插件清单里的方法名无效")
 	}
 	names := make(map[string]struct{}, len(list))
 	var ops map[string]map[string]struct{}
+	calls := map[string]map[string]struct{}{}
 	for _, item := range list {
 		item.Name = strings.TrimSpace(item.Name)
 		if !methodOK(item.Name) {
-			return nil, nil, fmt.Errorf("插件清单里的方法名无效")
+			return nil, nil, nil, fmt.Errorf("插件清单里的方法名无效")
 		}
 		if _, ok := names[item.Name]; ok {
-			return nil, nil, fmt.Errorf("插件清单里的方法重复")
+			return nil, nil, nil, fmt.Errorf("插件清单里的方法重复")
 		}
 		names[item.Name] = struct{}{}
-		if item.Name != methodMaintain {
-			if len(item.Ops) > 0 {
-				return nil, nil, fmt.Errorf("只有 maintain 可以声明操作")
+		if item.Name == methodMaintain {
+			if len(item.Args) > 0 {
+				return nil, nil, nil, fmt.Errorf("维护操作的参数写在操作上")
+			}
+			parsed, err := opsOf(item.Ops)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			ops = parsed
+			continue
+		}
+		if len(item.Ops) > 0 {
+			return nil, nil, nil, fmt.Errorf("只有 maintain 可以声明操作")
+		}
+		if item.Name == "probe" || item.Name == "file.put" || item.Name == "file.get" {
+			if len(item.Args) > 0 {
+				return nil, nil, nil, fmt.Errorf("这个方法没有参数表")
 			}
 			continue
 		}
-		parsed, err := opsOf(item.Ops)
+		parsed, err := argSet(item.Args)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		ops = parsed
+		calls[item.Name] = parsed
 	}
-	return names, ops, nil
+	return names, ops, calls, nil
+}
+
+func argSet(args []string) (map[string]struct{}, error) {
+	set := make(map[string]struct{}, len(args))
+	for _, arg := range args {
+		if !nameOK(arg) {
+			return nil, fmt.Errorf("插件清单里的参数名无效")
+		}
+		if _, ok := set[arg]; ok {
+			return nil, fmt.Errorf("插件清单里的参数重复")
+		}
+		set[arg] = struct{}{}
+	}
+	return set, nil
 }
 
 func opsOf(ops []Op) (map[string]map[string]struct{}, error) {

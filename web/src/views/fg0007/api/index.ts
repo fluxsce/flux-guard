@@ -114,6 +114,37 @@ export interface KafkaTopicRow {
   internal?: boolean
 }
 
+export interface KafkaGroupLag {
+  topic: string
+  part: number
+  lag: number
+}
+
+export interface KafkaOffsetRow {
+  topic: string
+  part: number
+  current?: number
+  end?: number
+  lag: number
+  consumerId?: string
+  host?: string
+  clientId?: string
+}
+
+export interface KafkaClient {
+  clientId?: string
+  host?: string
+}
+
+export interface KafkaTopicLink {
+  topic: string
+  parts: number
+  lag: number
+  maxLag?: number
+  part?: number
+  behind?: number
+}
+
 export interface KafkaGroupRow {
   name: string
   lag: number
@@ -124,6 +155,17 @@ export interface KafkaGroupRow {
   state?: string
   members?: number
   behind?: number
+  coordinator?: string
+  coordinatorId?: number
+  assignor?: string
+  clients?: KafkaClient[]
+  clientNote?: string
+  topics?: KafkaTopicLink[]
+  topicLinkNote?: string
+  offsets?: KafkaOffsetRow[]
+  offsetNote?: string
+  lags?: KafkaGroupLag[]
+  lagNote?: string
 }
 
 export interface MongoMember {

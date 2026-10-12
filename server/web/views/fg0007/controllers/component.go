@@ -36,9 +36,17 @@ func (c *ComponentController) ready(g *gin.Context) bool {
 	return true
 }
 
-// QueryCatalog 返回组件种类和指标名。
+// QueryCatalog 返回组件种类和指标名。种类和页签来自库表。
 func (c *ComponentController) QueryCatalog(g *gin.Context) {
-	httpx.WriteOK(g, service.Catalog())
+	if !c.ready(g) {
+		return
+	}
+	items, err := service.Catalog(g.Request.Context(), c.DB)
+	if err != nil {
+		httpx.WriteFail(g, http.StatusBadRequest, err)
+		return
+	}
+	httpx.WriteOK(g, items)
 }
 
 // QueryConns 分页列出连接。
@@ -55,6 +63,7 @@ func (c *ComponentController) QueryConns(g *gin.Context) {
 		KindCode:      kind,
 		ComponentName: request.Param(g, "componentName"),
 		StatusFlag:    request.Param(g, "statusFlag"),
+		UpFlag:        request.Param(g, "upFlag"),
 	}, page)
 	if err != nil {
 		httpx.WriteFail(g, http.StatusBadRequest, err)

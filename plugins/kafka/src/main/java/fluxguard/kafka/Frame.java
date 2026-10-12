@@ -4,7 +4,8 @@ import java.io.EOFException;
 import java.io.IOException;
 
 final class Frame {
-    static final int MAX = 1 << 20;
+    // 与中央的帧上限一致。单笔业务返回 10MB，帧留到 16MB 给 JSON 信封。
+    static final int MAX = 16 << 20;
 
     private Frame() {
     }

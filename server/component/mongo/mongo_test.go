@@ -153,7 +153,7 @@ func TestSaveMongoSample(t *testing.T) {
 	sample.Version = "7.0.14"
 	sample.SlowOps = 0
 	status := models.Status{Up: true, Version: "7.0.14", Role: "primary", Summary: "主节点 · 连接 4"}
-	if err := save(ctx, db, "t1", "c1", sample, status); err != nil {
+	if err := save(ctx, db, "default", "c1", sample, status); err != nil {
 		t.Fatal(err)
 	}
 	var current, cache, ops any
@@ -161,7 +161,7 @@ func TestSaveMongoSample(t *testing.T) {
 		SELECT connectionsCurrent, cacheUsedBytes, opsPerSec
 		FROM FG_COMPONENT_MONGO
 		WHERE tenantId = @tenantId AND componentId = @componentId`,
-		dbx.Args{"tenantId": "t1", "componentId": "c1"}, &current, &cache, &ops); err != nil {
+		dbx.Args{"tenantId": "default", "componentId": "c1"}, &current, &cache, &ops); err != nil {
 		t.Fatal(err)
 	}
 	if row.Float(current) != 4 || row.Float(cache) != 4096 || row.Float(ops) != -1 {

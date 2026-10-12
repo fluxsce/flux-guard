@@ -26,15 +26,18 @@ func Touch(ctx context.Context, db *dbx.DB, kind string, args dbx.Args) error {
 	if db == nil {
 		return nil
 	}
-	spec, ok := catalog.Get(kind)
-	if !ok || spec.PaneTable == "" {
+	table, ok := catalog.PaneTable(kind)
+	if !ok {
 		return nil
 	}
-	cols := panel.ListMetrics(kind)
+	cols, err := panel.ListMetrics(ctx, db, row.Text(args["tenantId"]), kind)
+	if err != nil {
+		return err
+	}
 	if len(cols) == 0 {
 		return nil
 	}
-	if !ident.MatchString(spec.PaneTable) {
+	if !ident.MatchString(table) {
 		return fmt.Errorf("当前值表无效")
 	}
 	for _, col := range cols {
@@ -45,7 +48,7 @@ func Touch(ctx context.Context, db *dbx.DB, kind string, args dbx.Args) error {
 			return fmt.Errorf("当前值缺少 %s", col)
 		}
 	}
-	_, err := db.Exec(ctx, upsertSQL(db.Driver(), spec.PaneTable, cols), args)
+	_, err = db.Exec(ctx, upsertSQL(db.Driver(), table, cols), args)
 	return err
 }
 

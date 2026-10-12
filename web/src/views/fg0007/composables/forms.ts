@@ -28,10 +28,20 @@ const redisAuthOptions: FlagOption[] = [
   { label: '口令', value: 'password' },
   { label: 'ACL', value: 'acl' },
 ]
+const mongoDeployOptions: FlagOption[] = [
+  { label: '明文', value: 'standalone' },
+  { label: 'TLS', value: 'tls' },
+]
 const mongoAuthOptions: FlagOption[] = [
   { label: '无', value: 'none' },
-  { label: '用户名口令', value: 'password' },
+  { label: 'SCRAM-SHA-256', value: 'scram256' },
+  { label: 'SCRAM-SHA-1', value: 'scram1' },
+  { label: 'LDAP PLAIN', value: 'plain' },
+  { label: 'X.509', value: 'x509' },
+  { label: 'AWS IAM', value: 'aws' },
+  { label: 'OIDC', value: 'oidc' },
 ]
+const mongoAuthCodes = ['scram256', 'scram1', 'plain', 'x509', 'aws', 'oidc']
 const kafkaDeployOptions: FlagOption[] = [
   { label: '明文', value: 'cluster' },
   { label: 'TLS', value: 'tls' },
@@ -59,8 +69,12 @@ const authNames: Record<string, string> = {
   password: '口令',
   acl: 'ACL',
   plain: 'PLAIN',
+  scram1: 'SCRAM-SHA-1',
   scram256: 'SCRAM-SHA-256',
   scram512: 'SCRAM-SHA-512',
+  x509: 'X.509',
+  aws: 'AWS IAM',
+  oidc: 'OIDC',
   login: '登录',
 }
 
@@ -73,8 +87,9 @@ export function layoutOf(kindCode: string, optionText: string, userName: string,
     deploy = 'server'
     auth = 'password'
   } else if (kindCode === 'mongo') {
-    deploy = 'standalone'
-    auth = auth === 'password' ? 'password' : 'none'
+    if (auth === 'password') auth = 'scram256'
+    if (!mongoAuthCodes.includes(auth)) auth = 'none'
+    deploy = auth === 'x509' || deploy === 'tls' ? 'tls' : 'standalone'
   } else if (kindCode === 'kafka') {
     deploy = deploy === 'tls' ? 'tls' : 'cluster'
     auth = auth === 'plain' || auth === 'scram256' || auth === 'scram512' ? auth : 'none'
@@ -95,7 +110,11 @@ export function layoutOf(kindCode: string, optionText: string, userName: string,
 export function packOption(kindCode: string, deployMode: string, authMode: string) {
   if (kindCode === 'redis') return `${deployMode || 'standalone'}:${authMode || 'none'}`
   if (kindCode === 'mysql') return 'server:password'
-  if (kindCode === 'mongo') return `standalone:${authMode === 'password' ? 'password' : 'none'}`
+  if (kindCode === 'mongo') {
+    const auth = authMode === 'password' ? 'scram256' : mongoAuthCodes.includes(authMode) ? authMode : 'none'
+    const deploy = auth === 'x509' || deployMode === 'tls' ? 'tls' : 'standalone'
+    return `${deploy}:${auth}`
+  }
   if (kindCode === 'kafka') {
     const deploy = deployMode === 'tls' ? 'tls' : 'cluster'
     const auth = authMode === 'plain' || authMode === 'scram256' || authMode === 'scram512' ? authMode : 'none'
@@ -201,14 +220,24 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
         'mongoGroup',
         'MongoDB',
         [
+          { field: 'deployMode', label: '传输', type: 'select', required: true, options: mongoDeployOptions },
           { field: 'address', label: '地址', span: 16, required: true, placeholder: 'host:27017' },
           { field: 'authMode', label: '认证', type: 'select', required: true, options: mongoAuthOptions },
-          { field: 'userName', label: '用户名', required: true, show: authIs('mongo', 'password') },
-          { field: 'secret', label: '口令', type: 'password', modes: ['create', 'edit'], placeholder: '留空表示不修改', show: authIs('mongo', 'password') },
-          { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'password') },
-          { field: 'databaseName', label: '认证库', placeholder: '默认 admin', show: authIs('mongo', 'password') },
+          { field: 'userName', label: '用户名', required: true, show: authIs('mongo', 'scram256', 'scram1', 'plain') },
+          { field: 'userName', label: '访问密钥编号', required: true, show: authIs('mongo', 'aws') },
+          { field: 'userName', label: '证书主体', placeholder: '可空，留空用证书上的主体', show: authIs('mongo', 'x509') },
+          { field: 'secret', label: '口令', type: 'password', modes: ['create', 'edit'], placeholder: '留空表示不修改', show: authIs('mongo', 'scram256', 'scram1', 'plain') },
+          { field: 'secret', label: '访问密钥', type: 'password', modes: ['create', 'edit'], placeholder: '临时凭证换行后再写会话令牌', show: authIs('mongo', 'aws') },
+          { field: 'secret', label: '客户端证书', type: 'textarea', span: 24, modes: ['create', 'edit'], placeholder: 'PEM 证书和私钥', show: authIs('mongo', 'x509') },
+          { field: 'secret', label: '访问令牌', type: 'textarea', span: 24, modes: ['create', 'edit'], placeholder: 'OIDC 访问令牌', show: authIs('mongo', 'oidc') },
+          { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'scram256', 'scram1', 'plain') },
+          { field: 'secretSet', label: '访问密钥', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'aws') },
+          { field: 'secretSet', label: '证书', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'x509') },
+          { field: 'secretSet', label: '访问令牌', type: 'select', options: secretOptions, disabled: true, modes: ['view'], show: authIs('mongo', 'oidc') },
+          { field: 'databaseName', label: '认证库', placeholder: '默认 admin', show: authIs('mongo', 'scram256', 'scram1') },
+          { field: 'databaseName', label: '认证库', placeholder: '默认 $external', show: authIs('mongo', 'plain') },
         ],
-        { tips: '无认证可读运行状态、复制成员、库占用和正在执行的操作。用户名口令当前不走 SCRAM，采集会记为连不上。', show: kindIs('mongo') },
+        { tips: 'TLS 使用系统信任的证书。X.509 固定走 TLS。SCRAM 的认证库默认 admin，LDAP 默认 $external。AWS、X.509 和 OIDC 使用 $external。', show: kindIs('mongo') },
       ),
       fieldset(
         'kafkaGroup',

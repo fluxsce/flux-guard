@@ -14,7 +14,9 @@ const (
 	// ExtVersion 是外置插件信封的版本。请求和应答都必须是这一版。
 	ExtVersion = 1
 	// MaxExtFrame 是一帧 JSON 的上限。
-	MaxExtFrame = 1 << 20
+	// 单笔业务返回不超过 10MB。result 还要再编一次 JSON，帧留到 16MB。
+	// 读和写都在这一条连接上完成，不占用其它调用。
+	MaxExtFrame = 16 << 20
 
 	extFrameHeader = 4
 

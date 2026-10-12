@@ -78,12 +78,12 @@
 
 ### 本地开发
 
-数据库组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`。控制台依赖 npm 上的 [`niuma-ui`](https://www.npmjs.com/package/niuma-ui)。
+数据库组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`。控制台依赖 npm 上的 [`ensis-ui`](https://www.npmjs.com/package/ensis-ui)。
 
 | 组件 | 来源 |
 |------|------|
 | dbx | https://github.com/fluxsce/dbx |
-| niuma-ui | https://www.npmjs.com/package/niuma-ui |
+| ensis-ui | https://www.npmjs.com/package/ensis-ui |
 
 在 `flux-guard` 根目录执行：
 

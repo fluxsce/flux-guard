@@ -75,7 +75,7 @@ export function useComponentCatalog() {
   const pageSize = ref(getDefaultPageSize())
   const total = ref(0)
   const kindCode = ref('')
-  const query = ref({ componentName: '', kindCode: '', statusFlag: '' })
+  const query = ref({ componentName: '', kindCode: '', statusFlag: '', upFlag: '' })
   const error = ref('')
   const formOpen = ref(false)
   const formMode = ref<FgFormMode>('view')
@@ -93,6 +93,7 @@ export function useComponentCatalog() {
   )
   const searchFields = computed<FgSearchField[]>(() => [
     { field: 'componentName', label: '名称', placeholder: '请输入名称' },
+    { field: 'upFlag', label: '连通', type: 'select', placeholder: '全部', options: [{ label: '全部', value: '' }, ...upOptions] },
     { field: 'statusFlag', label: '启用', type: 'select', placeholder: '全部', options: [{ label: '全部', value: '' }, ...statusOptions] },
   ])
   const formFields = computed<FgFormField[]>(() => connFormFields(kindOptions.value))
@@ -163,14 +164,15 @@ export function useComponentCatalog() {
     const interval = Number(str(values.intervalSec) || '30')
     const kindCode = str(values.kindCode).trim()
     const authMode = str(values.authMode).trim()
+    const mongoOn = kindCode === 'mongo' && ['scram256', 'scram1', 'password', 'plain', 'x509', 'aws', 'oidc'].includes(authMode)
     const usesUser = (kindCode === 'redis' && authMode === 'acl')
       || kindCode === 'mysql'
-      || (kindCode === 'mongo' && authMode === 'password')
+      || (mongoOn && authMode !== 'oidc')
       || (kindCode === 'kafka' && (authMode === 'plain' || authMode === 'scram256' || authMode === 'scram512'))
       || (kindCode === 'nacos' && authMode === 'login')
     const usesDatabase = (kindCode === 'redis' && (str(values.deployMode) === 'standalone' || str(values.deployMode) === 'sentinel'))
       || kindCode === 'mysql'
-      || (kindCode === 'mongo' && authMode === 'password')
+      || (mongoOn && (authMode === 'scram256' || authMode === 'scram1' || authMode === 'password' || authMode === 'plain'))
     return {
       componentId: str(values.componentId).trim(),
       kindCode,
@@ -294,12 +296,13 @@ export function useComponentCatalog() {
       componentName: str(values.componentName),
       kindCode: kindCode.value,
       statusFlag: str(values.statusFlag),
+      upFlag: str(values.upFlag),
     }
   }
 
   function onReset() {
     page.value = 1
-    query.value = { componentName: '', kindCode: kindCode.value, statusFlag: '' }
+    query.value = { componentName: '', kindCode: kindCode.value, statusFlag: '', upFlag: '' }
   }
 
   watch(visibleKinds, (list) => {
