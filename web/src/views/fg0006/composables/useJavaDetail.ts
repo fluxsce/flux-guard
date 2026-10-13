@@ -2,13 +2,14 @@ import { ref } from 'vue'
 import { useRsToast } from '@/ui'
 import { useSessionStore } from '@/stores/session'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
-import { queryDetail, querySeries, type JavaApp, type JavaCurve, type JavaDetail, type JavaSeries, type SeriesRange } from '../api'
+import { queryDetail, querySeries, type JavaApp, type JavaCurve, type JavaDetail, type JavaRestart, type JavaSeries, type SeriesRange } from '../api'
 
 export function useJavaDetail() {
   const toast = useRsToast()
   const session = useSessionStore()
   const detail = ref<JavaDetail | null>(null)
   const curves = ref<JavaCurve[]>([])
+  const restarts = ref<JavaRestart[]>([])
   const error = ref('')
   const loading = ref(false)
   let seq = 0
@@ -17,6 +18,7 @@ export function useJavaDetail() {
     seq += 1
     detail.value = null
     curves.value = []
+    restarts.value = []
     error.value = ''
     loading.value = false
   }
@@ -28,6 +30,7 @@ export function useJavaDetail() {
     if (!keep) {
       detail.value = null
       curves.value = []
+      restarts.value = []
       loading.value = true
     }
     try {
@@ -46,7 +49,9 @@ export function useJavaDetail() {
         toast.error(error.value)
         return
       }
-      curves.value = parseApiData<JavaSeries>(series)?.curves ?? []
+      const seriesData = parseApiData<JavaSeries>(series)
+      curves.value = seriesData?.curves ?? []
+      restarts.value = seriesData?.restarts ?? []
     } catch (err) {
       if (current !== seq) return
       error.value = getHttpErrorMessage(err, '加载明细失败')
@@ -56,5 +61,5 @@ export function useJavaDetail() {
     }
   }
 
-  return { detail, curves, error, loading, load, clear }
+  return { detail, curves, restarts, error, loading, load, clear }
 }

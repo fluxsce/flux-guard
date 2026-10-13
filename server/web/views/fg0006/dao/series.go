@@ -17,19 +17,19 @@ type SeriesSpan struct {
 }
 
 const (
-	heapSQL  = `SELECT observedTime, heapUsedBytes, heapCommittedBytes, heapMaxBytes, nonHeapUsedBytes, nonHeapCommittedBytes, metaspaceUsedBytes FROM FG_JAVA_HEAP WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	heapSQL  = `SELECT observedTime, heapUsedBytes, heapCommittedBytes, heapMaxBytes, nonHeapUsedBytes, nonHeapCommittedBytes, metaspaceUsedBytes, heapUsedPercent FROM FG_JAVA_HEAP WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	gcSQL    = `SELECT observedTime, collectorName, collectionCount, collectionTimeMs FROM FG_JAVA_GC WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	thrSQL   = `SELECT observedTime, threadCount, daemonCount, peakCount FROM FG_JAVA_THREAD WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	poolSQL  = `SELECT observedTime, poolName, usedBytes FROM FG_JAVA_POOL WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-	runSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount, unloadedClassCount FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-	pauseSQL = `SELECT observedTime, collectorName, pauseCount, pauseMaxMs, pauseTotalMs FROM FG_JAVA_GC_PAUSE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-	stateSQL = `SELECT observedTime, runnableCount, blockedCount, waitingCount FROM FG_JAVA_THREAD_STATE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	runSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	pauseSQL = `SELECT observedTime, collectorName, pauseCount, pauseMaxMs, pauseTotalMs, pauseP99Ms, cycleTimeMs FROM FG_JAVA_GC_PAUSE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	stateSQL = `SELECT observedTime, runnableCount, blockedCount, waitingCount, deadlockCount FROM FG_JAVA_THREAD_STATE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	maxSQL   = `SELECT observedTime, poolName, maxBytes FROM FG_JAVA_POOL_MAX WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 )
 
 // Series 返回一个 Java 进程的曲线点，旧的在前。未给时间窗时每种曲线取最近 120 个点。
 func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSeries {
-	out := models.JavaSeries{Curves: []models.Curve{}}
+	out := models.JavaSeries{Curves: []models.Curve{}, Restarts: []models.JavaRestart{}}
 	if db == nil || agentID == "" {
 		return out
 	}
@@ -40,10 +40,15 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 		limit = 4000
 	}
 	build := &curveBuild{maxPoints: limit, items: map[string]*models.Curve{}}
-	for _, row := range queryWide(db, applySpan(heapSQL, clause), args, limit, 7) {
+	for _, row := range queryWide(db, applySpan(heapSQL, clause), args, limit, 8) {
 		build.add("堆已用", "bytes", "", row[0], asFloat(row[1]))
 		build.add("堆已提交", "bytes", "", row[0], asFloat(row[2]))
-		build.add("堆上限", "bytes", "", row[0], asFloat(row[3]))
+		if max := asFloat(row[3]); max > 0 {
+			build.add("堆上限", "bytes", "", row[0], max)
+		}
+		if pct := asFloat(row[7]); pct >= 0 {
+			build.add("堆使用率", "percent", "", row[0], shownPercent(pct))
+		}
 		build.add("非堆已用", "bytes", "", row[0], asFloat(row[4]))
 		build.add("非堆已提交", "bytes", "", row[0], asFloat(row[5]))
 		build.add("元空间已用", "bytes", "", row[0], asFloat(row[6]))
@@ -53,11 +58,16 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 		build.add("守护线程", "count", "", row[0], asFloat(row[2]))
 		build.add("峰值线程", "count", "", row[0], asFloat(row[3]))
 	}
-	for _, row := range queryWide(db, applySpan(stateSQL, clause), args, limit, 4) {
+	for _, row := range queryWide(db, applySpan(stateSQL, clause), args, limit, 5) {
 		build.add("运行线程", "count", "", row[0], asFloat(row[1]))
 		build.add("阻塞线程", "count", "", row[0], asFloat(row[2]))
 		build.add("等待线程", "count", "", row[0], asFloat(row[3]))
+		if dead := asFloat(row[4]); dead >= 0 {
+			build.add("死锁线程", "count", "", row[0], dead)
+		}
 	}
+	breaks := loadRestartTimes(db, tenantID, agentID, span)
+	var inferred []models.JavaRestart
 	newer := map[string]counterSample{}
 	for _, row := range queryWide(db, applySpan(gcSQL, clause), args, limit*8, 4) {
 		name := strings.TrimSpace(textOf(row[1]))
@@ -65,14 +75,22 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 			continue
 		}
 		build.add(name, "count", "GC 次数", row[0], asFloat(row[2]))
-		build.add(name, "ms", "GC 耗时", row[0], asFloat(row[3]))
+		build.add(name, "ms", "GC 累计时间", row[0], asFloat(row[3]))
 		at, ok := store.TimeValue(row[0])
 		if !ok {
 			continue
 		}
 		current := counterSample{at: at, text: row[0], values: []float64{asFloat(row[2]), asFloat(row[3])}}
 		if prev, seen := newer[name]; seen {
-			build.addRate(name, "persec", "GC 频率", prev, current, 0)
+			// 查询按时间倒序，prev 是较新的一拍。次数变小就是这一代 JVM 重新从 0 计。
+			reset := len(prev.values) > 0 && len(current.values) > 0 && prev.values[0] < current.values[0]
+			crossed := crossesRestart(current.at, prev.at, breaks)
+			if reset {
+				inferred = append(inferred, models.JavaRestart{ObservedTime: timeText(prev.text)})
+			}
+			if !reset && !crossed {
+				build.addRate(name, "persec", "GC 频率", prev, current, 0)
+			}
 		}
 		newer[name] = current
 	}
@@ -88,24 +106,41 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 			build.add("直接内存上限", "bytes", "", row[0], asFloat(row[2]))
 		}
 	}
-	for _, row := range queryWide(db, applySpan(runSQL, clause), args, limit, 4) {
+	for _, row := range queryWide(db, applySpan(runSQL, clause), args, limit, 5) {
 		if cpu := asFloat(row[1]); cpu >= 0 {
 			build.add("进程 CPU", "percent", "", row[0], cpu)
 		}
 		build.add("已加载类", "count", "", row[0], asFloat(row[2]))
 		build.add("已卸载类", "count", "", row[0], asFloat(row[3]))
+		if overhead := asFloat(row[4]); overhead >= 0 {
+			build.add("停顿开销", "percent", "GC 开销", row[0], overhead)
+		}
 	}
-	for _, row := range queryWide(db, applySpan(pauseSQL, clause), args, limit*8, 5) {
+	for _, row := range queryWide(db, applySpan(pauseSQL, clause), args, limit*8, 7) {
 		name := strings.TrimSpace(textOf(row[1]))
 		if name == "" {
 			continue
 		}
-		build.add(name, "count", "GC 停顿次数", row[0], asFloat(row[2]))
-		build.add(name, "ms", "GC 最长停顿", row[0], asFloat(row[3]))
-		build.add(name, "ms", "GC 区间耗时", row[0], asFloat(row[4]))
+		count := asFloat(row[2])
+		if count > 0 {
+			build.add(name, "count", "GC 停顿次数", row[0], count)
+		}
+		if count > 0 || asFloat(row[3]) > 0 {
+			build.add(name, "ms", "GC 最长停顿", row[0], asFloat(row[3]))
+		}
+		if count > 0 || asFloat(row[4]) > 0 {
+			build.add(name, "ms", "GC 区间耗时", row[0], asFloat(row[4]))
+		}
+		if count > 0 && asFloat(row[5]) >= 0 {
+			build.add(name, "ms", "GC p99", row[0], asFloat(row[5]))
+		}
+		if cycle := asFloat(row[6]); cycle > 0 {
+			build.add(name, "ms", "GC 周期", row[0], cycle)
+		}
 	}
-	build.dropIdle("堆上限", "非堆已提交", "元空间已用", "峰值线程", "映射内存", "代码缓存", "压缩类空间", "已卸载类", "阻塞线程", "等待线程")
+	build.dropIdle("堆上限", "非堆已提交", "元空间已用", "峰值线程", "映射内存", "代码缓存", "压缩类空间", "已卸载类", "阻塞线程", "等待线程", "死锁线程")
 	out.Curves = build.curves()
+	out.Restarts = mergeRestarts(db, tenantID, agentID, span, inferred)
 	return out
 }
 
@@ -149,7 +184,7 @@ func (b *curveBuild) addRate(name, unit, group string, newer, older counterSampl
 	}
 	delta := newer.values[index] - older.values[index]
 	if delta < 0 {
-		delta = 0
+		return
 	}
 	b.add(name, unit, group, newer.text, delta/dt)
 }

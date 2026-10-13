@@ -18,6 +18,7 @@ PRAGMA foreign_keys = ON;
 .read FG_AGENT.sql
 .read FG_AGENT_HOST.sql
 .read FG_AGENT_JAVA.sql
+.read FG_JAVA_RUN.sql
 .read FG_JAVA_HEAP.sql
 .read FG_JAVA_GC.sql
 .read FG_JAVA_THREAD.sql

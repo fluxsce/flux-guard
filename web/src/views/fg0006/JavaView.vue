@@ -34,6 +34,7 @@ const {
 const {
   detail,
   curves,
+  restarts,
   loading: detailLoading,
   load: loadDetail,
   clear: clearDetail,
@@ -140,6 +141,7 @@ useModuleAi(() => ({
       :app="active"
       :detail="detail"
       :curves="curves"
+      :restarts="restarts"
       :loading="detailLoading"
       @back="back"
       @refresh="onDetailRefresh"

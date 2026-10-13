@@ -1,6 +1,9 @@
 package dao
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestJudgeQuietAndShort(t *testing.T) {
 	level, lines := judgeWindow(sampleWindow{})
@@ -68,6 +71,59 @@ func TestJudgeClassAndDirectRise(t *testing.T) {
 	})
 	if level != findingWatch || !hasLine(lines, "元空间和已加载类一起上涨") || !hasLine(lines, "直接内存持续上涨") {
 		t.Fatalf("%s %+v", level, lines)
+	}
+}
+
+func TestJudgeHeapRoundsWithDisplay(t *testing.T) {
+	_, lines := judgeWindow(sampleWindow{heapPct: []float64{84.94}, threads: []float64{4}})
+	if hasLine(lines, "堆使用率已经贴着上限") {
+		t.Fatalf("84.94 stays under the displayed 85.0: %+v", lines)
+	}
+	_, lines = judgeWindow(sampleWindow{heapPct: []float64{84.95}, threads: []float64{4}})
+	if !hasLine(lines, "堆使用率已经贴着上限") {
+		t.Fatalf("84.95 displays as 85.0: %+v", lines)
+	}
+}
+
+func TestJudgeOverheadAndDeadlock(t *testing.T) {
+	_, lines := judgeWindow(sampleWindow{
+		heapPct: []float64{20}, threads: []float64{4},
+		hasOverhead: true, overhead: 9.96,
+		hasDeadlock: true, deadlock: 0,
+	})
+	for _, line := range lines {
+		if strings.Contains(line, "停顿开销") || strings.Contains(line, "死锁") {
+			t.Fatalf("below threshold %+v", lines)
+		}
+	}
+	_, lines = judgeWindow(sampleWindow{
+		heapPct: []float64{20}, threads: []float64{4},
+		hasOverhead: true, overhead: 12.34,
+		hasDeadlock: true, deadlock: 2,
+	})
+	if !hasLine(lines, "这一拍停顿开销 12.340%") || !hasLine(lines, "检测到 2 个死锁线程") {
+		t.Fatalf("%+v", lines)
+	}
+}
+
+func TestOldPauseCollector(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{name: "ZGC Major Cycles", want: false},
+		{name: "ZGC Major Pauses", want: true},
+		{name: "ZGC Minor Pauses", want: false},
+		{name: "G1 Young", want: false},
+		{name: "G1 Old", want: true},
+		{name: "PS Scavenge", want: false},
+		{name: "PS MarkSweep", want: true},
+		{name: "", want: false},
+	}
+	for _, item := range cases {
+		if got := oldPauseCollector(item.name); got != item.want {
+			t.Fatalf("%s got %v", item.name, got)
+		}
 	}
 }
 

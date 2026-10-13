@@ -26,3 +26,4 @@ CREATE TABLE IF NOT EXISTS `FG_JAVA_RUNTIME` (
   KEY `IDX_FG_JAVA_RUNTIME_TIME` (`tenantId`, `agentId`, `observedTime`),
   KEY `IDX_FG_JAVA_RUNTIME_ADD` (`tenantId`, `addTime`)
 ) ENGINE=InnoDB COMMENT='Java运行时记录表';
+ALTER TABLE `FG_JAVA_RUNTIME` ADD COLUMN `pauseOverheadPercent` DECIMAL(8, 3) NOT NULL DEFAULT -1 COMMENT '本拍停顿开销百分比，未知为 -1';

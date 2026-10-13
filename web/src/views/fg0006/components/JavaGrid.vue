@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import FgGrid from '@/components/grid/FgGrid.vue'
 import type { FgGridColumn, FgGridMenuItem, FgGridSort } from '@/components/grid/types'
-import { bytes, clock, count, percent } from '../composables/format'
+import { bytes, clock, count, millis, percent } from '../composables/format'
 import type { JavaApp } from '../api'
 
 defineProps<{
@@ -52,11 +52,14 @@ function findingText(row: JavaApp) {
     <template #javaVersion="{ row }">{{ appOf(row).javaVersion || '—' }}</template>
     <template #hostName="{ row }">{{ appOf(row).hostName || '—' }}</template>
     <template #heapUsedPercent="{ row }">
-      {{ percent(appOf(row).heapUsedPercent) }}
+      {{ appOf(row).heapUsedPercent < 0 ? '—' : percent(appOf(row).heapUsedPercent) }}
       <span v-if="appOf(row).heapMaxBytes > 0" class="fg-sub">{{ bytes(appOf(row).heapUsedBytes) }}</span>
     </template>
     <template #threadCount="{ row }">{{ count(appOf(row).threadCount) }}</template>
-    <template #collectionCount="{ row }">{{ count(appOf(row).collectionCount) }}</template>
+    <template #collectionCount="{ row }">
+      {{ count(appOf(row).collectionCount) }}
+      <span class="fg-sub">{{ millis(appOf(row).collectionTimeMs) }}</span>
+    </template>
     <template #reportedTime="{ row }">{{ clock(appOf(row).reportedTime) }}</template>
   </FgGrid>
 </template>

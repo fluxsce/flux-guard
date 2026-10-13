@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import FgToolbar from '@/components/toolbar/FgToolbar.vue'
 import type { FgToolbarButton } from '@/components/toolbar/types'
 import { RsDatePicker, RsEmpty, RsInputNumber, RsSwitch, RsTable, RsTooltip, useRsToast, type RsDatePickerShortcut, type RsTableColumn } from '@/ui'
-import type { JavaApp, JavaCollector, JavaDetail, SeriesRange } from '../api'
+import type { JavaApp, JavaBeat, JavaCollector, JavaDetail, JavaPause, JavaRestart, SeriesRange } from '../api'
 import JavaChart from './JavaChart.vue'
 import { gaugeOption, trendCharts } from '../composables/charts'
 import { bytes, clock, count, millis, percent } from '../composables/format'
@@ -12,6 +12,7 @@ const props = defineProps<{
   app: JavaApp
   detail: JavaDetail | null
   curves: Parameters<typeof trendCharts>[0]
+  restarts: JavaRestart[]
   loading: boolean
 }>()
 
@@ -156,17 +157,62 @@ const gauges = computed(() => [
   { option: gaugeOption('堆', props.app.heapUsedPercent, heapCaption.value) },
 ])
 
-const trends = computed(() => trendCharts(props.curves))
+const trends = computed(() => trendCharts(props.curves, (props.restarts ?? []).map((item) => item.observedTime)))
 const collectors = computed(() => props.detail?.collectors ?? [])
+const previous = computed(() => props.detail?.previous ?? null)
+const beat = computed(() => props.detail?.beat ?? null)
+const pauses = computed(() => beat.value?.pauses ?? [])
+
+function knownNumber(value: unknown) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : Number.NaN
+}
+
+function known(value: unknown, render: (n: number) => string) {
+  const n = knownNumber(value)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  return render(n)
+}
+
+function overheadText(value: number | undefined) {
+  const n = knownNumber(value)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  return `${n.toFixed(3)}%`
+}
+
+function deadlockText(row: JavaBeat | null) {
+  if (!row || row.deadlockCount < 0) return '未采集'
+  return count(row.deadlockCount)
+}
+
+function pauseMeasure(row: JavaPause, value: unknown, render: (n: number) => string) {
+  if (row.pauseCount <= 0 && knownNumber(value) <= 0) return '—'
+  return known(value, render)
+}
 
 function tableHeight(rows: number) {
   return Math.min(360, 36 + Math.max(rows, 1) * 34 + 2)
 }
 
+const pauseColumns: RsTableColumn<JavaPause>[] = [
+  { key: 'collectorName', title: '回收器', dataIndex: 'collectorName', ellipsis: true, sortable: true },
+  { key: 'pauseCount', title: '停顿次数', dataIndex: 'pauseCount', align: 'right', sortable: true, formatter: (value: unknown) => known(value, count) },
+  { key: 'pauseMaxMs', title: '最长', dataIndex: 'pauseMaxMs', align: 'right', sortable: true, formatter: (value: unknown, row: JavaPause) => pauseMeasure(row, value, millis) },
+  { key: 'pauseP50Ms', title: 'p50', dataIndex: 'pauseP50Ms', align: 'right', sortable: true, formatter: (value: unknown) => known(value, millis) },
+  { key: 'pauseP99Ms', title: 'p99', dataIndex: 'pauseP99Ms', align: 'right', sortable: true, formatter: (value: unknown) => known(value, millis) },
+  { key: 'pauseTotalMs', title: '合计', dataIndex: 'pauseTotalMs', align: 'right', sortable: true, formatter: (value: unknown, row: JavaPause) => pauseMeasure(row, value, millis) },
+  { key: 'pauseCause', title: '最长一次的原因', dataIndex: 'pauseCause', ellipsis: true },
+  { key: 'heapBeforeBytes', title: '最长停顿前', dataIndex: 'heapBeforeBytes', align: 'right', formatter: (value: unknown) => known(value, bytes) },
+  { key: 'heapAfterBytes', title: '最长停顿后', dataIndex: 'heapAfterBytes', align: 'right', formatter: (value: unknown) => known(value, bytes) },
+  { key: 'promotedBytes', title: '区间晋升', dataIndex: 'promotedBytes', align: 'right', formatter: (value: unknown) => known(value, bytes) },
+  { key: 'cycleCount', title: '周期次数', dataIndex: 'cycleCount', align: 'right', formatter: (value: unknown) => known(value, count) },
+  { key: 'cycleTimeMs', title: '周期耗时', dataIndex: 'cycleTimeMs', align: 'right', formatter: (value: unknown) => known(value, millis) },
+]
+
 const gcColumns: RsTableColumn<JavaCollector>[] = [
   { key: 'collectorName', title: '回收器', dataIndex: 'collectorName', ellipsis: true, sortable: true },
-  { key: 'collectionCount', title: '累计次数', dataIndex: 'collectionCount', align: 'right', sortable: true, formatter: (value) => count(value) },
-  { key: 'collectionTimeMs', title: '累计耗时', dataIndex: 'collectionTimeMs', align: 'right', sortable: true, formatter: (value) => millis(value) },
+  { key: 'collectionCount', title: '累计次数', dataIndex: 'collectionCount', align: 'right', sortable: true, formatter: (value: unknown) => count(value) },
+  { key: 'collectionTimeMs', title: '累计时间', dataIndex: 'collectionTimeMs', align: 'right', sortable: true, formatter: (value: unknown) => millis(value) },
 ]
 </script>
 
@@ -208,6 +254,35 @@ const gcColumns: RsTableColumn<JavaCollector>[] = [
           <JavaChart :option="item.option" height="168px" />
         </article>
       </section>
+      <h3 class="fg-section">这一拍</h3>
+      <p class="fg-note">
+        最近一次成功上报。小于 0 的项显示为 —，不会当成 0。停顿开销是本区间 STW 合计除以距离上次成功上报的墙钟，保留三位小数，达到 10.000% 才和曲线上的红线一起提示。上报失败的那一拍会并进下一次成功上报，不会被丢掉，也不会把开销算小。
+        p99 是这一拍的最近秩，判断看最长停顿（200ms 关注，500ms 严重）和开销，不看 p99。
+        最长停顿前、最长停顿后只描述这一拍里最长的那一次停顿。区间晋升是年轻代回收里老年代增加量的合计；其中有一次测不到，整段就是 —。
+        死锁 0 表示调用成功且没有死锁。线程池队列没有标准 JVM 指标，这里不估算。
+        下面「累计时间」是 MXBean 的 collectionTime，含周期，不是停顿。
+      </p>
+      <p v-if="beat" class="fg-note">
+        停顿开销 {{ overheadText(beat.overheadPercent) }}
+        <template v-if="beat.overheadTime"> · {{ clock(beat.overheadTime) }}</template>
+        · 死锁线程 {{ deadlockText(beat) }}
+        <template v-if="beat.deadlockTime"> · {{ clock(beat.deadlockTime) }}</template>
+      </p>
+      <p v-if="beat && beat.deadlockCount > 0 && beat.deadlockText" class="fg-finding" data-level="alert">{{ beat.deadlockText }}</p>
+      <RsEmpty v-if="detail && pauses.length === 0" title="这一拍没有停顿或周期" />
+      <RsTable
+        v-else-if="pauses.length > 0"
+        class="fg-detail-table"
+        :columns="pauseColumns"
+        :data="pauses"
+        row-key="collectorName"
+        size="sm"
+        cell-focus="none"
+        null-label="—"
+        :rounded="false"
+        :context-menu="false"
+        :height="tableHeight(pauses.length)"
+      />
       <h3 class="fg-section">趋势</h3>
       <RsEmpty v-if="trends.length === 0" title="还没有趋势数据" />
       <section v-else class="fg-charts">
@@ -219,7 +294,8 @@ const gcColumns: RsTableColumn<JavaCollector>[] = [
           <JavaChart :option="chart.option" />
         </article>
       </section>
-      <h3 class="fg-section">回收器</h3>
+      <h3 class="fg-section">本进程启动以来</h3>
+      <p class="fg-note">次数和耗时从这次 JVM 启动累计。应用重启后从 0 再计，曲线在重启处断开，频率不跨代相减。</p>
       <RsEmpty v-if="collectors.length === 0" title="没有回收器数据" />
       <RsTable
         v-else
@@ -234,6 +310,28 @@ const gcColumns: RsTableColumn<JavaCollector>[] = [
         :context-menu="false"
         :height="tableHeight(collectors.length)"
       />
+      <template v-if="previous">
+        <h3 class="fg-section">上一次进程</h3>
+        <p class="fg-note">
+          启动 {{ clock(previous.startTime) }}
+          · 结束于 {{ clock(previous.closedTime) }}
+          · 结束时累计 {{ count(previous.collectionCount) }} 次，{{ millis(previous.collectionTimeMs) }}
+          <template v-if="previous.processId"> · 进程 {{ previous.processId }}</template>
+        </p>
+        <RsTable
+          v-if="previous.collectors.length > 0"
+          class="fg-detail-table"
+          :columns="gcColumns"
+          :data="previous.collectors"
+          row-key="collectorName"
+          size="sm"
+          cell-focus="none"
+          null-label="—"
+          :rounded="false"
+          :context-menu="false"
+          :height="tableHeight(previous.collectors.length)"
+        />
+      </template>
     </div>
   </section>
 </template>

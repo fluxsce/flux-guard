@@ -62,6 +62,9 @@ func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]mode
 		}
 		item.StartTime = timeText(start)
 		item.HeapUsedPercent = asFloat(heapPct)
+		if item.HeapUsedPercent >= 0 {
+			item.HeapUsedPercent = shownPercent(item.HeapUsedPercent)
+		}
 		item.HeapUsedBytes = asInt64(heapUsed)
 		item.HeapMaxBytes = asInt64(heapMax)
 		item.NonHeapUsedBytes = asInt64(nonUsed)
@@ -79,9 +82,9 @@ func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]mode
 	return out, total, rows.Err()
 }
 
-// Detail 返回一个进程最新一批回收器。
+// Detail 返回一个进程最新一批回收器，以及与判断同一行的最近一拍。
 func Detail(db *dbx.DB, tenantID, agentID string) models.JavaDetail {
-	out := models.JavaDetail{Collectors: []models.GCRow{}}
+	out := models.JavaDetail{Collectors: []models.GCRow{}, Beat: emptyBeat()}
 	if db == nil || strings.TrimSpace(agentID) == "" {
 		return out
 	}
@@ -112,5 +115,91 @@ func Detail(db *dbx.DB, tenantID, agentID string) models.JavaDetail {
 		out.Collectors = append(out.Collectors, item)
 	}
 	out.FindingLevel, out.Findings = judgeAgent(db, tenantID, agentID)
+	out.Beat = loadBeat(db, tenantID, agentID)
+	out.Previous = previousGeneration(db, tenantID, agentID)
+	return out
+}
+
+func emptyBeat() models.JavaBeat {
+	return models.JavaBeat{OverheadPercent: -1, DeadlockCount: -1, Pauses: []models.JavaPause{}}
+}
+
+// loadBeat 读判断用的同一行：运行时最新开销、线程状态最新死锁、停顿表最新时刻的全部回收器。
+func loadBeat(db *dbx.DB, tenantID, agentID string) models.JavaBeat {
+	out := emptyBeat()
+	args := dbx.Args{"tenantId": tenantID, "agentId": agentID}
+	runtime, err := db.Query(context.Background(), `
+		SELECT pauseOverheadPercent, observedTime
+		FROM FG_JAVA_RUNTIME
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		ORDER BY observedTime DESC, pointId DESC
+		LIMIT 1`, args)
+	if err == nil {
+		if runtime.Next() {
+			var overhead, observed any
+			if err := runtime.Scan(&overhead, &observed); err == nil {
+				out.OverheadPercent = asFloat(overhead)
+				out.OverheadTime = timeText(observed)
+			}
+		}
+		runtime.Close()
+	}
+	state, err := db.Query(context.Background(), `
+		SELECT deadlockCount, COALESCE(deadlockText, ''), observedTime
+		FROM FG_JAVA_THREAD_STATE
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		ORDER BY observedTime DESC, pointId DESC
+		LIMIT 1`, args)
+	if err == nil {
+		if state.Next() {
+			var dead, text, observed any
+			if err := state.Scan(&dead, &text, &observed); err == nil {
+				out.DeadlockCount = asInt64(dead)
+				out.DeadlockText = strings.TrimSpace(textOf(text))
+				out.DeadlockTime = timeText(observed)
+			}
+		}
+		state.Close()
+	}
+	pauses, err := db.Query(context.Background(), `
+		SELECT collectorName, pauseCount, pauseMaxMs, pauseTotalMs, pauseP50Ms, pauseP99Ms,
+		       heapBeforeBytes, heapAfterBytes, promotedBytes, COALESCE(pauseCause, ''),
+		       cycleCount, cycleTimeMs, observedTime
+		FROM FG_JAVA_GC_PAUSE
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND observedTime = (
+		    SELECT observedTime FROM FG_JAVA_GC_PAUSE
+		    WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		    ORDER BY observedTime DESC, pointId DESC
+		    LIMIT 1
+		  )
+		ORDER BY collectorName`, args)
+	if err != nil {
+		return out
+	}
+	defer pauses.Close()
+	for pauses.Next() {
+		var item models.JavaPause
+		var count, max, total, p50, p99, before, after, promoted, cause, cycleCount, cycleTime, observed any
+		if err := pauses.Scan(
+			&item.CollectorName, &count, &max, &total, &p50, &p99,
+			&before, &after, &promoted, &cause, &cycleCount, &cycleTime, &observed,
+		); err != nil {
+			return out
+		}
+		item.PauseCount = asInt64(count)
+		item.PauseMaxMs = asInt64(max)
+		item.PauseTotalMs = asInt64(total)
+		item.PauseP50Ms = asInt64(p50)
+		item.PauseP99Ms = asInt64(p99)
+		item.HeapBeforeBytes = asInt64(before)
+		item.HeapAfterBytes = asInt64(after)
+		item.PromotedBytes = asInt64(promoted)
+		item.PauseCause = strings.TrimSpace(textOf(cause))
+		item.CycleCount = asInt64(cycleCount)
+		item.CycleTimeMs = asInt64(cycleTime)
+		item.ObservedTime = timeText(observed)
+		out.Pauses = append(out.Pauses, item)
+	}
 	return out
 }

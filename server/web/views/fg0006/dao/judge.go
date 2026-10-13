@@ -1,10 +1,19 @@
 package dao
 
 import (
+	"strconv"
 	"strings"
 
 	"fluxguard/server/web/views/fg0006/models"
 	dbx "github.com/fluxsce/dbx/db"
+)
+
+// 这些阈值同时画在曲线上。改这里时要改 web 里 charts.ts 的预警线。
+const (
+	heapAlertPercent     = 85
+	pauseWatchMs         = 200
+	pauseAlertMs         = 500
+	overheadAlertPercent = 10
 )
 
 const (
@@ -19,30 +28,34 @@ const (
 	briefHeapSQL  = `SELECT observedTime, heapUsedPercent, metaspaceUsedBytes FROM FG_JAVA_HEAP WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	briefPoolSQL  = `SELECT observedTime, poolName, usedBytes FROM FG_JAVA_POOL WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' AND poolName IN ('old', 'direct') ORDER BY observedTime DESC, pointId DESC`
 	briefMaxSQL   = `SELECT observedTime, maxBytes FROM FG_JAVA_POOL_MAX WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' AND poolName = 'direct' ORDER BY observedTime DESC, pointId DESC`
-	briefRunSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	briefRunSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount, pauseOverheadPercent FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	briefThrSQL   = `SELECT observedTime, threadCount FROM FG_JAVA_THREAD WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-	briefStatSQL  = `SELECT observedTime, runnableCount, blockedCount, waitingCount FROM FG_JAVA_THREAD_STATE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	briefStatSQL  = `SELECT observedTime, runnableCount, blockedCount, waitingCount, deadlockCount FROM FG_JAVA_THREAD_STATE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	briefPauseSQL = `SELECT observedTime, collectorName, pauseMaxMs FROM FG_JAVA_GC_PAUSE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 )
 
 // sampleWindow 是判断用的最近几个点，旧的在前。
 type sampleWindow struct {
-	heapPct    []float64
-	oldUsed    []float64
-	metaspace  []float64
-	loaded     []float64
-	directUsed []float64
-	directMax  float64
-	threads    []float64
-	runnable   float64
-	blocked    float64
-	waiting    float64
-	hasState   bool
-	cpu        float64
-	hasCPU     bool
-	oldPause   []float64
-	pauseMax   float64
-	hasPause   bool
+	heapPct     []float64
+	oldUsed     []float64
+	metaspace   []float64
+	loaded      []float64
+	directUsed  []float64
+	directMax   float64
+	threads     []float64
+	runnable    float64
+	blocked     float64
+	waiting     float64
+	hasState    bool
+	cpu         float64
+	hasCPU      bool
+	overhead    float64
+	hasOverhead bool
+	deadlock    float64
+	hasDeadlock bool
+	oldPause    []float64
+	pauseMax    float64
+	hasPause    bool
 }
 
 type findingItem struct {
@@ -72,7 +85,7 @@ func judgeWindow(w sampleWindow) (string, []string) {
 	case pauseUp:
 		add(findingAlert, "Old 停顿变长")
 	}
-	if pct, ok := latest(w.heapPct); ok && pct >= 85 {
+	if pct, ok := latest(w.heapPct); ok && shownPercent(pct) >= heapAlertPercent {
 		add(findingAlert, "堆使用率已经贴着上限")
 	}
 	directLatest, hasDirect := latest(w.directUsed)
@@ -89,9 +102,15 @@ func judgeWindow(w sampleWindow) (string, []string) {
 	if w.hasCPU && w.cpu >= 60 && w.hasPause && w.pauseMax >= 100 {
 		add(findingAlert, "进程 CPU 高，回收也在占时间")
 	}
-	if w.hasPause && w.pauseMax >= 200 && !pauseUp {
+	if w.hasOverhead && w.overhead >= overheadAlertPercent {
+		add(findingAlert, "这一拍停顿开销 "+formatPercent(w.overhead))
+	}
+	if w.hasDeadlock && w.deadlock >= 1 {
+		add(findingAlert, "检测到 "+strconv.FormatInt(int64(w.deadlock), 10)+" 个死锁线程")
+	}
+	if w.hasPause && w.pauseMax >= pauseWatchMs && !pauseUp {
 		level := findingWatch
-		if w.pauseMax >= 500 {
+		if w.pauseMax >= pauseAlertMs {
 			level = findingAlert
 		}
 		add(level, "最近出现了较长停顿")
@@ -141,7 +160,9 @@ func loadWindow(db *dbx.DB, tenantID, agentID string) sampleWindow {
 	args := dbx.Args{"tenantId": tenantID, "agentId": agentID}
 	var w sampleWindow
 	for _, row := range queryWide(db, briefHeapSQL, args, 6, 3) {
-		w.heapPct = append(w.heapPct, asFloat(row[1]))
+		if pct := asFloat(row[1]); pct >= 0 {
+			w.heapPct = append(w.heapPct, pct)
+		}
 		w.metaspace = append(w.metaspace, asFloat(row[2]))
 	}
 	w.heapPct = chronological(w.heapPct, 6)
@@ -160,11 +181,15 @@ func loadWindow(db *dbx.DB, tenantID, agentID string) sampleWindow {
 	if rows := queryWide(db, briefMaxSQL, args, 1, 2); len(rows) > 0 {
 		w.directMax = asFloat(rows[0][1])
 	}
-	runtimeRows := queryWide(db, briefRunSQL, args, 6, 3)
+	runtimeRows := queryWide(db, briefRunSQL, args, 6, 4)
 	if len(runtimeRows) > 0 {
 		if cpu := asFloat(runtimeRows[0][1]); cpu >= 0 {
 			w.cpu = cpu
 			w.hasCPU = true
+		}
+		if overhead := asFloat(runtimeRows[0][3]); overhead >= 0 {
+			w.overhead = overhead
+			w.hasOverhead = true
 		}
 	}
 	for _, row := range runtimeRows {
@@ -175,11 +200,15 @@ func loadWindow(db *dbx.DB, tenantID, agentID string) sampleWindow {
 		w.threads = append(w.threads, asFloat(row[1]))
 	}
 	w.threads = chronological(w.threads, 6)
-	if rows := queryWide(db, briefStatSQL, args, 1, 4); len(rows) > 0 {
+	if rows := queryWide(db, briefStatSQL, args, 1, 5); len(rows) > 0 {
 		w.hasState = true
 		w.runnable = asFloat(rows[0][1])
 		w.blocked = asFloat(rows[0][2])
 		w.waiting = asFloat(rows[0][3])
+		if dead := asFloat(rows[0][4]); dead >= 0 {
+			w.deadlock = dead
+			w.hasDeadlock = true
+		}
 	}
 	var ticks []pauseTick
 	var current string
@@ -197,7 +226,7 @@ func loadWindow(db *dbx.DB, tenantID, agentID string) sampleWindow {
 		if value > tick.peak {
 			tick.peak = value
 		}
-		if oldCollector(textOf(row[1])) {
+		if oldPauseCollector(textOf(row[1])) {
 			tick.sawOld = true
 			if value > tick.old {
 				tick.old = value
@@ -281,7 +310,35 @@ func pauseGrew(values []float64) bool {
 	return last >= 50 && earlier > 0 && last >= earlier*1.5 && last-earlier >= 20
 }
 
-func oldCollector(name string) bool {
+// shownPercent 与页面一位小数对齐。84.95 显示成 85.0，判断也按 85.0 比较。
+func shownPercent(value float64) float64 {
+	text := strconv.FormatFloat(value, 'f', 1, 64)
+	shown, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return value
+	}
+	return shown
+}
+
+// formatPercent 保留三位，和代理写入的开销精度一致，避免 9.960 被显示成 10.0。
+func formatPercent(value float64) string {
+	return strconv.FormatFloat(value, 'f', 3, 64) + "%"
+}
+
+// oldPauseCollector 只认老年代或 Major 的停顿。周期和年轻代停顿不算。
+func oldPauseCollector(name string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
-	return strings.Contains(n, "old") || strings.Contains(n, "tenured") || strings.Contains(n, "marksweep")
+	if n == "" || strings.Contains(n, "cycle") {
+		return false
+	}
+	if strings.Contains(n, "young") || strings.Contains(n, "scavenge") || strings.Contains(n, "parnew") || n == "copy" {
+		return false
+	}
+	if strings.Contains(n, "minor") && strings.Contains(n, "pause") {
+		return false
+	}
+	if strings.Contains(n, "old") || strings.Contains(n, "tenured") || strings.Contains(n, "marksweep") {
+		return true
+	}
+	return strings.Contains(n, "major") && strings.Contains(n, "pause")
 }

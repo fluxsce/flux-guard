@@ -45,7 +45,9 @@ public final class Agent {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 report.post(Collect.snapshot(cfg.appName));
+                Pauses.ack();
             } catch (Exception e) {
+                Pauses.restore();
                 System.err.println("flux-guard-agent-java 上报: " + e.getMessage());
                 if (cfg.once) {
                     return false;

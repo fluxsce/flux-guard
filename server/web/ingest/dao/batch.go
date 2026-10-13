@@ -259,7 +259,10 @@ func SaveJava(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 			"agentName": clip(appName, 100), "hostName": strings.TrimSpace(hostName), "ipAddress": strings.TrimSpace(ip),
 			"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
 		})
-	return err
+	if err != nil {
+		return err
+	}
+	return noteJavaGeneration(ctx, tx, batch, start, processID)
 }
 
 // HostOf 返回这台代理最近上报的机器资料。

@@ -15,7 +15,8 @@ import (
 // jvm.* 样本按类别只插入。身份仍由 SaveJava 更新。
 // 堆：jvm.heap.used.bytes / committed.bytes / max.bytes，非堆与元空间同形。
 // GC：jvm.gc.count、jvm.gc.time.ms，标签 collector 区分回收器，值为累计数。
-// 停顿：jvm.gc.pause.count / max.ms / time.ms，同一标签，值为两次上报之间的区间。
+// 停顿：jvm.gc.pause.count / max.ms / time.ms / p50.ms / p99.ms，同一回收器，值为这一拍的区间。
+// 开销 jvm.gc.pause.overhead.percent 未知为 -1。周期 jvm.gc.cycle.* 不计入停顿。死锁 jvm.thread.deadlock.count，未知不写。
 // 内存池：jvm.memory.pool.used.bytes / committed.bytes，标签 pool 只接受分代、代码缓存和堆外。
 // 运行时：jvm.cpu.process.percent、jvm.class.loaded、jvm.class.unloaded。
 // 线程：jvm.thread.count、jvm.thread.daemon.count、jvm.thread.peak.count。
@@ -53,21 +54,30 @@ type poolSnap struct {
 
 type stateSnap struct {
 	runnable, blocked, waiting int64
+	deadlock                   int64
+	hasDeadlock                bool
+	deadlockText               string
 	at                         time.Time
 }
 
 type runtimeSnap struct {
 	cpu               float64
 	loaded, unloaded  int64
+	overhead          float64
 	hasCPU, hasLoaded bool
 	hasUnloaded       bool
+	hasOverhead       bool
 	at                time.Time
 }
 
 type pauseSnap struct {
-	name              string
-	count, max, total int64
-	at                time.Time
+	name                    string
+	count, max, total       int64
+	p50, p99                int64
+	before, after, promoted int64
+	cycleCount, cycleTime   int64
+	cause                   string
+	at                      time.Time
 }
 
 // SaveJavaMetrics 把 jvm.* 样本写入 Java 曲线表。种类不是 java，或本批没有这些指标时什么都不写。
@@ -163,6 +173,12 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			state.waiting = asInt(sample.MetricValue)
 			state.at = at
 			hasState = true
+		case "jvm.thread.deadlock.count":
+			state.deadlock = asInt(sample.MetricValue)
+			state.hasDeadlock = true
+			state.deadlockText = clip(labelOf(sample, "detail"), 500)
+			state.at = at
+			hasState = true
 		case "jvm.memory.pool.used.bytes":
 			if row := javaPool(pools, sample); row != nil {
 				row.used = asInt(sample.MetricValue)
@@ -199,6 +215,11 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			runtime.hasUnloaded = true
 			runtime.at = at
 			hasRuntime = true
+		case "jvm.gc.pause.overhead.percent":
+			runtime.overhead = sample.MetricValue
+			runtime.hasOverhead = true
+			runtime.at = at
+			hasRuntime = true
 		case "jvm.gc.pause.count":
 			row := javaPause(pauses, sample)
 			row.count = asInt(sample.MetricValue)
@@ -214,11 +235,48 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			row.total = asInt(sample.MetricValue)
 			row.at = at
 			hasPause = true
+		case "jvm.gc.pause.p50.ms":
+			row := javaPause(pauses, sample)
+			row.p50 = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.pause.p99.ms":
+			row := javaPause(pauses, sample)
+			row.p99 = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.pause.heap.before.bytes":
+			row := javaPause(pauses, sample)
+			row.before = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.pause.heap.after.bytes":
+			row := javaPause(pauses, sample)
+			row.after = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.pause.promoted.bytes":
+			row := javaPause(pauses, sample)
+			row.promoted = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.cycle.count":
+			row := javaPause(pauses, sample)
+			row.cycleCount = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
+		case "jvm.gc.cycle.time.ms":
+			row := javaPause(pauses, sample)
+			row.cycleTime = asInt(sample.MetricValue)
+			row.at = at
+			hasPause = true
 		}
 	}
 	if hasHeap {
-		if heap.usedPercent == 0 && heap.max > 0 && heap.used >= 0 {
+		if heap.max > 0 && heap.used >= 0 {
 			heap.usedPercent = float64(heap.used) / float64(heap.max) * 100
+		} else if heap.max <= 0 {
+			heap.usedPercent = -1
 		}
 		if err := writeJavaHeap(ctx, tx, batch, heap); err != nil {
 			return err
@@ -287,6 +345,18 @@ func touchJavaCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, has
 		sets = append(sets, "collectionCount = @collectionCount", "collectionTimeMs = @collectionTimeMs")
 		args["collectionCount"] = count
 		args["collectionTimeMs"] = elapsed
+		if _, err := tx.Exec(ctx, `
+			UPDATE FG_JAVA_RUN SET
+			  collectionCount = @collectionCount, collectionTimeMs = @collectionTimeMs,
+			  editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
+			WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' AND closedTime IS NULL`,
+			dbx.Args{
+				"collectionCount": count, "collectionTimeMs": elapsed,
+				"editTime": store.FormatTime(time.Now().UTC()),
+				"tenantId": batch.TenantID, "agentId": batch.AgentID,
+			}); err != nil {
+			return err
+		}
 	}
 	if len(sets) == 0 {
 		return nil
@@ -339,8 +409,11 @@ func javaPause(rows map[string]*pauseSnap, sample protocol.Sample) *pauseSnap {
 	name := collectorName(sample)
 	row := rows[name]
 	if row == nil {
-		row = &pauseSnap{name: name}
+		row = &pauseSnap{name: name, p50: -1, p99: -1, before: -1, after: -1, promoted: -1}
 		rows[name] = row
+	}
+	if cause := clip(labelOf(sample, "cause"), 200); cause != "" {
+		row.cause = cause
 	}
 	return row
 }
@@ -406,16 +479,21 @@ func writeJavaThread(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row 
 }
 
 func writeJavaState(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row stateSnap) error {
+	deadlock := int64(-1)
+	if row.hasDeadlock {
+		deadlock = row.deadlock
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO FG_JAVA_THREAD_STATE (
-		  pointId, batchId, agentId, tenantId, runnableCount, blockedCount, waitingCount, observedTime,
+		  pointId, batchId, agentId, tenantId, runnableCount, blockedCount, waitingCount, deadlockCount, deadlockText, observedTime,
 		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
-		  @pointId, @batchId, @agentId, @tenantId, @runnableCount, @blockedCount, @waitingCount, @observedTime,
+		  @pointId, @batchId, @agentId, @tenantId, @runnableCount, @blockedCount, @waitingCount, @deadlockCount, @deadlockText, @observedTime,
 		  @addWho, 'system', 'INGEST', 1, 'Y'
 		)`, javaPoint(batch, dbx.Args{
 		"agentId": batch.AgentID, "tenantId": batch.TenantID,
 		"runnableCount": row.runnable, "blockedCount": row.blocked, "waitingCount": row.waiting,
+		"deadlockCount": deadlock, "deadlockText": nullText(row.deadlockText),
 		"observedTime": store.FormatTime(row.at), "addWho": batch.AgentID,
 	}))
 	return err
@@ -471,33 +549,59 @@ func writeJavaRuntime(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row
 	if !row.hasCPU {
 		cpu = -1
 	}
+	overhead := -1.0
+	if row.hasOverhead {
+		overhead = row.overhead
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO FG_JAVA_RUNTIME (
-		  pointId, batchId, agentId, tenantId, processCpuPercent, loadedClassCount, unloadedClassCount, observedTime,
+		  pointId, batchId, agentId, tenantId, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent, observedTime,
 		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
-		  @pointId, @batchId, @agentId, @tenantId, @processCpuPercent, @loadedClassCount, @unloadedClassCount, @observedTime,
+		  @pointId, @batchId, @agentId, @tenantId, @processCpuPercent, @loadedClassCount, @unloadedClassCount, @pauseOverheadPercent, @observedTime,
 		  @addWho, 'system', 'INGEST', 1, 'Y'
 		)`, javaPoint(batch, dbx.Args{
 		"agentId": batch.AgentID, "tenantId": batch.TenantID,
 		"processCpuPercent": cpu, "loadedClassCount": row.loaded, "unloadedClassCount": row.unloaded,
-		"observedTime": store.FormatTime(row.at), "addWho": batch.AgentID,
+		"pauseOverheadPercent": overhead,
+		"observedTime":         store.FormatTime(row.at), "addWho": batch.AgentID,
 	}))
 	return err
 }
 
+// pauseKnown 区分没采到和测到 0。只有次数、时长、分位、堆或周期里至少有一项时才落库。
+func pauseKnown(row *pauseSnap) bool {
+	if row.count != 0 || row.max != 0 || row.total != 0 || row.cycleCount != 0 || row.cycleTime != 0 {
+		return true
+	}
+	if row.p50 >= 0 || row.p99 >= 0 || row.before >= 0 || row.after >= 0 || row.promoted >= 0 {
+		return true
+	}
+	return strings.TrimSpace(row.cause) != ""
+}
+
 func writeJavaPause(ctx context.Context, tx *dbx.DB, batch protocol.Batch, rows map[string]*pauseSnap) error {
 	for _, row := range rows {
+		if !pauseKnown(row) {
+			continue
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO FG_JAVA_GC_PAUSE (
-			  pointId, batchId, agentId, tenantId, collectorName, pauseCount, pauseMaxMs, pauseTotalMs, observedTime,
+			  pointId, batchId, agentId, tenantId, collectorName, pauseCount, pauseMaxMs, pauseTotalMs,
+			  pauseP50Ms, pauseP99Ms, heapBeforeBytes, heapAfterBytes, promotedBytes, pauseCause,
+			  cycleCount, cycleTimeMs, observedTime,
 			  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
 			) VALUES (
-			  @pointId, @batchId, @agentId, @tenantId, @collectorName, @pauseCount, @pauseMaxMs, @pauseTotalMs, @observedTime,
+			  @pointId, @batchId, @agentId, @tenantId, @collectorName, @pauseCount, @pauseMaxMs, @pauseTotalMs,
+			  @pauseP50Ms, @pauseP99Ms, @heapBeforeBytes, @heapAfterBytes, @promotedBytes, @pauseCause,
+			  @cycleCount, @cycleTimeMs, @observedTime,
 			  @addWho, 'system', 'INGEST', 1, 'Y'
 			)`, javaPoint(batch, dbx.Args{
 			"agentId": batch.AgentID, "tenantId": batch.TenantID, "collectorName": row.name,
 			"pauseCount": row.count, "pauseMaxMs": row.max, "pauseTotalMs": row.total,
+			"pauseP50Ms": row.p50, "pauseP99Ms": row.p99,
+			"heapBeforeBytes": row.before, "heapAfterBytes": row.after, "promotedBytes": row.promoted,
+			"pauseCause": nullText(row.cause), "cycleCount": row.cycleCount, "cycleTimeMs": row.cycleTime,
 			"observedTime": store.FormatTime(row.at), "addWho": batch.AgentID,
 		})); err != nil {
 			return err

@@ -118,7 +118,7 @@ var componentSampleTables = []string{
 	"FG_COMPONENT_NACOS_METRIC",
 }
 
-// javaSampleTables 是滚动 Java 样本。FG_AGENT_JAVA 是身份表，不在此列。
+// javaSampleTables 是滚动 Java 样本。FG_AGENT_JAVA 是身份，FG_JAVA_RUN 是进程代次，都不在此列。
 var javaSampleTables = []string{
 	"FG_JAVA_HEAP",
 	"FG_JAVA_GC",

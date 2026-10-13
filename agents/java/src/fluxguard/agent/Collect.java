@@ -74,6 +74,14 @@ final class Collect {
         add(samples, "jvm.thread.runnable.count", states[0], null, at);
         add(samples, "jvm.thread.blocked.count", states[1], null, at);
         add(samples, "jvm.thread.waiting.count", states[2], null, at);
+        long[] deadlocked = deadlocks(threads);
+        if (deadlocked != null) {
+            if (deadlocked.length == 0) {
+                add(samples, "jvm.thread.deadlock.count", 0, null, at);
+            } else {
+                addDetail(samples, "jvm.thread.deadlock.count", deadlocked.length, deadlockText(threads, deadlocked), at);
+            }
+        }
         for (Map.Entry<String, long[]> pool : pools().entrySet()) {
             addLabeled(samples, "jvm.memory.pool.used.bytes", pool.getValue()[0], "pool", pool.getKey(), at);
             addLabeled(samples, "jvm.memory.pool.committed.bytes", pool.getValue()[1], "pool", pool.getKey(), at);
@@ -89,13 +97,39 @@ final class Collect {
         ClassLoadingMXBean classes = ManagementFactory.getClassLoadingMXBean();
         add(samples, "jvm.class.loaded", classes.getLoadedClassCount(), null, at);
         add(samples, "jvm.class.unloaded", classes.getUnloadedClassCount(), null, at);
-        for (Map.Entry<String, Pauses> pause : Pauses.drain().entrySet()) {
-            if (pause.getValue().count <= 0) {
-                continue;
+        long stwMs = 0;
+        for (Map.Entry<String, Pauses> pause : Pauses.drain(now).entrySet()) {
+            Pauses row = pause.getValue();
+            String collector = pause.getKey();
+            if (row.pauseCount > 0) {
+                stwMs += row.pauseTotalMs;
+                addLabeled(samples, "jvm.gc.pause.count", row.pauseCount, "collector", collector, at);
+                addCause(samples, "jvm.gc.pause.max.ms", row.pauseMaxMs, collector, row.cause, at);
+                addLabeled(samples, "jvm.gc.pause.time.ms", row.pauseTotalMs, "collector", collector, at);
+                if (row.pauseP50Ms >= 0) {
+                    addLabeled(samples, "jvm.gc.pause.p50.ms", row.pauseP50Ms, "collector", collector, at);
+                }
+                if (row.pauseP99Ms >= 0) {
+                    addLabeled(samples, "jvm.gc.pause.p99.ms", row.pauseP99Ms, "collector", collector, at);
+                }
+                if (row.heapBefore >= 0) {
+                    addLabeled(samples, "jvm.gc.pause.heap.before.bytes", row.heapBefore, "collector", collector, at);
+                }
+                if (row.heapAfter >= 0) {
+                    addLabeled(samples, "jvm.gc.pause.heap.after.bytes", row.heapAfter, "collector", collector, at);
+                }
+                if (row.promoted >= 0) {
+                    addLabeled(samples, "jvm.gc.pause.promoted.bytes", row.promoted, "collector", collector, at);
+                }
             }
-            addLabeled(samples, "jvm.gc.pause.count", pause.getValue().count, "collector", pause.getKey(), at);
-            addLabeled(samples, "jvm.gc.pause.max.ms", pause.getValue().maxMs, "collector", pause.getKey(), at);
-            addLabeled(samples, "jvm.gc.pause.time.ms", pause.getValue().totalMs, "collector", pause.getKey(), at);
+            if (row.cycleCount > 0) {
+                addLabeled(samples, "jvm.gc.cycle.count", row.cycleCount, "collector", collector, at);
+                addLabeled(samples, "jvm.gc.cycle.time.ms", row.cycleTotalMs, "collector", collector, at);
+            }
+        }
+        double overhead = Pauses.overheadPercent(now, stwMs);
+        if (overhead >= 0) {
+            add(samples, "jvm.gc.pause.overhead.percent", Math.round(overhead * 1000.0) / 1000.0, null, at);
         }
 
         StringBuilder body = new StringBuilder();
@@ -129,6 +163,36 @@ final class Collect {
 
     private static void add(List<String> samples, String metric, double value, String collector, String at) {
         addLabeled(samples, metric, value, "collector", collector, at);
+    }
+
+    private static void addCause(List<String> samples, String metric, long value, String collector, String cause, String at) {
+        StringBuilder row = new StringBuilder();
+        row.append('{');
+        field(row, "metricName", metric, true);
+        row.append("\"metricValue\":").append(value).append(',');
+        row.append("\"labels\":{").append(Json.quote("collector")).append(':').append(Json.quote(collector));
+        if (cause != null && !cause.isEmpty()) {
+            row.append(',').append(Json.quote("cause")).append(':').append(Json.quote(cause));
+        }
+        row.append("},");
+        field(row, "observedAt", at, true);
+        trimComma(row);
+        row.append('}');
+        samples.add(row.toString());
+    }
+
+    private static void addDetail(List<String> samples, String metric, long value, String detail, String at) {
+        StringBuilder row = new StringBuilder();
+        row.append('{');
+        field(row, "metricName", metric, true);
+        row.append("\"metricValue\":").append(value).append(',');
+        if (detail != null && !detail.isEmpty()) {
+            row.append("\"labels\":{").append(Json.quote("detail")).append(':').append(Json.quote(detail)).append("},");
+        }
+        field(row, "observedAt", at, true);
+        trimComma(row);
+        row.append('}');
+        samples.add(row.toString());
     }
 
     private static void addLabeled(List<String> samples, String metric, double value, String labelKey, String labelValue, String at) {
@@ -200,6 +264,57 @@ final class Collect {
             }
         }
         return new long[]{runnable, blocked, waiting};
+    }
+
+    // deadlocks 为 null 表示 JVM 不支持这次检测，调用方不把缺失记成 0。
+    private static long[] deadlocks(ThreadMXBean threads) {
+        try {
+            long[] ids = threads.findDeadlockedThreads();
+            return ids == null ? new long[0] : ids;
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
+    }
+
+    private static String deadlockText(ThreadMXBean threads, long[] ids) {
+        int n = Math.min(ids.length, 4);
+        long[] picked = new long[n];
+        System.arraycopy(ids, 0, picked, 0, n);
+        ThreadInfo[] infos;
+        try {
+            infos = threads.getThreadInfo(picked, true, true);
+        } catch (UnsupportedOperationException e) {
+            infos = threads.getThreadInfo(picked, 8);
+        }
+        if (infos == null) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (ThreadInfo info : infos) {
+            if (info == null) {
+                continue;
+            }
+            if (text.length() > 0) {
+                text.append('\n');
+            }
+            text.append(info.getThreadName());
+            if (info.getLockName() != null) {
+                text.append(" 等待 ").append(info.getLockName());
+            }
+            if (info.getLockOwnerName() != null) {
+                text.append("，持有者 ").append(info.getLockOwnerName());
+            }
+            StackTraceElement[] stack = info.getStackTrace();
+            int frames = stack == null ? 0 : Math.min(stack.length, 4);
+            for (int i = 0; i < frames; i++) {
+                text.append(" | ").append(stack[i].toString());
+            }
+            if (text.length() > 480) {
+                text.setLength(480);
+                break;
+            }
+        }
+        return text.toString();
     }
 
     private static long directLimit = Long.MIN_VALUE;

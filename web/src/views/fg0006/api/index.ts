@@ -33,10 +33,53 @@ export interface JavaCollector {
   observedTime: string
 }
 
+export interface JavaGeneration {
+  processId: string
+  startTime: string
+  openedTime: string
+  closedTime?: string
+  collectionCount: number
+  collectionTimeMs: number
+  collectors: JavaCollector[]
+}
+
+export interface JavaPause {
+  collectorName: string
+  pauseCount: number
+  pauseMaxMs: number
+  pauseTotalMs: number
+  pauseP50Ms: number
+  pauseP99Ms: number
+  heapBeforeBytes: number
+  heapAfterBytes: number
+  promotedBytes: number
+  pauseCause?: string
+  cycleCount: number
+  cycleTimeMs: number
+  observedTime: string
+}
+
+export interface JavaBeat {
+  overheadPercent: number
+  overheadTime?: string
+  deadlockCount: number
+  deadlockText?: string
+  deadlockTime?: string
+  pauses: JavaPause[]
+}
+
 export interface JavaDetail {
   findings?: string[]
   findingLevel?: string
+  beat?: JavaBeat | null
   collectors: JavaCollector[]
+  previous?: JavaGeneration | null
+}
+
+export interface JavaRestart {
+  observedTime: string
+  startTime?: string
+  processId?: string
 }
 
 export interface CurvePoint {
@@ -53,6 +96,7 @@ export interface JavaCurve {
 
 export interface JavaSeries {
   curves: JavaCurve[]
+  restarts?: JavaRestart[]
 }
 
 export interface SeriesRange {

@@ -17,6 +17,7 @@ source FG_AUTH_AUDIT_LOG.sql;
 source FG_AGENT.sql;
 source FG_AGENT_HOST.sql;
 source FG_AGENT_JAVA.sql;
+source FG_JAVA_RUN.sql;
 source FG_JAVA_HEAP.sql;
 source FG_JAVA_GC.sql;
 source FG_JAVA_THREAD.sql;

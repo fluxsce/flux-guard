@@ -20,7 +20,7 @@ export const javaColumns: FgGridColumn[] = [
   { key: 'ipAddress', title: '地址', minWidth: 130, ellipsis: true },
   { key: 'heapUsedPercent', title: '堆', width: 88, align: 'right' },
   { key: 'threadCount', title: '线程', width: 80, align: 'right' },
-  { key: 'collectionCount', title: 'GC 次数', width: 100, align: 'right' },
+  { key: 'collectionCount', title: '启动以来 GC', width: 120, align: 'right' },
   { key: 'reportedTime', title: '上报时间', width: 180 },
 ].map((column) => ({ ...column, sortable: column.sortable !== false }) as FgGridColumn)
 
