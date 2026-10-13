@@ -120,7 +120,7 @@ func appendDiskIO(db *dbx.DB, build *seriesBuild, clause string, args dbx.Args, 
 	newer := map[string]counterSample{}
 	for _, row := range queryWide(db, applySpan(diskIOSQL, clause), args, limit*diskSeriesLimit, 9) {
 		name := strings.TrimSpace(textOf(row[1]))
-		if name == "" || !build.allow("磁盘吞吐", name) {
+		if name == "" || hostvol.Partition(name) || !build.allow("磁盘吞吐", name) {
 			continue
 		}
 		build.add(name+" 读", "rate", "磁盘吞吐", row[0], asFloat(row[2]))

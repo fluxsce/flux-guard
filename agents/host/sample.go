@@ -227,6 +227,9 @@ func diskIOSamples(ctx context.Context, now time.Time, prev, cur *history) []pro
 	}
 	names := make([]string, 0, len(counters))
 	for name := range counters {
+		if hostvol.Partition(name) {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)

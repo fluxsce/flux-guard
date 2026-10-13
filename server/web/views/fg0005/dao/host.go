@@ -116,6 +116,9 @@ func queryDiskIO(db *dbx.DB, args dbx.Args) []models.DiskIORow {
 		if err := rows.Scan(&item.DeviceName, &readBps, &writeBps, &readLat, &writeLat, &util, &observed); err != nil {
 			return out
 		}
+		if hostvol.Partition(item.DeviceName) {
+			continue
+		}
 		item.ReadBytesPerSec = asFloat(readBps)
 		item.WriteBytesPerSec = asFloat(writeBps)
 		item.ReadLatencyMs = asFloat(readLat)

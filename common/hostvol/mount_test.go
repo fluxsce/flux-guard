@@ -19,6 +19,19 @@ func TestContainer(t *testing.T) {
 	}
 }
 
+func TestPartition(t *testing.T) {
+	for _, name := range []string{"vda1", "sda2", "xvda1", "/dev/nvme0n1p1", "mmcblk0p1"} {
+		if !Partition(name) {
+			t.Fatalf("%s should be a partition", name)
+		}
+	}
+	for _, name := range []string{"vda", "sda", "nvme0n1", "mmcblk0", "dm-0", "md0", "C:"} {
+		if Partition(name) {
+			t.Fatalf("%s should be a whole disk", name)
+		}
+	}
+}
+
 func TestBlockName(t *testing.T) {
 	if got := BlockName("/dev/sda1", "/"); got != "sda1" {
 		t.Fatalf("sda1=%s", got)

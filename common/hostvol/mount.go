@@ -1,6 +1,12 @@
 package hostvol
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// 分区不是一块独立的盘。iostat 默认也不列出它们，读写已经算在整盘上。
+var partitionName = regexp.MustCompile(`(?i)^(?:(?:hd|sd|vd|xvd)[a-z]+\d+|(?:nvme\d+n\d+|mmcblk\d+|nbd\d+|rbd\d+|loop\d+)p\d+)$`)
 
 // 容器运行时把卷绑到宿主机上，容量和图例都不是一块物理盘。
 var markers = []string{
@@ -31,6 +37,17 @@ func Container(mount string) bool {
 		}
 	}
 	return false
+}
+
+// Partition 判断名字是不是磁盘分区，例如 vda1、sda2、nvme0n1p1。
+// nvme0n1、dm-0、md0 是整盘。容量仍按分区看，这里只用于磁盘 IO。
+func Partition(name string) bool {
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, "/dev/")
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	return partitionName.MatchString(name)
 }
 
 // BlockName 用块设备名标识一块盘。去掉 /dev/ 前缀；没有设备名时退回挂载点。

@@ -103,7 +103,7 @@ func SaveHostMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			hasMem = true
 		case strings.HasPrefix(name, "host.disk.io."):
 			key := clip(labelOf(sample, "device"), 100)
-			if key == "" {
+			if key == "" || hostvol.Partition(key) {
 				continue
 			}
 			row := ios[key]

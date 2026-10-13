@@ -44,6 +44,8 @@ func TestListAndDetail(t *testing.T) {
 			{MetricName: "host.disk.io.write.bytes_per_sec", MetricValue: 512, Labels: map[string]string{"device": "sda"}},
 			{MetricName: "host.disk.io.util.percent", MetricValue: 8, Labels: map[string]string{"device": "sda"}},
 			{MetricName: "host.disk.io.read.bytes_per_sec", MetricValue: 100, Labels: map[string]string{"device": "sdb"}},
+			{MetricName: "host.disk.io.read.bytes_per_sec", MetricValue: 4096, Labels: map[string]string{"device": "vda1"}},
+			{MetricName: "host.disk.io.read.latency_ms", MetricValue: 12, Labels: map[string]string{"device": "vda1"}},
 			{MetricName: "host.net.receive.bytes_per_sec", MetricValue: 4096, Labels: map[string]string{"device": "eth0"}},
 			{MetricName: "host.net.transmit.bytes_per_sec", MetricValue: 1024, Labels: map[string]string{"device": "eth0"}},
 			{MetricName: "host.net.receive.bytes_per_sec", MetricValue: 200, Labels: map[string]string{"device": "eth1"}},
@@ -142,6 +144,12 @@ func TestListAndDetail(t *testing.T) {
 	}
 	if disks["磁盘吞吐 sda 读"] != 2048 || disks["磁盘吞吐 sda 写"] != 512 || disks["磁盘吞吐 sdb 读"] != 100 || disks["网卡 eth0 发送"] != 1024 || disks["网卡 eth1 接收"] != 200 {
 		t.Fatalf("devices=%+v", disks)
+	}
+	if _, ok := disks["磁盘吞吐 vda1 读"]; ok {
+		t.Fatal("partition io should be omitted")
+	}
+	if _, ok := disks["磁盘延迟 vda1 读延迟"]; ok {
+		t.Fatal("partition latency should be omitted")
 	}
 	if disks["磁盘繁忙 sda 繁忙"] != 8 {
 		t.Fatalf("util=%+v", disks)
