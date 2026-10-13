@@ -8,7 +8,8 @@ use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent
 
 export type ChartOption = EChartsCoreOption
 
-const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#e23b55', '#6a4dff']
+// 曲线不用红色。红色留给以后的阈值水平线。
+const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#148a96', '#6a4dff']
 
 function ink() {
   if (typeof document === 'undefined') {

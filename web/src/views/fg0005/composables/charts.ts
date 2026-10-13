@@ -9,7 +9,8 @@ use([CanvasRenderer, LineChart, BarChart, GaugeChart, GridComponent, TooltipComp
 
 export type ChartOption = EChartsCoreOption
 
-const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#e23b55', '#6a4dff']
+// 曲线不用红色。红色留给以后的阈值水平线。
+const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#148a96', '#6a4dff']
 
 const trendGroups = [
   { title: 'CPU', names: ['占用核', 'CPU核数'] },
@@ -88,10 +89,13 @@ function tooltipLayer() {
   return {
     appendTo: 'body' as const,
     className: 'fg-chart-tooltip',
+    // 鼠标可以移进浮层。默认 pointer-events 是 none，滚轮到不了指标列表。
+    enterable: true,
+    hideDelay: 400,
     backgroundColor: surface,
     borderColor: border,
     textStyle: { color: text, fontSize: 12 },
-    extraCssText: `max-height:min(70vh,520px);overflow:auto;z-index:10000;background-color:${surface};color:${text};border-color:${border};box-shadow:${shadow};`,
+    extraCssText: `max-height:min(70vh,520px);overflow-y:auto;overscroll-behavior:contain;z-index:10000;background-color:${surface};color:${text};border-color:${border};box-shadow:${shadow};`,
   }
 }
 

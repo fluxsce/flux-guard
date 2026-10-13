@@ -13,10 +13,17 @@
 #   config、server_url、agent_token、interval_sec、app_name、once
 #   java -javaagent:flux-guard-agent-java.jar=config=configs/java.yaml;app_name=demo -jar your-app.jar
 #
-# Tomcat 的工作目录不是代理目录，config 要写绝对路径。把这一行放进 bin/setenv.sh 的 CATALINA_OPTS
-#（不要放 JAVA_OPTS，停服脚本也会读 JAVA_OPTS）：
-#   CATALINA_OPTS="$CATALINA_OPTS -javaagent:/opt/flux-guard-agent-java/flux-guard-agent-java.jar=config=/opt/flux-guard-agent-java/configs/java.yaml;app_name=tomcat"
-# Windows 的 bin/setenv.bat：
+# Tomcat 的工作目录不是代理目录，config 要写绝对路径。
+# catalina.sh 会 eval 这段参数。分号不转义时，shell 会在分号处把命令拆开，Java 主类到不了，进程直接起不来。
+# 分号写成 \; 。应用名也可以只写在 java.yaml 的 app_name，命令里就不必再带分号。
+#
+# 客户已经在 JAVA_OPTS 里写内存等参数时，追加到原来那一行，不用另建 setenv：
+#   JAVA_OPTS="$JAVA_OPTS -javaagent:/opt/flux-guard-agent-java/flux-guard-agent-java.jar=config=/opt/flux-guard-agent-java/configs/java.yaml\;app_name=tomcat"
+# 停服脚本也会带上 JAVA_OPTS，停止进程会短暂挂上代理。能改的话用 CATALINA_OPTS，停止时不挂代理。
+#
+# setenv 不是要执行的命令。没有集中配置时，新建与 catalina.sh 同级的 bin/setenv.sh，启动时由 catalina.sh 自动读取：
+#   CATALINA_OPTS="$CATALINA_OPTS -javaagent:/opt/flux-guard-agent-java/flux-guard-agent-java.jar=config=/opt/flux-guard-agent-java/configs/java.yaml\;app_name=tomcat"
+# Windows 的 bin/setenv.bat 里分号不用转义：
 #   set "CATALINA_OPTS=%CATALINA_OPTS% -javaagent:C:/flux-guard-agent-java/flux-guard-agent-java.jar=config=C:/flux-guard-agent-java/configs/java.yaml;app_name=tomcat"
 # 以 Windows 服务安装的 Tomcat 不读 setenv.bat，把同一段 -javaagent: 写进服务的 Java Options。
 #

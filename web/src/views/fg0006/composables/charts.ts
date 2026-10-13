@@ -9,7 +9,8 @@ use([CanvasRenderer, LineChart, GaugeChart, GridComponent, TooltipComponent, Leg
 
 export type ChartOption = EChartsCoreOption
 
-const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#e23b55', '#6a4dff']
+// 曲线不用红色。红色留给以后的阈值水平线。
+const palette = ['#0878ad', '#5b6cff', '#1a9a62', '#c49212', '#148a96', '#6a4dff']
 
 const trendGroups = [
   { title: '堆', names: ['堆已用', '堆已提交', '堆上限'] },
@@ -52,6 +53,24 @@ function ink() {
     text: style.getPropertyValue('--rs-text-secondary').trim() || '#4d647c',
     title: style.getPropertyValue('--rs-text-primary').trim() || '#102033',
     line: style.getPropertyValue('--fg-grid-line').trim() || 'rgba(8, 120, 173, 0.16)',
+  }
+}
+
+/** 指标浮层可移入并滚动，超出视口时不再把滚轮交给背后的页面。 */
+function tooltipLayer() {
+  const surface = 'var(--rs-surface-elevated)'
+  const border = 'var(--rs-popover-border)'
+  const text = 'var(--rs-text-primary)'
+  const shadow = 'var(--rs-popover-shadow)'
+  return {
+    appendTo: 'body' as const,
+    className: 'fg-chart-tooltip',
+    enterable: true,
+    hideDelay: 400,
+    backgroundColor: surface,
+    borderColor: border,
+    textStyle: { color: text, fontSize: 12 },
+    extraCssText: `max-height:min(70vh,520px);overflow-y:auto;overscroll-behavior:contain;z-index:10000;background-color:${surface};color:${text};border-color:${border};box-shadow:${shadow};`,
   }
 }
 
@@ -131,8 +150,8 @@ function lineOption(curves: JavaCurve[]): ChartOption {
   return {
     color: palette,
     tooltip: {
+      ...tooltipLayer(),
       trigger: 'axis',
-      appendTo: 'body',
       formatter: (params: unknown) => {
         const rows = (Array.isArray(params) ? params : [params]) as Array<{
           seriesName?: string
