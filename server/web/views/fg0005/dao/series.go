@@ -199,12 +199,21 @@ func appendProc(db *dbx.DB, build *seriesBuild, clause string, args dbx.Args, li
 			name = pid
 		}
 		label := name + " " + pid
-		if !build.allow("进程IO", label) {
+		if omitProcIO(pid, name) || !build.allow("进程IO", label) {
 			continue
 		}
 		build.add(label+" 读", "rate", "进程IO", row[0], asFloat(row[3]))
 		build.add(label+" 写", "rate", "进程IO", row[0], asFloat(row[4]))
 	}
+}
+
+// omitProcIO 不把 1 号进程和 systemd 的读写给用户看。
+// Linux 收尸时把已退出子进程的历史字节加进它们，速率不是它们自己这一拍的读写。
+func omitProcIO(pid, name string) bool {
+	if strings.TrimSpace(pid) == "1" {
+		return true
+	}
+	return strings.TrimSpace(name) == "systemd"
 }
 
 type seriesBuild struct {

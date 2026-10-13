@@ -58,6 +58,9 @@ func TestListAndDetail(t *testing.T) {
 			{MetricName: "host.proc.rss.bytes", MetricValue: 4096, Labels: map[string]string{"name": "nginx", "pid": "12"}},
 			{MetricName: "host.proc.io.read.bytes_per_sec", MetricValue: 1048576, Labels: map[string]string{"name": "java", "pid": "88"}},
 			{MetricName: "host.proc.io.write.bytes_per_sec", MetricValue: 4096, Labels: map[string]string{"name": "java", "pid": "88"}},
+			{MetricName: "host.proc.io.read.bytes_per_sec", MetricValue: 1000 * 1024 * 1024, Labels: map[string]string{"name": "systemd", "pid": "1"}},
+			{MetricName: "host.proc.io.write.bytes_per_sec", MetricValue: 1000 * 1024 * 1024, Labels: map[string]string{"name": "systemd", "pid": "1"}},
+			{MetricName: "host.proc.io.write.bytes_per_sec", MetricValue: 800 * 1024 * 1024, Labels: map[string]string{"name": "systemd", "pid": "200"}},
 		},
 	})
 	if err != nil {
@@ -109,6 +112,12 @@ func TestListAndDetail(t *testing.T) {
 	}
 	if latest["java 88 读"] != 1048576 || latest["java 88 写"] != 4096 {
 		t.Fatalf("proc io series=%+v", latest)
+	}
+	if _, ok := latest["systemd 1 读"]; ok {
+		t.Fatal("init io should be omitted")
+	}
+	if _, ok := latest["systemd 200 写"]; ok {
+		t.Fatal("systemd io should be omitted")
 	}
 	if _, hasCap := latest["句柄上限"]; hasCap {
 		t.Fatal("zero file-max should be omitted")

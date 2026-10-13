@@ -256,6 +256,9 @@ func queryProcIO(db *dbx.DB, args dbx.Args) []models.ProcIORow {
 		if err := rows.Scan(&item.ProcessID, &item.ProcessName, &readBps, &writeBps, &observed); err != nil {
 			return out
 		}
+		if omitProcIO(item.ProcessID, item.ProcessName) {
+			continue
+		}
 		item.ReadBytesPerSec = asFloat(readBps)
 		item.WriteBytesPerSec = asFloat(writeBps)
 		item.ObservedTime = timeText(observed)

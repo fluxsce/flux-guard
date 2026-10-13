@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,7 @@ type ioSnap struct {
 type procCPU struct {
 	user, system          float64
 	readBytes, writeBytes uint64
+	ppid                  int32
 	hasCPU, hasIO         bool
 }
 
@@ -362,6 +364,8 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 		}
 		info, err := proc.MemoryInfoWithContext(ctx)
 		if err != nil || info == nil {
+			// 进程还在，只是读不到内存。留在本拍里，避免被当成已退出。
+			cur.proc[proc.Pid] = procCPU{}
 			continue
 		}
 		totalRSS += info.RSS
@@ -371,6 +375,9 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 		}
 		item := procMem{name: name, pid: proc.Pid, rss: info.RSS}
 		snap := procCPU{}
+		if ppid, err := proc.PpidWithContext(ctx); err == nil {
+			snap.ppid = ppid
+		}
 		if times, err := proc.TimesWithContext(ctx); err == nil && times != nil {
 			snap.user = times.User
 			snap.system = times.System
@@ -384,7 +391,7 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 				}
 			}
 		}
-		// read_bytes / write_bytes 是实际落到存储的字节。读不到其他用户的进程时跳过。
+		// read_bytes / write_bytes 是落到存储的字节。读不到其他用户的进程时跳过。
 		if ioStat, err := proc.IOCountersWithContext(ctx); err == nil && ioStat != nil {
 			snap.readBytes = ioStat.ReadBytes
 			snap.writeBytes = ioStat.WriteBytes
@@ -399,6 +406,9 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 		}
 		cur.proc[proc.Pid] = snap
 		all = append(all, item)
+	}
+	if runtime.GOOS == "linux" {
+		adjustLinuxProcIO(all, prev, cur, dt)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].rss > all[j].rss })
 	rssTop := all
@@ -432,7 +442,7 @@ func procSamples(ctx context.Context, now time.Time, prev, cur *history) []proto
 func procIOPoints(now time.Time, all []procMem) []protocol.Sample {
 	active := make([]procMem, 0, len(all))
 	for _, item := range all {
-		if !item.hasIO || (item.readBps == 0 && item.writeBps == 0) {
+		if suppressProcIO(item) || !item.hasIO || (item.readBps == 0 && item.writeBps == 0) {
 			continue
 		}
 		active = append(active, item)
@@ -466,6 +476,60 @@ func procIOPoints(now time.Time, all []procMem) []protocol.Sample {
 		)
 	}
 	return out
+}
+
+// adjustLinuxProcIO 去掉收尸带进来的历史字节。内核在 wait 时把子进程一辈子的
+// read_bytes / write_bytes 加进父进程，直接做差会把整段历史显示成这一拍的速度。
+// 上一拍见过的子进程可以减掉。这一拍里才出生并退出的减不掉，1 号进程和 systemd 不再展示。
+func adjustLinuxProcIO(all []procMem, prev, cur *history, dt time.Duration) {
+	if prev == nil || cur == nil || dt <= 0 {
+		for i := range all {
+			if linuxReaper(all[i]) {
+				all[i].hasIO = false
+				all[i].readBps = 0
+				all[i].writeBps = 0
+			}
+		}
+		return
+	}
+	reapedRead := map[int32]uint64{}
+	reapedWrite := map[int32]uint64{}
+	for pid, old := range prev.proc {
+		if _, alive := cur.proc[pid]; alive || !old.hasIO || old.ppid <= 0 {
+			continue
+		}
+		reapedRead[old.ppid] += old.readBytes
+		reapedWrite[old.ppid] += old.writeBytes
+	}
+	sec := dt.Seconds()
+	for i := range all {
+		if !all[i].hasIO && !linuxReaper(all[i]) {
+			continue
+		}
+		read := all[i].readBps*sec - float64(reapedRead[all[i].pid])
+		write := all[i].writeBps*sec - float64(reapedWrite[all[i].pid])
+		if read < 0 {
+			read = 0
+		}
+		if write < 0 {
+			write = 0
+		}
+		all[i].readBps = read / sec
+		all[i].writeBps = write / sec
+		if linuxReaper(all[i]) || (all[i].readBps == 0 && all[i].writeBps == 0) {
+			all[i].hasIO = false
+			all[i].readBps = 0
+			all[i].writeBps = 0
+		}
+	}
+}
+
+func suppressProcIO(item procMem) bool {
+	return runtime.GOOS == "linux" && linuxReaper(item)
+}
+
+func linuxReaper(item procMem) bool {
+	return item.pid == 1 || item.name == "systemd"
 }
 
 func cpuSplit(cur, prev cpu.TimesStat) (usage, user, system, idle, iowait, irq, soft, steal float64, ok bool) {
