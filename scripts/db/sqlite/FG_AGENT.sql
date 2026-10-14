@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS FG_AGENT (
   osName TEXT,
   agentCode TEXT,
   machineId TEXT,
+  agentVersion TEXT,
+  goos TEXT,
+  goarch TEXT,
   agentTokenHash TEXT NOT NULL,
   statusFlag TEXT NOT NULL DEFAULT 'Y',
   lastSeenTime TEXT,
@@ -32,6 +35,11 @@ CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_NAME ON FG_AGENT(tenantId, agentName);
 CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_SEEN ON FG_AGENT(tenantId, lastSeenTime);
 CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_MACHINE ON FG_AGENT(tenantId, agentCode, machineId);
 CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_ADD ON FG_AGENT(tenantId, addTime);
+
+-- 已有库补列：代理上报的产品版本与平台，供中央对照自更新目标。
+ALTER TABLE FG_AGENT ADD COLUMN agentVersion TEXT;
+ALTER TABLE FG_AGENT ADD COLUMN goos TEXT;
+ALTER TABLE FG_AGENT ADD COLUMN goarch TEXT;
 
 INSERT INTO FG_AGENT (
   agentId, tenantId, agentName, hostName, ipAddress, agentTokenHash, statusFlag,

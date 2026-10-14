@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"fluxguard/common/id"
-	"fluxguard/server/errcode"
-	"fluxguard/server/secret"
+	"fluxguard/server/utils/const/errcode"
+	"fluxguard/server/utils/secret"
 	"fluxguard/server/setting"
 	"fluxguard/server/web/request"
 	logindao "fluxguard/server/web/views/login/dao"

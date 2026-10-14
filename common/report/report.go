@@ -11,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
+	"fluxguard/common/buildinfo"
 	"fluxguard/common/id"
 	"fluxguard/common/logger"
 	"fluxguard/protocol"
@@ -73,16 +75,19 @@ func Report(ctx context.Context, cfg Config, client *http.Client, agentCode stri
 		return nil
 	}
 	payload := protocol.Request{
-		BatchID:   id.New(),
-		AgentCode: agentCode,
-		SentAt:    time.Now().UTC(),
-		Samples:   result.Samples,
-		Events:    result.Events,
-		Host:      result.Host,
-		Java:      result.Java,
-		Go:        result.Go,
-		AppSide:   result.AppSide,
-		AppSides:  result.AppSides,
+		BatchID:      id.New(),
+		AgentCode:    agentCode,
+		AgentVersion: buildinfo.Version,
+		GoOS:         runtime.GOOS,
+		GoArch:       runtime.GOARCH,
+		SentAt:       time.Now().UTC(),
+		Samples:      result.Samples,
+		Events:       result.Events,
+		Host:         result.Host,
+		Java:         result.Java,
+		Go:           result.Go,
+		AppSide:      result.AppSide,
+		AppSides:     result.AppSides,
 	}
 	var errs []error
 	for _, chunk := range splitRequest(payload) {

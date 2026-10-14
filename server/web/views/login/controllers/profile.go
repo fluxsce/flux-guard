@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 
 	"fluxguard/common/id"
-	"fluxguard/server/secret"
+	"fluxguard/server/utils/secret"
 	"fluxguard/server/web/request"
 	logindao "fluxguard/server/web/views/login/dao"
 	"fluxguard/server/web/views/login/models"

@@ -94,6 +94,7 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 		"ipAddress":      nullText(clip(strings.TrimSpace(side.IPAddress), 128)),
 		"instanceName":   clip(strings.TrimSpace(side.InstanceName), 100),
 		"runtimeKind":    clip(strings.TrimSpace(side.RuntimeKind), 16),
+		"modeCode":       clip(strings.TrimSpace(side.Mode), 16),
 		"artifactKind":   clip(strings.TrimSpace(item.Kind), 16),
 		"artifactPath":   nullText(clip(strings.TrimSpace(item.Path), 255)),
 		"versionText":    nullText(clip(strings.TrimSpace(item.Version), 64)),
@@ -107,7 +108,7 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 		_, err = tx.Exec(ctx, `
 			UPDATE FG_APP_INST SET
 			  machineId = @machineId, hostName = @hostName, ipAddress = @ipAddress,
-			  instanceName = @instanceName, runtimeKind = @runtimeKind, artifactKind = @artifactKind,
+			  instanceName = @instanceName, runtimeKind = @runtimeKind, modeCode = @modeCode, artifactKind = @artifactKind,
 			  artifactPath = @artifactPath, versionText = @versionText, tomcatVersion = @tomcatVersion,
 			  runningFlag = @runningFlag, commandAddress = @commandAddress, reportedTime = @reportedTime,
 			  activeFlag = 'Y', editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
@@ -122,11 +123,11 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 	_, err = tx.Exec(ctx, `
 		INSERT INTO FG_APP_INST (
 		  instId, tenantId, agentId, appCode, machineId, hostName, ipAddress, instanceName,
-		  runtimeKind, artifactKind, artifactPath, versionText, tomcatVersion, runningFlag,
+		  runtimeKind, modeCode, artifactKind, artifactPath, versionText, tomcatVersion, runningFlag,
 		  commandAddress, reportedTime, addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
 		  @instId, @tenantId, @agentId, @appCode, @machineId, @hostName, @ipAddress, @instanceName,
-		  @runtimeKind, @artifactKind, @artifactPath, @versionText, @tomcatVersion, @runningFlag,
+		  @runtimeKind, @modeCode, @artifactKind, @artifactPath, @versionText, @tomcatVersion, @runningFlag,
 		  @commandAddress, @reportedTime, @editTime, @addWho, @editTime, 'system', 'INGEST', 1, 'Y'
 		)`, args)
 	return err

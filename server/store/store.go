@@ -1,6 +1,7 @@
 // Package store 用 dbx 打开中央库并执行 scripts/db 下的脚本。
 // 驱动名对应 scripts/db 下的目录。当前登记了 sqlite 和 mysql。
-// 建表可以重复执行。开发种子在 init.go，只做一次。脚本顺序读各目录的 init.sql。
+// 脚本按分号拆成语句，内容 MD5 记入 FG_SCRIPT_STATEMENT；已成功的下次启动跳过。
+// 脚本顺序读各目录的 init.sql。
 package store
 
 import (
@@ -101,10 +102,21 @@ func migrate(ctx context.Context, conn *dbx.DB, script string) error {
 	if err != nil {
 		return err
 	}
-	if err := applySchema(ctx, conn, dir, files); err != nil {
+	if err := ensureStatementHistory(ctx, conn, dir); err != nil {
 		return err
 	}
-	return initialize(ctx, conn, dir, files)
+	for _, name := range files {
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		for _, stmt := range statements(string(body)) {
+			if err := applyStatement(ctx, conn, name, stmt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func schemaDir(script string) (string, error) {
@@ -154,31 +166,6 @@ func scriptFiles(dir string) ([]string, error) {
 	return names, nil
 }
 
-func applySchema(ctx context.Context, conn *dbx.DB, dir string, files []string) error {
-	return eachStatement(ctx, conn, dir, files, true)
-}
-
-func eachStatement(ctx context.Context, conn *dbx.DB, dir string, files []string, schema bool) error {
-	for _, name := range files {
-		body, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			return err
-		}
-		for _, stmt := range statements(string(body)) {
-			if isSchema(stmt) != schema {
-				continue
-			}
-			if _, err := conn.Exec(ctx, stmt, nil); err != nil {
-				if isIgnorableAlter(stmt, err) {
-					continue
-				}
-				return fmt.Errorf("%s: %w", name, err)
-			}
-		}
-	}
-	return nil
-}
-
 // isIgnorableAlter 重复执行时忽略「列已存在」，以及旧采集表已经改名或不存在。
 func isIgnorableAlter(stmt string, err error) bool {
 	if err == nil || !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(stmt)), "ALTER") {
@@ -204,29 +191,56 @@ func isIgnorableAlter(stmt string, err error) bool {
 		strings.Contains(msg, "already exists")
 }
 
+// statements 按分号拆分脚本；字符串字面量内的分号不拆。
 func statements(text string) []string {
-	var b strings.Builder
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "--") {
+	var out []string
+	var cur strings.Builder
+	inString := false
+	var quote byte
+
+	flush := func() {
+		stmt := strings.TrimSpace(cur.String())
+		cur.Reset()
+		if stmt == "" {
+			return
+		}
+		out = append(out, stmt)
+	}
+
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !inString && (trimmed == "" || strings.HasPrefix(trimmed, "--")) {
 			continue
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	var out []string
-	for _, stmt := range strings.Split(b.String(), ";") {
-		stmt = strings.TrimSpace(stmt)
-		if stmt != "" {
-			out = append(out, stmt)
+		for i := 0; i < len(line); i++ {
+			ch := line[i]
+			if !inString {
+				if ch == '\'' || ch == '"' {
+					inString = true
+					quote = ch
+				} else if ch == ';' {
+					flush()
+					continue
+				}
+				cur.WriteByte(ch)
+				continue
+			}
+			cur.WriteByte(ch)
+			if ch == quote {
+				if quote == '\'' && i+1 < len(line) && line[i+1] == '\'' {
+					cur.WriteByte(line[i+1])
+					i++
+					continue
+				}
+				inString = false
+				quote = 0
+			}
+		}
+		if inString || cur.Len() > 0 {
+			cur.WriteByte('\n')
 		}
 	}
+	flush()
 	return out
-}
-
-func isSchema(stmt string) bool {
-	word := strings.ToUpper(strings.TrimSpace(stmt))
-	if strings.HasPrefix(word, "DROP INDEX") {
-		return true
-	}
-	return strings.HasPrefix(word, "CREATE") || strings.HasPrefix(word, "ALTER") || strings.HasPrefix(word, "UPDATE")
 }

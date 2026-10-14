@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 const (

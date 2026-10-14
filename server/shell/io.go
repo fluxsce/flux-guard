@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"fluxguard/common/logger"
-	"fluxguard/server/errcode"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/errcode"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
 )

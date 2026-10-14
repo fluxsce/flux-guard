@@ -16,7 +16,7 @@ import (
 	"fluxguard/server/job/policy"
 	"fluxguard/server/job/registry"
 	"fluxguard/server/job/status"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 // TenantLister 列举参与租户级任务的租户。

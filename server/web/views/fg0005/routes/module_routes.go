@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/server/alert"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/routes"
 	"fluxguard/server/web/views/fg0005/controllers"

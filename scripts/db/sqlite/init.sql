@@ -22,6 +22,7 @@ PRAGMA foreign_keys = ON;
 .read FG_APP.sql
 .read FG_APP_INST.sql
 .read FG_APP_RELEASE.sql
+.read FG_AGENT_RELEASE.sql
 .read FG_JAVA_RUN.sql
 .read FG_JAVA_HEAP.sql
 .read FG_JAVA_GC.sql
@@ -65,6 +66,7 @@ PRAGMA foreign_keys = ON;
 .read FG_SHELL.sql
 .read FG_SHELL_AUDIT.sql
 .read FG_SCRIPT_INIT.sql
+.read FG_SCRIPT_STATEMENT.sql
 .read FG_SYS_SETTING.sql
 .read FG_JOB.sql
 .read FG_JOB_LOG.sql

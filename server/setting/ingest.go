@@ -8,7 +8,7 @@ import (
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/crypto"
 	"fluxguard/common/id"
-	"fluxguard/server/secret"
+	"fluxguard/server/utils/secret"
 	dbx "github.com/fluxsce/dbx/db"
 )
 

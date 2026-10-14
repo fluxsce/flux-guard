@@ -142,7 +142,7 @@ func serve(ctx context.Context, cfg Config, exec Exec, onListen func(addr string
 	}
 	srv := &http.Server{
 		Handler: Handler(cfg.AgentToken, exec),
-		// 与 server/limits.HTTPReadHeader 保持一致（common 不依赖 server）。
+		// 与 server/utils/const/limits.HTTPReadHeader 保持一致（common 不依赖 server）。
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {

@@ -24,7 +24,7 @@ import (
 	"fluxguard/server/job/sched"
 	"fluxguard/server/job/status"
 	"fluxguard/server/job/tenant"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/plugin"
 	"fluxguard/server/retention"
 	"fluxguard/server/setting"
@@ -107,7 +107,7 @@ func run() error {
 		Addr:              cfg.Listen,
 		Handler:           handler,
 		ReadHeaderTimeout: limits.HTTPReadHeader,
-		// Read 固定服务大包上传；Write 跟接口超时走，并盖住长轮询 hold。见 server/limits。
+		// Read 固定服务大包上传；Write 跟接口超时走，并盖住长轮询 hold。见 server/utils/const/limits。
 		ReadTimeout:  limits.HTTPRead,
 		WriteTimeout: limits.ServerWrite(apiSec),
 		IdleTimeout:  limits.HTTPIdle,

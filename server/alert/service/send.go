@@ -22,7 +22,7 @@ import (
 	"fluxguard/server/alert/models"
 	"fluxguard/server/alert/template"
 	"fluxguard/server/alert/validate"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
 )
 

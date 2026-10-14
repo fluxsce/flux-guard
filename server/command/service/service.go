@@ -53,7 +53,8 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	if in.Action == protocol.ActionIntervalSet && (in.IntervalSec < protocol.IntervalMin || in.IntervalSec > protocol.IntervalMax) {
 		return models.View{}, models.ErrBadInterval
 	}
-	if protocol.AppAction(in.Action) && (strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.SHA256) == "" || strings.TrimSpace(in.Version) == "") {
+	if (protocol.AppAction(in.Action) || protocol.AgentAction(in.Action)) &&
+		(strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.SHA256) == "" || strings.TrimSpace(in.Version) == "") {
 		return models.View{}, models.ErrBadRelease
 	}
 	if in.Action == protocol.ActionAppReplace && (strings.TrimSpace(in.AppName) == "" || strings.TrimSpace(in.Kind) == "") {
@@ -80,9 +81,18 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	if protocol.AppAction(in.Action) && code != protocol.AgentAppside {
 		return models.View{}, models.ErrNotAppside
 	}
+	if protocol.AgentAction(in.Action) {
+		if !protocol.UpdatableAgent(code) {
+			return models.View{}, models.ErrNotUpdatable
+		}
+		if kind := strings.TrimSpace(in.Kind); kind != "" && kind != code {
+			return models.View{}, models.ErrNotUpdatable
+		}
+	}
+	// 自更新要下载安装包，超过拨号时限；只走长轮询，避免拨入超时后重复执行。
 	primary, list, addr := s.targetAddress(ctx, tenantID, agentID, in.Action)
 	token := setting.IngestPlain(tenantID)
-	canDial := addr != "" && token != "" && allowedTarget(addr, primary, list)
+	canDial := !protocol.AgentAction(in.Action) && addr != "" && token != "" && allowedTarget(addr, primary, list)
 	commandID := id.New()
 	statusFlag := models.StatusWaiting
 	if canDial {
@@ -200,11 +210,12 @@ func commandCall(commandID string, in models.DispatchInput) protocol.CommandCall
 		CommandID: commandID, Action: in.Action, IntervalSec: in.IntervalSec,
 		ReleaseID: in.ReleaseID, AppName: in.AppName, Kind: in.Kind,
 		Version: in.Version, SHA256: in.SHA256, FileName: in.FileName, Instance: in.Instance,
+		GoOS: in.GoOS, GoArch: in.GoArch,
 	}
 }
 
 func commandExt(in models.DispatchInput) any {
-	if !protocol.AppAction(in.Action) {
+	if !protocol.AppAction(in.Action) && !protocol.AgentAction(in.Action) {
 		return nil
 	}
 	body, err := json.Marshal(commandCall("", in))

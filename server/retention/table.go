@@ -7,7 +7,7 @@ import (
 
 	"fluxguard/common/logger"
 	"fluxguard/server/job/ext/archive"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	dbx "github.com/fluxsce/dbx/db"
 )
 

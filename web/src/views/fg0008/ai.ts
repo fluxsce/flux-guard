@@ -5,12 +5,12 @@ import { queryApps, queryInstances, type AppInstance, type AppRow } from './api'
 
 defineTools([
   {
-    name: 'fg0071.query',
-    moduleId: 'fg0071',
+    name: 'fg0008.query',
+    moduleId: 'fg0008',
     title: '查询应用',
     description: '列出应用侧代理上报的应用。',
     risk: 'read',
-    resourceCode: 'fg0071:search',
+    resourceCode: 'fg0008:search',
     parameters: [{ name: 'appName', type: 'string', description: '显示名，可空', required: false }],
     execute: async (args) => {
       const rows = (await unwrap<AppRow[]>(await queryApps(argString(args, 'appName')), '加载失败')) ?? []
@@ -25,12 +25,12 @@ defineTools([
     },
   },
   {
-    name: 'fg0071.instances',
-    moduleId: 'fg0071',
+    name: 'fg0008.instances',
+    moduleId: 'fg0008',
     title: '查询应用实例',
     description: '列出一个应用落在各台机器上的实例。',
     risk: 'read',
-    resourceCode: 'fg0071:view',
+    resourceCode: 'fg0008:view',
     parameters: [{ name: 'appCode', type: 'string', description: '应用编码', required: true }],
     execute: async (args) => {
       const rows = (await unwrap<AppInstance[]>(await queryInstances(argString(args, 'appCode')), '加载失败')) ?? []

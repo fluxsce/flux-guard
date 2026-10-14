@@ -4,7 +4,7 @@ package shellroutes
 import (
 	"github.com/gin-gonic/gin"
 
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/shell"
 	"fluxguard/server/web/routes"
 	dbx "github.com/fluxsce/dbx/db"

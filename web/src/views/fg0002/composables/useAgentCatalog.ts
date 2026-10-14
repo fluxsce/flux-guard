@@ -17,6 +17,9 @@ export const onlineOptions: FlagOption[] = [
 export const agentColumns = [
   { key: 'agentName', title: '名称', minWidth: 140 },
   { key: 'agentCode', title: '种类', width: 88 },
+  { key: 'agentVersion', title: '版本', width: 100 },
+  { key: 'goos', title: '系统', width: 80 },
+  { key: 'goarch', title: '架构', width: 80 },
   { key: 'machineId', title: '机器编号', minWidth: 160 },
   { key: 'hostName', title: '主机', minWidth: 140 },
   { key: 'ipAddress', title: '地址', minWidth: 140 },
@@ -24,6 +27,12 @@ export const agentColumns = [
   { key: 'onlineFlag', title: '在线', width: 88 },
   { key: 'lastSeenTime', title: '最近心跳', width: 180 },
 ]
+
+/** 是否支持中央自更新的代理种类。 */
+export function isUpgradableAgent(row: { agentCode?: string } | null | undefined) {
+  if (!row?.agentCode) return false
+  return row.agentCode === 'host' || row.agentCode === 'go' || row.agentCode === 'appside'
+}
 
 export function isHostAgent(row: { agentCode?: string } | null | undefined) {
   if (!row) return false
@@ -76,6 +85,9 @@ export const agentCreateFields: FgFormField[] = [
 export const agentFormFields: FgFormField[] = [
   { field: 'agentName', label: '名称' },
   { field: 'agentCode', label: '种类' },
+  { field: 'agentVersion', label: '版本' },
+  { field: 'goos', label: '系统' },
+  { field: 'goarch', label: '架构' },
   { field: 'machineId', label: '机器编号' },
   { field: 'hostName', label: '主机' },
   { field: 'ipAddress', label: '地址' },
@@ -169,6 +181,9 @@ export function useAgentCatalog() {
       agentId: text(row, 'agentId'),
       agentName: text(row, 'agentName'),
       agentCode: text(row, 'agentCode'),
+      agentVersion: text(row, 'agentVersion'),
+      goos: text(row, 'goos'),
+      goarch: text(row, 'goarch'),
       machineId: text(row, 'machineId'),
       hostName: text(row, 'hostName'),
       ipAddress: text(row, 'ipAddress'),
@@ -384,6 +399,7 @@ export function useAgentCatalog() {
     formMode,
     current,
     active,
+    rows,
     pageRows,
     intervalOpen,
     intervalCurrent,
@@ -397,5 +413,6 @@ export function useAgentCatalog() {
     onRow,
     onSearch,
     onReset,
+    reload,
   }
 }

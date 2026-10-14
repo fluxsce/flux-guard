@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/server/cache"
-	"fluxguard/server/errcode"
+	"fluxguard/server/utils/const/errcode"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
 )

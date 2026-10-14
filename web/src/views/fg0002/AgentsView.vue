@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useModuleAi } from '@/ai'
 import FgCatalog from '@/components/catalog/FgCatalog.vue'
 import FgDataFormModal from '@/components/form/FgDataFormModal.vue'
@@ -10,6 +10,7 @@ import { RsPagination, RsTag } from '@/ui'
 import { pageSizeChoices } from '@/api/pagination'
 import type { Agent } from './api'
 import AgentHistoryDialog from './components/AgentHistoryDialog.vue'
+import AgentUpgradeDialog from './components/AgentUpgradeDialog.vue'
 import ShellDock from './components/ShellDock.vue'
 import {
   agentColumns,
@@ -33,6 +34,7 @@ const {
   formMode,
   current,
   active,
+  rows,
   total,
   pageRows,
   intervalOpen,
@@ -47,6 +49,7 @@ const {
   onRow,
   onSearch,
   onReset,
+  reload,
 } = useAgentCatalog()
 
 const formFields = computed(() => (formMode.value === 'view' ? agentFormFields : agentCreateFields))
@@ -90,6 +93,15 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
     onClick: () => openShell(),
   },
   {
+    key: 'upgrade',
+    label: '升级代理',
+    icon: 'upload',
+    code: 'fg0002:upgrade',
+    onClick: () => {
+      upgradeOpen.value = true
+    },
+  },
+  {
     key: 'history',
     label: '操作记录',
     icon: 'history',
@@ -131,6 +143,11 @@ const shellAgent = ref<Agent | null>(null)
 const shellDock = ref<{ add: () => Promise<void> } | null>(null)
 const historyOpen = ref(false)
 const historyAgent = ref<Agent | null>(null)
+const upgradeOpen = ref(false)
+
+watch(upgradeOpen, (value, prev) => {
+  if (prev && !value) void reload()
+})
 
 async function openShell(row?: Agent) {
   const target = row ?? active.value
@@ -205,6 +222,7 @@ function onMenu(payload: { key: string; row: Agent | null }) {
     </div>
     <ShellDock v-if="shellOpen && shellAgent" ref="shellDock" :agent="shellAgent" @close="shellOpen = false" />
     <AgentHistoryDialog v-model:open="historyOpen" :agent="historyAgent" :module-id="moduleId" />
+    <AgentUpgradeDialog v-model:open="upgradeOpen" :agents="rows" :module-id="moduleId" />
     <FgDataFormModal
       v-model:open="formOpen"
       :mode="formMode"

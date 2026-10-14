@@ -23,7 +23,9 @@ var (
 	ErrNotHost = errors.New("当前只支持主机代理")
 	// ErrNotAppside 表示目标不是应用侧代理。
 	ErrNotAppside = errors.New("这条命令只发给应用侧代理")
-	// ErrBadRelease 表示应用更新缺少发布参数。
+	// ErrNotUpdatable 表示该代理种类不支持中央自更新。
+	ErrNotUpdatable = errors.New("该代理种类不支持中央升级")
+	// ErrBadRelease 表示应用更新或代理自更新缺少发布参数。
 	ErrBadRelease = errors.New("发布参数不完整")
 	// ErrNotFound 表示找不到代理。
 	ErrNotFound = errors.New("找不到这台代理")
@@ -46,6 +48,8 @@ type DispatchInput struct {
 	SHA256      string `json:"sha256,omitempty"`
 	FileName    string `json:"fileName,omitempty"`
 	Instance    string `json:"instance,omitempty"`
+	GoOS        string `json:"goos,omitempty"`
+	GoArch      string `json:"goarch,omitempty"`
 }
 
 // View 是控制台看到的一行命令。

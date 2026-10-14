@@ -21,6 +21,7 @@ type Instance struct {
 	HostName      string `json:"hostName"`
 	InstanceName  string `json:"instanceName"`
 	RuntimeKind   string `json:"runtimeKind"`
+	ModeCode      string `json:"modeCode"`
 	ArtifactKind  string `json:"artifactKind"`
 	VersionText   string `json:"versionText"`
 	TomcatVersion string `json:"tomcatVersion"`
@@ -44,5 +45,8 @@ type Release struct {
 	AppCode      string        `json:"appCode"`
 	ArtifactKind string        `json:"artifactKind"`
 	VersionText  string        `json:"versionText"`
-	Items        []ReleaseItem `json:"items"`
+	FileName     string        `json:"fileName,omitempty"`
+	AddTime      string        `json:"addTime,omitempty"`
+	AddWho       string        `json:"addWho,omitempty"`
+	Items        []ReleaseItem `json:"items,omitempty"`
 }

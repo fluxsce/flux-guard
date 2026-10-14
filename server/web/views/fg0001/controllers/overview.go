@@ -5,7 +5,7 @@ import (
 	"fluxguard/server/web/middleware"
 	"github.com/gin-gonic/gin"
 
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/plugin"
 	"fluxguard/server/web/ingest/service"
 	dbx "github.com/fluxsce/dbx/db"

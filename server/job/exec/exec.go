@@ -16,7 +16,7 @@ import (
 	"fluxguard/server/job/policy"
 	"fluxguard/server/job/registry"
 	"fluxguard/server/job/status"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 // ErrBusy 同一任务已有一次调用尚未结束。

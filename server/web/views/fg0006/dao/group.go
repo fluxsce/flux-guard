@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
 	"fluxguard/server/web/views/fg0006/models"
 	dbx "github.com/fluxsce/dbx/db"

@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/httpx"
 )
 

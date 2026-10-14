@@ -11,6 +11,7 @@ import (
 
 	"fluxguard/agents/appside"
 	"fluxguard/agents/host"
+	"fluxguard/common/agentupdate"
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/command"
 	"fluxguard/common/logger"
@@ -59,6 +60,9 @@ func main() {
 }
 
 func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, machineID string, call protocol.CommandCall) (string, error) {
+	if call.Action == protocol.ActionAgentUpdate {
+		return agentupdate.Apply(ctx, cfg.ServerURL, cfg.AgentToken, appside.Code, machineID, call)
+	}
 	switch call.Action {
 	case protocol.ActionAppReplace, protocol.ActionAppUpgrade:
 	default:
@@ -86,6 +90,9 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		return "已替换并重启 " + rt.Instance, nil
 	default:
+		if rt.Mode != "tomcat" {
+			return "", fmt.Errorf("版本升级只支持 Tomcat")
+		}
 		if err := appside.UpgradeBase(rt.Base, file, rt.BackupDir, rt.Instance); err != nil {
 			return "", err
 		}

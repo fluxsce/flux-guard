@@ -13,7 +13,7 @@ import (
 
 	"fluxguard/protocol"
 	"fluxguard/server/command/models"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 var errDial = errors.New("拨号未接通")

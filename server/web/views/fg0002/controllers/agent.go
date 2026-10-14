@@ -7,7 +7,7 @@ import (
 
 	"strings"
 
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/command"
 	"fluxguard/server/shell"
 	"fluxguard/server/web/httpx"
@@ -19,6 +19,7 @@ import (
 
 // AgentController 采集代理管理。
 type AgentController struct {
+	db       *dbx.DB
 	agents   *agent.Store
 	shells   *shell.Store
 	Commands *command.Service
@@ -26,7 +27,7 @@ type AgentController struct {
 
 // NewAgentController 创建代理控制器。
 func NewAgentController(db *dbx.DB) *AgentController {
-	return &AgentController{agents: agent.Open(db), shells: shell.OpenStore(db), Commands: command.Current()}
+	return &AgentController{db: db, agents: agent.Open(db), shells: shell.OpenStore(db), Commands: command.Current()}
 }
 
 // QueryAgents 列出本租户代理。

@@ -1,5 +1,5 @@
--- 种子只执行一次。有 scriptName = seed 且 executionStatus = SUCCESS 的记录后，启动不再灌开发账号和初始授权。
--- 字段对齐 gateway 的 HUB_SCRIPT_EXECUTION_HISTORY：执行结果、失败原因、耗时和语句数。
+-- 脚本级执行摘要（可选）。逐条是否再跑看 FG_SCRIPT_STATEMENT。
+-- 字段对齐 gateway 的 HUB_SCRIPT_EXECUTION_HISTORY。
 CREATE TABLE IF NOT EXISTS `FG_SCRIPT_INIT` (
   `initId` VARCHAR(32) NOT NULL COMMENT '初始化记录ID，联合主键',
   `tenantId` VARCHAR(32) NOT NULL COMMENT '租户ID，联合主键',

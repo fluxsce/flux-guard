@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"fluxguard/server/secret"
+	"fluxguard/server/utils/secret"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
@@ -35,7 +35,7 @@ func TestSQLSeedContainsPasswordAndResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(resourceSQL)
-	for _, code := range []string{"fg0001:view", "fg0002:edit", "fg0022:view", "fg0022:edit", "fg0023:view", "fg0024:view", "fg0024:edit", "fg0071", "fg0071:release"} {
+	for _, code := range []string{"fg0001:view", "fg0002:edit", "fg0022:view", "fg0022:edit", "fg0023:view", "fg0024:view", "fg0024:edit", "fg0008", "fg0008:release"} {
 		if !strings.Contains(text, "'"+code+"'") {
 			t.Errorf("SQL missing %s", code)
 		}

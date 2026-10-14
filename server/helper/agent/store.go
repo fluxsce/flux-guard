@@ -9,10 +9,10 @@ import (
 
 	"fluxguard/common/id"
 	"fluxguard/protocol"
-	"fluxguard/server/errcode"
-	"fluxguard/server/limits"
-	"fluxguard/server/secret"
 	"fluxguard/server/store"
+	"fluxguard/server/utils/const/errcode"
+	"fluxguard/server/utils/const/limits"
+	"fluxguard/server/utils/secret"
 	"fluxguard/server/web/request"
 	dbx "github.com/fluxsce/dbx/db"
 )
@@ -37,6 +37,9 @@ type AgentView struct {
 	AgentName      string     `json:"agentName"`
 	AgentCode      string     `json:"agentCode,omitempty"`
 	MachineID      string     `json:"machineId,omitempty"`
+	AgentVersion   string     `json:"agentVersion,omitempty"`
+	GoOS           string     `json:"goos,omitempty"`
+	GoArch         string     `json:"goarch,omitempty"`
 	HostName       string     `json:"hostName"`
 	IPAddress      string     `json:"ipAddress"`
 	CommandAddress string     `json:"commandAddress,omitempty"`
@@ -58,6 +61,9 @@ type agent struct {
 	AgentName      string
 	AgentCode      string
 	MachineID      string
+	AgentVersion   string
+	GoOS           string
+	GoArch         string
 	HostName       string
 	IPAddress      string
 	CommandAddress string
@@ -81,8 +87,9 @@ func Open(conn *dbx.DB) *Store {
 func (a *Store) ListAgents(tenantID string) []AgentView {
 	rows, err := a.db.Query(context.Background(), `
 		SELECT a.agentId, a.agentName, COALESCE(a.agentCode, ''), COALESCE(a.machineId, ''),
-		       COALESCE(a.hostName, ''), COALESCE(a.ipAddress, ''), COALESCE(h.commandAddress, ''),
-		       a.statusFlag, a.lastSeenTime
+		       COALESCE(a.agentVersion, ''), COALESCE(a.goos, ''), COALESCE(a.goarch, ''),
+		       COALESCE(a.hostName, ''), COALESCE(a.ipAddress, ''),
+		       COALESCE(h.commandAddress, ''), a.statusFlag, a.lastSeenTime
 		FROM FG_AGENT a
 		LEFT JOIN FG_AGENT_HOST h ON h.tenantId = a.tenantId AND h.agentId = a.agentId
 		WHERE a.tenantId = @tenantId AND a.activeFlag = 'Y'`, dbx.Args{"tenantId": tenantID})
@@ -230,13 +237,47 @@ func (a *Store) EnsureReportingAgent(tenantID, agentCode string) (string, error)
 	return agentID, nil
 }
 
-// TouchAgent 记下代理心跳。
-func (a *Store) TouchAgent(tenantID, agentID string) {
+// TouchInfo 是心跳时顺带更新的产品版本与平台。
+type TouchInfo struct {
+	Version string
+	GoOS    string
+	GoArch  string
+}
+
+// TouchAgent 记下代理心跳，并在有值时更新产品版本与平台。
+func (a *Store) TouchAgent(tenantID, agentID string, info TouchInfo) {
 	now := store.FormatTime(time.Now().UTC())
+	version := strings.TrimSpace(info.Version)
+	goos := strings.ToLower(strings.TrimSpace(info.GoOS))
+	goarch := strings.ToLower(strings.TrimSpace(info.GoArch))
+	if len(version) > 64 {
+		version = version[:64]
+	}
+	if len(goos) > 32 {
+		goos = goos[:32]
+	}
+	if len(goarch) > 32 {
+		goarch = goarch[:32]
+	}
+	if version == "" && goos == "" && goarch == "" {
+		_, _ = a.db.Exec(context.Background(), `
+			UPDATE FG_AGENT SET lastSeenTime = @lastSeenTime, editTime = @editTime, editWho = 'system'
+			WHERE tenantId = @tenantId AND agentId = @agentId`,
+			dbx.Args{"lastSeenTime": now, "editTime": now, "tenantId": tenantID, "agentId": agentID})
+		return
+	}
 	_, _ = a.db.Exec(context.Background(), `
-		UPDATE FG_AGENT SET lastSeenTime = @lastSeenTime, editTime = @editTime, editWho = 'system'
+		UPDATE FG_AGENT
+		SET lastSeenTime = @lastSeenTime,
+		    agentVersion = CASE WHEN @agentVersion = '' THEN agentVersion ELSE @agentVersion END,
+		    goos = CASE WHEN @goos = '' THEN goos ELSE @goos END,
+		    goarch = CASE WHEN @goarch = '' THEN goarch ELSE @goarch END,
+		    editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
 		WHERE tenantId = @tenantId AND agentId = @agentId`,
-		dbx.Args{"lastSeenTime": now, "editTime": now, "tenantId": tenantID, "agentId": agentID})
+		dbx.Args{
+			"lastSeenTime": now, "agentVersion": version, "goos": goos, "goarch": goarch,
+			"editTime": now, "tenantId": tenantID, "agentId": agentID,
+		})
 }
 
 // AgentByToken 用明文令牌换租户和代理。
@@ -263,7 +304,10 @@ type agentRows interface {
 func scanAgent(rows agentRows, now time.Time) (AgentView, error) {
 	var item agent
 	var seen any
-	if err := rows.Scan(&item.AgentID, &item.AgentName, &item.AgentCode, &item.MachineID, &item.HostName, &item.IPAddress, &item.CommandAddress, &item.StatusFlag, &seen); err != nil {
+	if err := rows.Scan(
+		&item.AgentID, &item.AgentName, &item.AgentCode, &item.MachineID, &item.AgentVersion,
+		&item.GoOS, &item.GoArch, &item.HostName, &item.IPAddress, &item.CommandAddress, &item.StatusFlag, &seen,
+	); err != nil {
 		return AgentView{}, err
 	}
 	if t, ok := store.TimeValue(seen); ok {
@@ -281,6 +325,7 @@ func toAgentView(item agent, now time.Time) AgentView {
 	}
 	return AgentView{
 		AgentID: item.AgentID, AgentName: item.AgentName, AgentCode: item.AgentCode, MachineID: item.MachineID,
+		AgentVersion: item.AgentVersion, GoOS: item.GoOS, GoArch: item.GoArch,
 		HostName: item.HostName, IPAddress: item.IPAddress, CommandAddress: item.CommandAddress,
 		OnlineFlag: online, StatusFlag: item.StatusFlag,
 		LastSeenTime: item.LastSeen,

@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS `FG_AGENT` (
   `osName` VARCHAR(64) DEFAULT NULL COMMENT '操作系统',
   `agentCode` VARCHAR(64) DEFAULT NULL COMMENT '代理种类，例如 host、app',
   `machineId` VARCHAR(64) DEFAULT NULL COMMENT '操作系统机器编号',
+  `agentVersion` VARCHAR(64) DEFAULT NULL COMMENT '代理产品版本',
+  `goos` VARCHAR(32) DEFAULT NULL COMMENT '代理操作系统，如 linux、windows',
+  `goarch` VARCHAR(32) DEFAULT NULL COMMENT '代理架构，如 amd64、arm64',
   `agentTokenHash` VARCHAR(64) NOT NULL COMMENT '代理令牌 SHA-256',
   `statusFlag` VARCHAR(1) NOT NULL DEFAULT 'Y' COMMENT '是否允许上报：Y允许，N停用',
   `lastSeenTime` DATETIME DEFAULT NULL COMMENT '最近心跳时间',
@@ -32,6 +35,11 @@ CREATE TABLE IF NOT EXISTS `FG_AGENT` (
   KEY `IDX_FG_AGENT_MACHINE` (`tenantId`, `agentCode`, `machineId`),
   KEY `IDX_FG_AGENT_ADD` (`tenantId`, `addTime`)
 ) ENGINE=InnoDB COMMENT='采集代理表';
+
+-- 已有库补列：代理上报的产品版本与平台，供中央对照自更新目标。
+ALTER TABLE `FG_AGENT` ADD COLUMN `agentVersion` VARCHAR(64) DEFAULT NULL COMMENT '代理产品版本' AFTER `machineId`;
+ALTER TABLE `FG_AGENT` ADD COLUMN `goos` VARCHAR(32) DEFAULT NULL COMMENT '代理操作系统' AFTER `agentVersion`;
+ALTER TABLE `FG_AGENT` ADD COLUMN `goarch` VARCHAR(32) DEFAULT NULL COMMENT '代理架构' AFTER `goos`;
 
 INSERT INTO `FG_AGENT` (
   `agentId`, `tenantId`, `agentName`, `hostName`, `ipAddress`, `agentTokenHash`, `statusFlag`,

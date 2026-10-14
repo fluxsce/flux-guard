@@ -9,8 +9,9 @@ CREATE TABLE IF NOT EXISTS `FG_APP_INST` (
   `hostName` VARCHAR(100) DEFAULT NULL COMMENT '主机名',
   `ipAddress` VARCHAR(128) DEFAULT NULL COMMENT 'IP 地址',
   `instanceName` VARCHAR(100) NOT NULL COMMENT '实例名',
-  `runtimeKind` VARCHAR(16) NOT NULL COMMENT '运行方式(systemd,windows,docker)',
-  `artifactKind` VARCHAR(16) NOT NULL COMMENT '制品种类(war,jar,static)',
+  `runtimeKind` VARCHAR(16) NOT NULL COMMENT '运行方式(systemd,windows,docker,command)',
+  `modeCode` VARCHAR(16) NOT NULL DEFAULT '' COMMENT '应用类型(tomcat,node,script,jar,static)',
+  `artifactKind` VARCHAR(16) NOT NULL COMMENT '制品种类(war,jar,static,node,script)',
   `artifactPath` VARCHAR(255) DEFAULT NULL COMMENT '制品路径',
   `versionText` VARCHAR(64) DEFAULT NULL COMMENT '当前版本',
   `tomcatVersion` VARCHAR(64) DEFAULT NULL COMMENT 'Tomcat 版本',
@@ -39,3 +40,4 @@ CREATE TABLE IF NOT EXISTS `FG_APP_INST` (
 
 ALTER TABLE `FG_APP_INST` DROP INDEX `IDX_FG_APP_INST_AGENT`;
 ALTER TABLE `FG_APP_INST` ADD UNIQUE KEY `IDX_FG_APP_INST_SLOT` (`tenantId`, `agentId`, `instanceName`, `appCode`);
+ALTER TABLE `FG_APP_INST` ADD COLUMN `modeCode` VARCHAR(16) NOT NULL DEFAULT '' COMMENT '应用类型(tomcat,node,script,jar,static)';

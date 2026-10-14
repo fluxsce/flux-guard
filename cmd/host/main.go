@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"fluxguard/agents/host"
+	"fluxguard/common/agentupdate"
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/command"
 	"fluxguard/common/logger"
@@ -41,8 +42,8 @@ func main() {
 		AgentCode:  host.Code,
 		MachineID:  host.MachineID(),
 		Listen:     cfg.CommandListen,
-	}, func(_ context.Context, call protocol.CommandCall) (string, error) {
-		return runCommand(ctl, call)
+	}, func(cmdCtx context.Context, call protocol.CommandCall) (string, error) {
+		return runCommand(cmdCtx, cfg, ctl, call)
 	}, func(addr string) {
 		commandAddr.Store(addr)
 		logger.Info(ctx, "命令端口 %s", addr)
@@ -70,7 +71,7 @@ func main() {
 	}, ctl)
 }
 
-func runCommand(ctl *report.Control, call protocol.CommandCall) (string, error) {
+func runCommand(ctx context.Context, cfg report.Config, ctl *report.Control, call protocol.CommandCall) (string, error) {
 	switch call.Action {
 	case protocol.ActionCollectNow:
 		ctl.Nudge()
@@ -80,6 +81,8 @@ func runCommand(ctl *report.Control, call protocol.CommandCall) (string, error) 
 			return "", err
 		}
 		return fmt.Sprintf("上报间隔已改为 %d 秒", call.IntervalSec), nil
+	case protocol.ActionAgentUpdate:
+		return agentupdate.Apply(ctx, cfg.ServerURL, cfg.AgentToken, host.Code, host.MachineID(), call)
 	default:
 		return "", fmt.Errorf("不支持的动作 %s", call.Action)
 	}

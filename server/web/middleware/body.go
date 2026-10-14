@@ -5,10 +5,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
-// MaxBodyBytes 转发 limits，供测试与外部引用。数值与分层说明见 server/limits。
+// MaxBodyBytes 转发 limits，供测试与外部引用。数值与分层说明见 server/utils/const/limits。
 const MaxBodyBytes = limits.MaxBodyBytes
 
 // LimitBody 限制请求体字节数。超出后读取请求体会得到 http.MaxBytesError。

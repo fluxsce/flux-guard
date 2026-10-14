@@ -4,7 +4,7 @@
 package command
 
 import (
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/command/models"
 	commandroutes "fluxguard/server/command/routes"
 	cmdsvc "fluxguard/server/command/service"

@@ -1,6 +1,6 @@
 // Package crypto 是两边共用的对称加解密。
 // 密文带 ENCY_ 前缀，算法是 AES-GCM，密钥由字符串经 SHA-256 派生。
-// 只用于必须还原原文的配置和密钥。登录口令用 server/secret 的 bcrypt，不能放进这里。
+// 只用于必须还原原文的配置和密钥。登录口令用 server/utils/secret 的 bcrypt，不能放进这里。
 package crypto
 
 import (

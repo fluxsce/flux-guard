@@ -8,12 +8,39 @@ export interface Agent {
   agentName: string
   agentCode?: string
   machineId?: string
+  agentVersion?: string
+  goos?: string
+  goarch?: string
   hostName: string
   ipAddress: string
   commandAddress?: string
   onlineFlag: string
   statusFlag: string
   lastSeenTime?: string
+}
+
+/** 一次代理自更新的汇总。 */
+export interface AgentRelease {
+  releaseId: string
+  agentCode: string
+  versionText: string
+  fileName?: string
+  goos?: string
+  goarch?: string
+  pendingCount?: number
+  batchSize?: number
+  items: AgentReleaseItem[]
+}
+
+/** 一台代理上的升级命令状态与版本对照。 */
+export interface AgentReleaseItem {
+  commandId: string
+  agentId: string
+  agentName?: string
+  status: string
+  message?: string
+  agentVersion?: string
+  versionMatched?: string
 }
 
 export function queryAgents() {
@@ -35,6 +62,30 @@ export interface CommandView {
 
 export function dispatchCommand(agentId: string, action: string, intervalSec?: number) {
   return fg0002.post<CommandView>('/dispatchCommand', { agentId, action, intervalSec }, undefined, { timeout: 30000 })
+}
+
+/**
+ * 上传代理安装包并向选中代理下发自更新。
+ * @param form - 含 agentCode、version、agentIds、file
+ */
+export function upgradeAgents(form: FormData) {
+  return fg0002.post<AgentRelease>('/upgradeAgents', form, undefined, { timeout: 120000 })
+}
+
+/**
+ * 查询一次代理升级的命令进度。
+ * @param releaseId - 发布号
+ */
+export function queryAgentRelease(releaseId: string) {
+  return fg0002.get<AgentRelease>('/queryAgentRelease', { releaseId }, { showLoading: false })
+}
+
+/**
+ * 继续下发同一发布中尚未升级的代理批次。
+ * @param releaseId - 发布号
+ */
+export function continueAgentRelease(releaseId: string) {
+  return fg0002.post<AgentRelease>('/continueAgentRelease', { releaseId })
 }
 
 export function queryCommand(commandId: string) {

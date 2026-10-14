@@ -12,7 +12,7 @@ import (
 
 	agentcommand "fluxguard/common/command"
 	"fluxguard/protocol"
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/command/models"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"

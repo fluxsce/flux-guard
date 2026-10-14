@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"fluxguard/common/id"
-	"fluxguard/server/errcode"
+	"fluxguard/server/utils/const/errcode"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
 	"fluxguard/server/web/request"

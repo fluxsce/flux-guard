@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"fluxguard/server/job/contract"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	dbx "github.com/fluxsce/dbx/db"
 )
 

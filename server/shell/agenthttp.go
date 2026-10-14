@@ -7,8 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/protocol"
-	"fluxguard/server/agent"
-	"fluxguard/server/limits"
+	"fluxguard/server/helper/agent"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/setting"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/request"

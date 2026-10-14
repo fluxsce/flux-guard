@@ -11,7 +11,7 @@ import (
 	"fluxguard/server/alert/event"
 	"fluxguard/server/alert/rule"
 	"fluxguard/server/alert/template"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	dbx "github.com/fluxsce/dbx/db"
 )
 

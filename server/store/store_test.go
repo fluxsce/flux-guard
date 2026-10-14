@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestReopenKeepsSeedAndCreatesMissingTable(t *testing.T) {
+func TestReopenKeepsSeedAndSkipsDoneStatements(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "fg.db")
 	db, err := Open(ctx, "sqlite", path)
@@ -20,8 +20,12 @@ func TestReopenKeepsSeedAndCreatesMissingTable(t *testing.T) {
 	if users == 0 {
 		t.Fatal("seed users missing")
 	}
-	if _, err := db.Exec(ctx, `DROP TABLE FG_EVENT_POINT`, nil); err != nil {
+	var stmts int
+	if err := Scan(ctx, db, `SELECT count(*) FROM FG_SCRIPT_STATEMENT`, nil, &stmts); err != nil {
 		t.Fatal(err)
+	}
+	if stmts == 0 {
+		t.Fatal("statement history missing")
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -66,12 +70,53 @@ func TestReopenKeepsSeedAndCreatesMissingTable(t *testing.T) {
 	if granted != 0 {
 		t.Fatalf("grant restored %d", granted)
 	}
-	var table int
-	if err := Scan(ctx, db, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'FG_EVENT_POINT'`, nil, &table); err != nil {
+}
+
+func TestClearedHistoryReappliesFg0008(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fg.db")
+	db, err := Open(ctx, "sqlite", path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if table != 1 {
-		t.Fatal("missing table was not created")
+	if _, err := db.Exec(ctx, `DELETE FROM FG_AUTH_ROLE_RESOURCE WHERE resourceId LIKE 'fg0008%'`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM FG_AUTH_RESOURCE WHERE resourceId LIKE 'fg0008%'`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM FG_SCRIPT_STATEMENT WHERE statementContent LIKE '%fg0008%'`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(ctx, "sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range []string{"fg0008", "fg0008:search", "fg0008:view", "fg0008:edit", "fg0008:release"} {
+		var n int
+		if err := Scan(ctx, db, `SELECT count(*) FROM FG_AUTH_RESOURCE WHERE resourceId = '`+id+`'`, nil, &n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("resource %s missing after reopen", id)
+		}
+	}
+	var sa, vw int
+	if err := Scan(ctx, db, `SELECT count(*) FROM FG_AUTH_ROLE_RESOURCE WHERE roleId = 'ROLE_SUPER_ADMIN' AND resourceId LIKE 'fg0008%'`, nil, &sa); err != nil {
+		t.Fatal(err)
+	}
+	if sa != 5 {
+		t.Fatalf("super admin grants %d", sa)
+	}
+	if err := Scan(ctx, db, `SELECT count(*) FROM FG_AUTH_ROLE_RESOURCE WHERE roleId = 'ROLE_VIEWER' AND resourceId LIKE 'fg0008%'`, nil, &vw); err != nil {
+		t.Fatal(err)
+	}
+	if vw != 3 {
+		t.Fatalf("viewer grants %d", vw)
 	}
 }
 
@@ -122,5 +167,18 @@ func TestSchemaIndexes(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("index %s missing", name)
 		}
+	}
+}
+
+func TestStatementsSplitKeepsSemicolonInString(t *testing.T) {
+	got := statements(`
+INSERT INTO t (a) VALUES ('a;b');
+UPDATE t SET a = 1;
+`)
+	if len(got) != 2 {
+		t.Fatalf("got %d statements: %#v", len(got), got)
+	}
+	if got[0] != "INSERT INTO t (a) VALUES ('a;b')" {
+		t.Fatalf("first %q", got[0])
 	}
 }

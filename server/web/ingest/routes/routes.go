@@ -4,7 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/protocol"
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/web/ingest/controllers"
 	"fluxguard/server/web/ingest/service"
 	"fluxguard/server/web/routes"

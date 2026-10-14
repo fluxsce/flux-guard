@@ -108,50 +108,59 @@ type CollectResult struct {
 
 // Request 是代理 POST 的 JSON 正文。租户和代理由令牌决定，不写进正文。
 type Request struct {
-	BatchID   string    `json:"batchId"`
-	AgentCode string    `json:"agentCode"`
-	SentAt    time.Time `json:"sentAt"`
-	Samples   []Sample  `json:"samples,omitempty"`
-	Events    []Event   `json:"events,omitempty"`
-	Host      *Host     `json:"host,omitempty"`
-	Java      *Java     `json:"java,omitempty"`
-	Go        *Go       `json:"go,omitempty"`
-	AppSide   *AppSide  `json:"appSide,omitempty"`
-	AppSides  []AppSide `json:"appSides,omitempty"`
+	BatchID      string    `json:"batchId"`
+	AgentCode    string    `json:"agentCode"`
+	AgentVersion string    `json:"agentVersion,omitempty"`
+	GoOS         string    `json:"goos,omitempty"`
+	GoArch       string    `json:"goarch,omitempty"`
+	SentAt       time.Time `json:"sentAt"`
+	Samples      []Sample  `json:"samples,omitempty"`
+	Events       []Event   `json:"events,omitempty"`
+	Host         *Host     `json:"host,omitempty"`
+	Java         *Java     `json:"java,omitempty"`
+	Go           *Go       `json:"go,omitempty"`
+	AppSide      *AppSide  `json:"appSide,omitempty"`
+	AppSides     []AppSide `json:"appSides,omitempty"`
 }
 
 // Batch 把 Request 补上服务器从令牌认定的租户和代理。转发组件读的是这一份。
 func (r Request) Batch(tenantID, agentID string) Batch {
 	return Batch{
-		TenantID:  tenantID,
-		AgentID:   agentID,
-		BatchID:   r.BatchID,
-		AgentCode: r.AgentCode,
-		SentAt:    r.SentAt,
-		Samples:   r.Samples,
-		Events:    r.Events,
-		Host:      r.Host,
-		Java:      r.Java,
-		Go:        r.Go,
-		AppSide:   r.AppSide,
-		AppSides:  r.AppSides,
+		TenantID:     tenantID,
+		AgentID:      agentID,
+		BatchID:      r.BatchID,
+		AgentCode:    r.AgentCode,
+		AgentVersion: r.AgentVersion,
+		GoOS:         r.GoOS,
+		GoArch:       r.GoArch,
+		SentAt:       r.SentAt,
+		Samples:      r.Samples,
+		Events:       r.Events,
+		Host:         r.Host,
+		Java:         r.Java,
+		Go:           r.Go,
+		AppSide:      r.AppSide,
+		AppSides:     r.AppSides,
 	}
 }
 
 // Batch 是服务器认定身份之后的一批上报。
 type Batch struct {
-	TenantID  string
-	AgentID   string
-	BatchID   string
-	AgentCode string
-	SentAt    time.Time
-	Samples   []Sample
-	Events    []Event
-	Host      *Host
-	Java      *Java
-	Go        *Go
-	AppSide   *AppSide
-	AppSides  []AppSide
+	TenantID     string
+	AgentID      string
+	BatchID      string
+	AgentCode    string
+	AgentVersion string
+	GoOS         string
+	GoArch       string
+	SentAt       time.Time
+	Samples      []Sample
+	Events       []Event
+	Host         *Host
+	Java         *Java
+	Go           *Go
+	AppSide      *AppSide
+	AppSides     []AppSide
 }
 
 // Sides 返回这一批里的全部运行时。单套放在 AppSide，一台机器的多套放在 AppSides。

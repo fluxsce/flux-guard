@@ -65,7 +65,7 @@ flowchart TB
 | 通讯协议 | `protocol` | 否 | 路径、鉴权头、正文、应答、重试约定。任意语言按这一份实现即可 |
 | 共享代码 | `common` | 否 | 主键 `common/id`，YAML 配置 `common/yamlcfg`（viper），对称加解密 `common/crypto`，Go 上报 `common/report`，Go 命令通道 `common/command`，Go 终端通道 `common/shellrun` |
 
-**Server** 管人和目录。它校验用户口令、按按钮码鉴权、签发代理令牌，并接收批次。进来的令牌按 SHA-256 校验；同一把令牌在环境设置里另有密文，拨代理时出示。同一 `tenantId` + `batchId` 只入库一次。口令和令牌摘要在 `server/secret`，不放进 `common`。管理功能按模块目录扩展，见下文「管理端模块」。
+**Server** 管人和目录。它校验用户口令、按按钮码鉴权、签发代理令牌，并接收批次。进来的令牌按 SHA-256 校验；同一把令牌在环境设置里另有密文，拨代理时出示。同一 `tenantId` + `batchId` 只入库一次。口令和令牌摘要在 `server/utils/secret`，不放进 `common`。管理功能按模块目录扩展，见下文「管理端模块」。
 
 **代理** 各自采集自己那一类数据。它不保存用户口令。准入是租户共用的上报令牌。正文里的 `agentCode` 只能是 `protocol` 里登记的 `host`、`go`、`java`、`appside`。已经发出的 Go 进程仍可用旧种类 `app`。其它种类直接拒绝。主机代理再带操作系统机器编号，Go 进程用「显示名@主机名」，Java 代理用「服务名@实例」，服务器按租户、种类和这个编号各保留一行。
 
@@ -131,8 +131,8 @@ sequenceDiagram
 
 1. `protocol` 写路径、命令正文和应答。动作名是固定枚举，不接受任意命令行。
 2. `server/command` 写入和认领 `FG_COMMAND`。先拨号：代理在主机资料里报了命令地址，并且目标属于这台机器或回环，就带代理令牌去拨；成功则把结果写回并返回给控制台。失败、没有地址或还原不出令牌则改为待取，并唤醒该代理已经挂着的长轮询。
-3. 控制台挂在 fg0002，按钮码 `fg0002:command`。对列表里的一台代理下发，页面看这一行从拨号中到完成。拨不通时继续看同一行，直到回执到来。按钮行在 `FG_AUTH_RESOURCE.sql`，初始授权由 `FG_AUTH_ROLE_RESOURCE.sql` 授给超级管理员。
-4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随资料上报。`cmd/host` 的动作是立即再采一轮和修改进程内上报间隔。`cmd/appside` 的动作是替换静态资源、WAR、JAR，以及升级它看守的运行时。名单之外的命令行仍然拒绝。
+3. 控制台挂在 fg0002，按钮码 `fg0002:command`（立即采集 / 改间隔）与 `fg0002:upgrade`（上传代理包并批量自更新）。对列表里的一台代理下发，页面看这一行从拨号中到完成。拨不通时继续看同一行，直到回执到来。自更新只走长轮询。按钮行在 `FG_AUTH_RESOURCE.sql`，初始授权由 `FG_AUTH_ROLE_RESOURCE.sql` 授给超级管理员。
+4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随资料上报。`cmd/host` 的动作是立即再采一轮和修改进程内上报间隔。`cmd/appside` 的动作是替换静态资源、WAR、JAR，以及升级它看守的运行时。`agent.self.update` 让 host / go / appside 从中央拉取自身安装包并替换后重启（首次部署仍手工安装；下发只走长轮询；须匹配 goos/goarch；默认金丝雀分批；失败回滚上一版二进制）。名单之外的命令行仍然拒绝。
 5. 修改上报间隔只活在这次进程里，重启后回到 `interval_sec`。重启服务等要另增名单项，仍不开放任意 shell。
 
 没配 `command_listen` 或 `agent_token` 的代理只有拉取这一条路。
@@ -184,7 +184,7 @@ sequenceDiagram
 
 | 组件 | 目录 | 做什么 |
 |------|------|--------|
-| 口令与令牌摘要 | `server/secret` | 登录口令只存 bcrypt，不能解密。上报令牌进来时用 SHA-256 校验，同一把令牌另存密文，供拨代理时出示 |
+| 口令与令牌摘要 | `server/utils/secret` | 登录口令只存 bcrypt，不能解密。上报令牌进来时用 SHA-256 校验，同一把令牌另存密文，供拨代理时出示 |
 
 ## 目录
 
@@ -194,7 +194,8 @@ cmd/host            主机代理入口
 cmd/goruntime       Go 运行时代理入口。只上报自己这个进程
 cmd/appside         应用代理入口。换包和运行时升级走这里，不进主机代理
 server/auth         用户、角色、资源
-server/secret       口令和代理令牌摘要，只给 server 用
+server/utils        server 进程工具：secret（口令与令牌摘要）、const（errcode、limits）。只给 server 用，不进 common
+server/helper       server 辅助公共逻辑：agent（FG_AGENT 台账）、apprelease / agentrelease（制品落盘，记录分别在 FG_APP_RELEASE / FG_AGENT_RELEASE）
 server/web          管理端装配；模块在 views 下按目录扩展
 server/web/ingest   上报接收入口，分层与 views 相同：routes 在 init 自注册，另有 controllers、service、dao。不进模块号，路径仍是 POST /fluxguard/api/ingest/v1/batches
 server/command      命令队列：先拨代理，拨不通改为待取。子包 models / service / routes；根包是门面
@@ -213,6 +214,7 @@ common/yamlcfg      两边共用的 YAML 配置读取（viper）
 common/crypto       两边共用的 AES-GCM，前缀 ENCY_。不用于登录口令
 common/report       Go 代理共用的组批次和上报，不采集
 common/command      Go 代理的命令端口和长轮询。端口校验代理令牌
+common/agentupdate  Go 代理自更新：下载安装包、保留配置、旁路替换二进制并重启
 common/shellrun     Go 主机代理的交互终端：主动连中央，本机拉起伪控制台
 common/buildinfo    产品版本。本地读取仓库根 package.json，发行构建用 ldflags 覆盖
 web/                控制台，由 server 托管
@@ -256,7 +258,7 @@ server/web/views/fg0042     通知渠道（邮件、企业微信、钉钉、QQ�
 server/web/views/fg0043     预警事件（确认、恢复，页内带投递记录）
 server/web/views/fg0051     系统操作日志（0051–0070 日志管理，只读查询 FG_AUTH_AUDIT_LOG）
 server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_SHELL_AUDIT）
-server/web/views/fg0071     应用管理（0071–0090）。清单来自应用侧代理上报，换 WAR、JAR、静态资源和运行时升级都在这一页
+server/web/views/fg0008     应用管理（运行观测）。清单来自应用侧代理上报，换 WAR、JAR、Node、脚本、静态资源和运行时升级都在这一页
 ```
 
 控制台按同一编号拆开，目录保持扁平。号段只用来占位，避免不同功能挤在同一段号里：0001–0020 运行观测，0021–0040 系统管理，0041–0050 预警管理，0051–0070 日志管理，其后每 20 号一段。侧栏和面包屑显示授权接口里的分组名，不显示号段。共用请求在 `web/src/api`：axios 实例、拦截器、`createApi`。一个模块一个 `web/src/views/fg00xx`，里面用 `createApi(moduleApiPrefix('fg00xx'))`。`web/src/router` 只负责把视图挂到路径。登录在 `web/src/views/auth`，对应后端 `views/auth`。

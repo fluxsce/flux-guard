@@ -71,6 +71,10 @@ const (
 	DialReplyMax = 4096
 	// OnlineWindow 心跳窗口内视为在线。
 	OnlineWindow = 2 * time.Minute
+	// AgentUpgradeBatchMax 单次代理自更新最多同时下发的台数（金丝雀后续批次也受此限）。
+	AgentUpgradeBatchMax = 32
+	// AgentUpgradeCanaryDefault 未指定金丝雀台数时，首批只升 1 台。
+	AgentUpgradeCanaryDefault = 1
 )
 
 // --- Shell 终端 ---

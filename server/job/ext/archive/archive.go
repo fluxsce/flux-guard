@@ -9,7 +9,7 @@ import (
 	"fluxguard/server/job/catalog"
 	"fluxguard/server/job/contract"
 	"fluxguard/server/job/policy"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 const (

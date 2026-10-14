@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"fluxguard/server/job/contract"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 // nextSearchLimit 是 cron 向后查找的上限。再远视为没有下一次。

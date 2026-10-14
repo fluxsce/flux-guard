@@ -3,7 +3,7 @@ package middleware
 import (
 	"testing"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 func TestMaxBodyBytes(t *testing.T) {

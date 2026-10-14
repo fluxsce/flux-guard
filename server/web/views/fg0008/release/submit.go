@@ -11,12 +11,12 @@ import (
 
 	"fluxguard/common/id"
 	"fluxguard/protocol"
-	"fluxguard/server/apprelease"
+	"fluxguard/server/helper/apprelease"
 	"fluxguard/server/command"
 	"fluxguard/server/command/models"
 	"fluxguard/server/store"
-	"fluxguard/server/web/views/fg0071/dao"
-	appmodels "fluxguard/server/web/views/fg0071/models"
+	"fluxguard/server/web/views/fg0008/dao"
+	appmodels "fluxguard/server/web/views/fg0008/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -174,7 +174,15 @@ func selected(ctx context.Context, db *dbx.DB, tenantID, appCode, kind string, i
 		if item.OnlineFlag != "Y" {
 			return nil, errors.New("离线实例不能更新")
 		}
-		if kind != "runtime" && item.ArtifactKind != kind {
+		if kind == "runtime" {
+			mode := strings.TrimSpace(item.ModeCode)
+			if mode == "" && item.ArtifactKind == "war" {
+				mode = "tomcat"
+			}
+			if mode != "tomcat" {
+				return nil, errors.New("版本升级只支持 Tomcat 实例")
+			}
+		} else if item.ArtifactKind != kind {
 			return nil, errors.New("请选择同一种制品")
 		}
 		out = append(out, item)

@@ -43,6 +43,8 @@ func commandText(in command.DispatchInput) string {
 		return "让代理立即采集"
 	case protocol.ActionIntervalSet:
 		return fmt.Sprintf("把上报间隔改为 %d 秒", in.IntervalSec)
+	case protocol.ActionAgentUpdate:
+		return "升级代理到 " + strings.TrimSpace(in.Version)
 	default:
 		action := strings.TrimSpace(in.Action)
 		if action == "" {

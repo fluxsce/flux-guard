@@ -2,12 +2,13 @@ package dao
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
-	"fluxguard/server/web/views/fg0071/models"
+	"fluxguard/server/web/views/fg0008/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -88,7 +89,7 @@ func listInst(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]mode
 	}
 	rows, err := db.Query(ctx, `
 		SELECT instId, agentId, appCode, COALESCE(machineId, ''), COALESCE(hostName, ''), instanceName,
-		       runtimeKind, artifactKind, COALESCE(versionText, ''), COALESCE(tomcatVersion, ''),
+		       runtimeKind, COALESCE(modeCode, ''), artifactKind, COALESCE(versionText, ''), COALESCE(tomcatVersion, ''),
 		       runningFlag, reportedTime
 		FROM FG_APP_INST`+where+`
 		ORDER BY instanceName, instId`, args)
@@ -103,7 +104,7 @@ func listInst(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]mode
 		var reported any
 		if err := rows.Scan(
 			&item.InstID, &item.AgentID, &item.AppCode, &item.MachineID, &item.HostName, &item.InstanceName,
-			&item.RuntimeKind, &item.ArtifactKind, &item.VersionText, &item.TomcatVersion,
+			&item.RuntimeKind, &item.ModeCode, &item.ArtifactKind, &item.VersionText, &item.TomcatVersion,
 			&item.RunningFlag, &reported,
 		); err != nil {
 			return nil, err
@@ -150,6 +151,41 @@ func Rename(ctx context.Context, db *dbx.DB, tenantID, appCode, appName, user st
 		return ErrMissing
 	}
 	return nil
+}
+
+// ListReleases 返回一个应用最近的发布记录，不含各实例明细。
+func ListReleases(ctx context.Context, db *dbx.DB, tenantID, appCode string, limit int) ([]models.Release, error) {
+	appCode = strings.TrimSpace(appCode)
+	if appCode == "" {
+		return nil, ErrMissing
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := db.Query(ctx, `
+		SELECT releaseId, appCode, artifactKind, versionText, fileName, addTime, addWho
+		FROM FG_APP_RELEASE
+		WHERE tenantId = @tenantId AND appCode = @appCode AND activeFlag = 'Y'
+		ORDER BY addTime DESC, releaseId DESC
+		LIMIT `+strconv.Itoa(limit), dbx.Args{"tenantId": tenantID, "appCode": appCode})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.Release
+	for rows.Next() {
+		var item models.Release
+		var added any
+		if err := rows.Scan(&item.ReleaseID, &item.AppCode, &item.ArtifactKind, &item.VersionText, &item.FileName, &added, &item.AddWho); err != nil {
+			return nil, err
+		}
+		item.AddTime = store.FormatTime(timeFrom(added))
+		out = append(out, item)
+	}
+	if out == nil {
+		out = []models.Release{}
+	}
+	return out, rows.Err()
 }
 
 // Ignore 让这个应用以后不再出现在列表里。上报不会把它改回来。

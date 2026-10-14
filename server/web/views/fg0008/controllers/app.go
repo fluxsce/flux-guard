@@ -11,8 +11,8 @@ import (
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/middleware/audit"
 	"fluxguard/server/web/request"
-	"fluxguard/server/web/views/fg0071/dao"
-	"fluxguard/server/web/views/fg0071/release"
+	"fluxguard/server/web/views/fg0008/dao"
+	"fluxguard/server/web/views/fg0008/release"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -145,6 +145,22 @@ func (c *AppController) QueryRelease(g *gin.Context) {
 		return
 	}
 	httpx.WriteOK(g, out)
+}
+
+// QueryReleases 返回一个应用最近的发布记录。
+func (c *AppController) QueryReleases(g *gin.Context) {
+	p := middleware.Principal(g)
+	appCode := strings.TrimSpace(request.Param(g, "appCode"))
+	if appCode == "" {
+		httpx.WriteErr(g, http.StatusBadRequest, "缺少应用")
+		return
+	}
+	rows, err := dao.ListReleases(g.Request.Context(), c.db, p.TenantID, appCode, 20)
+	if err != nil {
+		writeMissing(g, err, "加载发布记录失败")
+		return
+	}
+	httpx.WriteOK(g, rows)
 }
 
 func splitIDs(raw string) []string {

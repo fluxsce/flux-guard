@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"fluxguard/protocol"
-	"fluxguard/server/agent"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/setting"
 	"fluxguard/server/web/ingest/service"
 )
@@ -48,8 +48,21 @@ func (c *BatchController) Accept(g *gin.Context) {
 		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
 		return
 	}
-	c.Agents.TouchAgent(tenantID, agentID)
+	c.Agents.TouchAgent(tenantID, agentID, reportingTouch(body))
 	httpx.WriteOK(g, result)
+}
+
+// reportingTouch 取本批上报的产品版本与平台。
+func reportingTouch(body protocol.Request) agent.TouchInfo {
+	info := agent.TouchInfo{
+		Version: strings.TrimSpace(body.AgentVersion),
+		GoOS:    strings.TrimSpace(body.GoOS),
+		GoArch:  strings.TrimSpace(body.GoArch),
+	}
+	if info.Version == "" && body.Host != nil {
+		info.Version = strings.TrimSpace(body.Host.AgentVersion)
+	}
+	return info
 }
 
 // resolveAgent 用机器编号把同一租户里的多台主机分成多行。
@@ -80,10 +93,21 @@ func reportingMachineID(body protocol.Request) string {
 	if body.Go != nil {
 		return goInstanceID(body.Go)
 	}
-	if body.Java == nil {
-		return ""
+	if body.Java != nil {
+		return javaInstanceID(body.Java)
 	}
-	return javaInstanceID(body.Java)
+	// 应用代理用操作系统机器编号分行，与命令通道 EnsureMachineAgent 一致。
+	for _, side := range body.AppSides {
+		if id := strings.TrimSpace(side.MachineID); id != "" {
+			return clipMachineID(id)
+		}
+	}
+	if body.AppSide != nil {
+		if id := strings.TrimSpace(body.AppSide.MachineID); id != "" {
+			return clipMachineID(id)
+		}
+	}
+	return ""
 }
 
 func goInstanceID(item *protocol.Go) string {

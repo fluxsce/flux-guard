@@ -2,15 +2,19 @@
 import { computed, onMounted, ref } from 'vue'
 import { useModuleAi } from '@/ai'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
+import { useButtonAllowed } from '@/components/buttonAccess'
 import FgCatalog from '@/components/catalog/FgCatalog.vue'
+import FgDataFormModal from '@/components/form/FgDataFormModal.vue'
+import type { FgFormField } from '@/components/form/types'
 import FgGrid from '@/components/grid/FgGrid.vue'
 import type { FgGridColumn } from '@/components/grid/types'
-import { RsButton, RsTag, useRsToast } from '@/ui'
+import { RsButton, RsTag, rsConfirm, useRsToast } from '@/ui'
 import {
   ignoreApp,
   queryApps,
   queryInstances,
   queryRelease,
+  queryReleases,
   releaseApp,
   renameApp,
   type AppInstance,
@@ -18,10 +22,12 @@ import {
   type AppRow,
 } from './api'
 
-const moduleId = 'fg0071'
+const moduleId = 'fg0008'
 const toast = useRsToast()
+const allowed = useButtonAllowed()
 const apps = ref<AppRow[]>([])
 const instances = ref<AppInstance[]>([])
+const releases = ref<AppRelease[]>([])
 const appName = ref('')
 const current = ref<AppRow | null>(null)
 const picked = ref<string[]>([])
@@ -31,6 +37,10 @@ const kind = ref('war')
 const version = ref('')
 const file = ref<File | null>(null)
 const releasing = ref<AppRelease | null>(null)
+const renameOpen = ref(false)
+
+const canEdit = computed(() => allowed(moduleId, 'edit'))
+const canRelease = computed(() => allowed(moduleId, 'release'))
 
 const appColumns: FgGridColumn[] = [
   { key: 'appName', title: '应用', minWidth: 160 },
@@ -44,7 +54,8 @@ const instColumns: FgGridColumn[] = [
   { key: 'pick', title: '', width: 48 },
   { key: 'hostName', title: '机器', minWidth: 140 },
   { key: 'instanceName', title: '实例', minWidth: 140 },
-  { key: 'runtimeKind', title: '运行方式', width: 110 },
+  { key: 'modeCode', title: '类型', width: 90 },
+  { key: 'runtimeKind', title: '启停', width: 100 },
   { key: 'artifactKind', title: '制品', width: 90 },
   { key: 'versionText', title: '版本', minWidth: 110 },
   { key: 'tomcatVersion', title: 'Tomcat', minWidth: 110 },
@@ -52,11 +63,40 @@ const instColumns: FgGridColumn[] = [
   { key: 'onlineFlag', title: '代理', width: 80 },
 ]
 
+const renameFields: FgFormField[] = [
+  { field: 'appName', label: '显示名', type: 'input', required: true },
+]
+
 const sameKind = computed(() => {
   const rows = instances.value.filter((row) => picked.value.includes(row.instId))
   if (!rows.length) return ''
-  const kind = rows[0].artifactKind
-  return rows.every((row) => row.artifactKind === kind) ? kind : ''
+  const value = rows[0].artifactKind
+  return rows.every((row) => row.artifactKind === value) ? value : ''
+})
+
+const canRuntime = computed(() => {
+  const rows = instances.value.filter((row) => picked.value.includes(row.instId))
+  if (!rows.length) return false
+  return rows.every((row) => {
+    const mode = row.modeCode || (row.artifactKind === 'war' ? 'tomcat' : '')
+    return mode === 'tomcat'
+  })
+})
+
+const kindOptions = computed(() => {
+  const options: { value: string; label: string }[] = []
+  if (sameKind.value) {
+    const labels: Record<string, string> = {
+      war: 'WAR',
+      jar: 'JAR',
+      node: 'Node',
+      script: '脚本',
+      static: '静态资源',
+    }
+    options.push({ value: sameKind.value, label: labels[sameKind.value] || sameKind.value })
+  }
+  if (canRuntime.value) options.push({ value: 'runtime', label: 'Tomcat 版本升级' })
+  return options
 })
 
 function versionText(row: AppRow) {
@@ -86,13 +126,16 @@ async function openApp(row: AppRow) {
   picked.value = []
   releasing.value = null
   kind.value = row.artifactKind || 'war'
+  version.value = ''
+  file.value = null
   try {
-    const res = await queryInstances(row.appCode)
-    if (!isApiSuccess(res)) {
-      toast.error(getApiMessage(res, '加载实例失败'))
+    const [instRes, relRes] = await Promise.all([queryInstances(row.appCode), queryReleases(row.appCode)])
+    if (!isApiSuccess(instRes)) {
+      toast.error(getApiMessage(instRes, '加载实例失败'))
       return
     }
-    instances.value = parseApiData<AppInstance[]>(res) ?? []
+    instances.value = parseApiData<AppInstance[]>(instRes) ?? []
+    releases.value = isApiSuccess(relRes) ? (parseApiData<AppRelease[]>(relRes) ?? []) : []
   } catch (err) {
     toast.error(getHttpErrorMessage(err, '加载实例失败'))
   }
@@ -102,19 +145,27 @@ function toggle(id: string) {
   picked.value = picked.value.includes(id) ? picked.value.filter((item) => item !== id) : [...picked.value, id]
 }
 
+function pickOnline() {
+  picked.value = instances.value.filter((row) => row.onlineFlag === 'Y').map((row) => row.instId)
+}
+
 function onFile(event: Event) {
   const input = event.target as HTMLInputElement
   file.value = input.files?.[0] ?? null
 }
 
 async function submitRelease() {
-  if (!current.value) return
+  if (!current.value || !canRelease.value) return
   if (!picked.value.length) {
     toast.error('请选择实例')
     return
   }
   if (kind.value !== 'runtime' && kind.value !== sameKind.value) {
     toast.error('请选择同一种制品')
+    return
+  }
+  if (kind.value === 'runtime' && !canRuntime.value) {
+    toast.error('版本升级只支持 Tomcat 实例')
     return
   }
   if (!version.value.trim() || !file.value) {
@@ -136,6 +187,8 @@ async function submitRelease() {
     releasing.value = parseApiData<AppRelease>(res) ?? null
     toast.success('已下发')
     void poll()
+    const relRes = await queryReleases(current.value.appCode)
+    if (isApiSuccess(relRes)) releases.value = parseApiData<AppRelease[]>(relRes) ?? []
   } catch (err) {
     toast.error(getHttpErrorMessage(err, '更新失败'))
   }
@@ -148,27 +201,42 @@ async function poll() {
   if (!isApiSuccess(res)) return
   const next = parseApiData<AppRelease>(res)
   if (!next) return
-  releasing.value = next as AppRelease
-  const pending = next.items.some((item) => item.status === 'waiting' || item.status === 'dialing' || item.status === 'running')
+  releasing.value = next
+  const pending = (next.items ?? []).some((item) => item.status === 'waiting' || item.status === 'dialing' || item.status === 'running')
   if (pending) window.setTimeout(() => void poll(), 2000)
 }
 
-async function renameCurrent() {
+async function openRelease(row: AppRelease) {
+  releasing.value = row
+  void poll()
+}
+
+async function submitRename(values: Record<string, unknown>) {
   if (!current.value) return
-  const name = window.prompt('显示名', current.value.appName)
-  if (!name || !name.trim()) return
-  const res = await renameApp(current.value.appCode, name.trim())
+  const name = String(values.appName ?? '').trim()
+  if (!name) {
+    toast.error('请填写显示名')
+    return
+  }
+  const res = await renameApp(current.value.appCode, name)
   if (!isApiSuccess(res)) {
     toast.error(getApiMessage(res, '改名失败'))
     return
   }
-  current.value = { ...current.value, appName: name.trim() }
+  current.value = { ...current.value, appName: name }
+  renameOpen.value = false
   void loadApps()
 }
 
 async function ignoreCurrent() {
-  if (!current.value) return
-  if (!window.confirm('忽略后这个应用不再出现在列表里。')) return
+  if (!current.value || !canEdit.value) return
+  const ok = await rsConfirm.confirm({
+    title: '忽略应用',
+    description: `忽略后「${current.value.appName}」不再出现在列表里。`,
+    confirmText: '忽略',
+    teleportTo: `#${moduleId}`,
+  })
+  if (!ok) return
   const res = await ignoreApp(current.value.appCode)
   if (!isApiSuccess(res)) {
     toast.error(getApiMessage(res, '忽略失败'))
@@ -176,6 +244,7 @@ async function ignoreCurrent() {
   }
   current.value = null
   instances.value = []
+  releases.value = []
   void loadApps()
 }
 
@@ -190,6 +259,18 @@ function statusText(status: string) {
   if (status === 'dialing') return '拨号'
   if (status === 'running') return '执行中'
   return status
+}
+
+function kindLabel(value: string) {
+  const map: Record<string, string> = {
+    war: 'WAR',
+    jar: 'JAR',
+    node: 'Node',
+    script: '脚本',
+    static: '静态',
+    runtime: '运行时',
+  }
+  return map[value] || value
 }
 
 onMounted(() => void loadApps())
@@ -224,15 +305,17 @@ useModuleAi(() => ({
         <div class="fg-app-search">
           <RsButton size="sm" variant="ghost" @click="current = null">返回</RsButton>
           <strong>{{ current.appName }}</strong>
-          <span>{{ current.appCode }}</span>
-          <RsButton size="sm" @click="renameCurrent">改名</RsButton>
-          <RsButton size="sm" @click="ignoreCurrent">忽略</RsButton>
+          <span class="fg-app-code">{{ current.appCode }}</span>
+          <RsButton v-if="canEdit" size="sm" @click="renameOpen = true">改名</RsButton>
+          <RsButton v-if="canEdit" size="sm" @click="ignoreCurrent">忽略</RsButton>
+          <RsButton size="sm" variant="ghost" @click="pickOnline">全选在线</RsButton>
         </div>
       </template>
       <FgGrid :data="instances" :columns="instColumns" row-key="instId" :module-id="moduleId">
         <template #pick="{ row }">
           <input type="checkbox" :checked="picked.includes(instOf(row).instId)" @change="toggle(instOf(row).instId)" />
         </template>
+        <template #modeCode="{ row }">{{ instOf(row).modeCode || '—' }}</template>
         <template #runningFlag="{ row }">
           <RsTag size="sm" :variant="instOf(row).runningFlag === 'Y' ? 'success' : 'default'">
             {{ instOf(row).runningFlag === 'Y' ? '在跑' : '已停' }}
@@ -244,25 +327,44 @@ useModuleAi(() => ({
           </RsTag>
         </template>
       </FgGrid>
-      <form class="fg-app-release" @submit.prevent="submitRelease">
+      <form v-if="canRelease" class="fg-app-release" @submit.prevent="submitRelease">
         <select v-model="kind">
-          <option value="war">WAR</option>
-          <option value="jar">JAR</option>
-          <option value="node">Node</option>
-          <option value="script">脚本</option>
-          <option value="static">静态资源</option>
-          <option value="runtime">版本升级</option>
+          <option v-for="item in kindOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
         </select>
         <input v-model="version" placeholder="目标版本" />
         <input type="file" @change="onFile" />
         <RsButton type="submit" size="sm">更新</RsButton>
       </form>
-      <ul v-if="releasing" class="fg-app-progress">
+      <ul v-if="releasing?.items?.length" class="fg-app-progress">
         <li v-for="item in releasing.items" :key="item.commandId">
           {{ item.instId }} {{ statusText(item.status) }} {{ item.message }}
         </li>
       </ul>
+      <div v-if="releases.length" class="fg-app-history">
+        <h4>最近发布</h4>
+        <ul>
+          <li v-for="item in releases" :key="item.releaseId">
+            <button type="button" class="fg-app-history-link" @click="openRelease(item)">
+              {{ item.addTime || '—' }} · {{ kindLabel(item.artifactKind) }} · {{ item.versionText }}
+            </button>
+            <span>{{ item.fileName }}</span>
+          </li>
+        </ul>
+      </div>
     </FgCatalog>
+    <FgDataFormModal
+      v-model:open="renameOpen"
+      title="修改显示名"
+      mode="edit"
+      :fields="renameFields"
+      :initial-data="{ appName: current?.appName ?? '' }"
+      :module-id="moduleId"
+      save-action="edit"
+      :teleport-to="`#${moduleId}`"
+      :auto-close="false"
+      width="420px"
+      @submit="submitRename"
+    />
   </div>
 </template>
 
@@ -273,6 +375,11 @@ useModuleAi(() => ({
   gap: 8px;
   align-items: center;
   padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.fg-app-code {
+  opacity: 0.7;
+  font-size: 12px;
 }
 .fg-app-search input,
 .fg-app-release input,
@@ -284,9 +391,33 @@ useModuleAi(() => ({
   background: transparent;
   color: inherit;
 }
-.fg-app-progress {
+.fg-app-progress,
+.fg-app-history {
   margin: 0;
   padding: 0 16px 12px;
   font-size: 12px;
+}
+.fg-app-history h4 {
+  margin: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.fg-app-history ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fg-app-history li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 0;
+}
+.fg-app-history-link {
+  border: 0;
+  background: transparent;
+  color: var(--rs-primary, #2563eb);
+  cursor: pointer;
+  padding: 0;
 }
 </style>

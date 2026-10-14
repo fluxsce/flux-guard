@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 )
 
 const (

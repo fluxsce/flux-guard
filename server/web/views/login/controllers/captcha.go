@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"fluxguard/server/errcode"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/errcode"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/request"
 	"fluxguard/server/web/views/login/models"
 )

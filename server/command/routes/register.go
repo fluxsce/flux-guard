@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"fluxguard/protocol"
-	"fluxguard/server/agent"
-	"fluxguard/server/apprelease"
+	"fluxguard/server/helper/agent"
+	"fluxguard/server/helper/agentrelease"
+	"fluxguard/server/helper/apprelease"
 	"fluxguard/server/command/service"
-	"fluxguard/server/limits"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/setting"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/request"
@@ -55,7 +56,10 @@ func Register(router *gin.Engine, agents *agent.Store, svc *service.Service) {
 			httpx.WriteCode(c, http.StatusNotFound, "release.missing", "找不到这件制品")
 			return
 		}
-		file, err := apprelease.Open(tenantID, releaseID)
+		file, err := agentrelease.Open(tenantID, releaseID)
+		if err != nil {
+			file, err = apprelease.Open(tenantID, releaseID)
+		}
 		if err != nil {
 			httpx.WriteCode(c, http.StatusNotFound, "release.missing", "找不到这件制品")
 			return
