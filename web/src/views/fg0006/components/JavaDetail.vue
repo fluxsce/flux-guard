@@ -242,7 +242,7 @@ const gcColumns: RsTableColumn<JavaCollector>[] = [
     </FgToolbar>
     <div class="fg-java-detail-body">
       <p class="fg-note">
-        {{ app.javaVersion || '—' }} · {{ app.mainClass || '—' }} · 进程 {{ app.processId || '—' }}
+        {{ app.onlineFlag === 'Y' ? '在线' : '离线' }} · {{ app.javaVersion || '—' }} · {{ app.mainClass || '—' }} · 进程 {{ app.processId || '—' }}
         · {{ app.hostName || '—' }} {{ app.ipAddress || '' }}
         · 启动 {{ clock(app.startTime) }}
         · {{ clock(app.reportedTime) }}

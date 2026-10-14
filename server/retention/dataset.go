@@ -63,8 +63,24 @@ func Datasets() []Dataset {
 			ExtraWhere: "statusCode = 'resolved'",
 		},
 		{Name: "job-log", Table: "FG_JOB_LOG", TimeCol: "addTime", Cutoff: ops},
+		{
+			Name: "shell-session", Table: "FG_SHELL", TimeCol: "addTime", Cutoff: ops,
+			// 只删已关闭的终端。仍打开的会话留给用户接着用。
+			ExtraWhere: "statusFlag = 'C'",
+		},
 		{Name: "event-point", Table: "FG_EVENT_POINT", TimeCol: "addTime", Cutoff: sample},
 		{Name: "ingest-batch", Table: "FG_INGEST_BATCH", TimeCol: "addTime", Cutoff: sample},
+		{
+			Name: "java-run", Table: "FG_JAVA_RUN", TimeCol: "openedTime", Cutoff: sample,
+			// 已结束的代次按开启时间删除。当前代在身份仍于保留期内上报时留下，停报超过保留期的一并删。
+			ExtraWhere: "closedTime IS NOT NULL OR agentId NOT IN (SELECT agentId FROM FG_AGENT_JAVA WHERE tenantId = @tenantId AND reportedTime >= @before)",
+		},
+		{Name: "java-identity", Table: "FG_AGENT_JAVA", TimeCol: "reportedTime", Cutoff: sample},
+		{Name: "host-identity", Table: "FG_AGENT_HOST", TimeCol: "reportedTime", Cutoff: sample},
+		{
+			Name: "agent-identity", Table: "FG_AGENT", TimeCol: "lastSeenTime", Cutoff: sample,
+			// lastSeenTime 为空表示登记后从未上报，不在此删除。
+		},
 	}
 	for _, table := range hostSampleTables {
 		list = append(list, Dataset{
@@ -118,7 +134,7 @@ var componentSampleTables = []string{
 	"FG_COMPONENT_NACOS_METRIC",
 }
 
-// javaSampleTables 是滚动 Java 样本。FG_AGENT_JAVA 是身份，FG_JAVA_RUN 是进程代次，都不在此列。
+// javaSampleTables 是滚动 Java 样本。身份与进程代次按样本保留期单独删除，不跟曲线走 addTime。
 var javaSampleTables = []string{
 	"FG_JAVA_HEAP",
 	"FG_JAVA_GC",

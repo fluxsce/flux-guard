@@ -44,7 +44,7 @@ public final class Agent {
         Report report = new Report(cfg);
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                report.post(Collect.snapshot(cfg.appName));
+                report.post(Collect.snapshot(cfg.appName, cfg.instanceName));
                 Pauses.ack();
             } catch (Exception e) {
                 Pauses.restore();

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FgGrid from '@/components/grid/FgGrid.vue'
+import { RsTag } from '@/ui'
 import type { FgGridColumn, FgGridMenuItem, FgGridSort } from '@/components/grid/types'
 import { bytes, clock, count, millis, percent } from '../composables/format'
 import type { JavaApp } from '../api'
@@ -45,6 +46,11 @@ function findingText(row: JavaApp) {
     @menu-click="emit('menuClick', $event)"
     @update:sort="emit('update:sort', $event)"
   >
+    <template #onlineFlag="{ row }">
+      <RsTag size="sm" :variant="appOf(row).onlineFlag === 'Y' ? 'success' : 'default'">
+        {{ appOf(row).onlineFlag === 'Y' ? '在线' : '离线' }}
+      </RsTag>
+    </template>
     <template #finding="{ row }">
       <span class="fg-finding" :data-level="appOf(row).findingLevel || 'ok'">{{ findingText(appOf(row)) }}</span>
     </template>

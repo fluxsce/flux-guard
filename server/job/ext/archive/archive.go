@@ -23,7 +23,7 @@ func init() {
 	catalog.Register(catalog.Spec{
 		Code:        Code,
 		Title:       "数据归档",
-		Description: "按保留天数硬删审计、运维、已恢复预警与主机样本等过期行。未恢复预警与未完成命令不删。",
+		Description: "按保留天数硬删审计、运维、已关闭终端、已恢复预警、样本、已结束的 Java 进程代次，以及超过样本保留期仍未上报的主机和 Java 身份。未恢复预警、未完成命令、仍打开的终端和仍在上报的身份不删。",
 		Kind:        Kind,
 		Source:      catalog.SourceBuiltin,
 		Scope:       catalog.ScopeTenant,

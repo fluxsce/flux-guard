@@ -26,6 +26,7 @@ type HostRow struct {
 	ProcCount              int64   `json:"procCount"`
 	ZombieCount            int64   `json:"zombieCount"`
 	ReportedTime           string  `json:"reportedTime"`
+	OnlineFlag             string  `json:"onlineFlag"`
 }
 
 // DiskRow 一个挂载点的当前容量。

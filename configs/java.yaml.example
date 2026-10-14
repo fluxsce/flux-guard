@@ -10,7 +10,7 @@
 #   java -javaagent:flux-guard-agent-java.jar -jar your-app.jar
 #
 # 代理参数用分号分隔，写在 -javaagent 或 -jar 后面。可覆盖本文件的项，也可改配置路径：
-#   config、server_url、agent_token、interval_sec、app_name、once
+#   config、server_url、agent_token、interval_sec、app_name、instance_name、once
 #   java -javaagent:flux-guard-agent-java.jar=config=configs/java.yaml;app_name=demo -jar your-app.jar
 #
 # Tomcat 的工作目录不是代理目录，config 要写绝对路径。
@@ -36,4 +36,5 @@
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 上报间隔（秒）
-app_name: # 应用名。留空时用主类或 jar 名
+app_name: # 应用名。留空时用主类或 jar 名。同一服务重启、多台机器都用这个名字
+instance_name: # 同一台机器上这个服务起多份时填写，例如 datahub-1。容器和集群留空，用主机名或 Pod 名区分

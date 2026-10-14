@@ -318,7 +318,7 @@ const procIOColumns: RsTableColumn<HostDetail['procIos'][number]>[] = [
     </FgToolbar>
     <div class="fg-host-detail-body">
       <p class="fg-note">
-        {{ host.osName || '—' }} · {{ host.ipAddress || '—' }}
+        {{ host.onlineFlag === 'Y' ? '在线' : '离线' }} · {{ host.osName || '—' }} · {{ host.ipAddress || '—' }}
         · 内存 {{ bytes(latestValue('内存已用') ?? host.memUsedBytes) }} / {{ bytes(latestValue('内存总量') ?? host.memTotalBytes) }}
         · 负载 {{ fixed(latestValue('负载') ?? host.loadAvg1, 2) }}
         · {{ clock(latestObserved() || host.reportedTime) }}

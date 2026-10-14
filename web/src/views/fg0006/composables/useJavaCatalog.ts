@@ -13,6 +13,7 @@ export const javaSearchFields: FgSearchField[] = [
 ]
 
 export const javaColumns: FgGridColumn[] = [
+  { key: 'onlineFlag', title: '在线', width: 88, sortable: false },
   { key: 'finding', title: '判断', minWidth: 220, ellipsis: true, sortable: false },
   { key: 'appName', title: '应用', minWidth: 140, ellipsis: true },
   { key: 'javaVersion', title: '版本', minWidth: 120, ellipsis: true },

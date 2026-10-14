@@ -92,6 +92,47 @@ func TestJavaListAndSeries(t *testing.T) {
 	}
 }
 
+func TestJavaListCollapsesRestarts(t *testing.T) {
+	db, cleanup, err := store.OpenTemp(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	svc := service.Open(db)
+	now := time.Date(2026, 10, 1, 1, 0, 0, 0, time.UTC)
+	post := func(agent, host, pid string, at time.Time, heap float64) {
+		t.Helper()
+		batch := protocol.Batch{
+			TenantID: "default", AgentID: agent, BatchID: agent + "-" + pid, AgentCode: "java", SentAt: at,
+			Java: &protocol.Java{AppName: "datahub", HostName: host, ProcessID: pid, StartTime: at},
+			Samples: []protocol.Sample{
+				{MetricName: "jvm.heap.used.bytes", MetricValue: heap, ObservedAt: at},
+				{MetricName: "jvm.heap.max.bytes", MetricValue: 100, ObservedAt: at},
+			},
+		}
+		if _, err := svc.Accept(context.Background(), batch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post("old-pid", "box", "11", now, 10)
+	post("new-pid", "box", "22", now.Add(time.Minute), 40)
+	post("other", "pod-b", "33", now.Add(2*time.Minute), 70)
+	rows, total, err := List(db, "default", JavaFilter{}, dbx.Page{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(rows) != 2 {
+		t.Fatalf("rows=%d %+v", total, rows)
+	}
+	byHost := map[string]string{}
+	for _, row := range rows {
+		byHost[row.HostName] = row.AgentID
+	}
+	if byHost["box"] != "new-pid" || byHost["pod-b"] != "other" {
+		t.Fatalf("kept %+v", byHost)
+	}
+}
+
 func TestJavaRestartKeepsSinceStart(t *testing.T) {
 	db, cleanup, err := store.OpenTemp(context.Background())
 	if err != nil {

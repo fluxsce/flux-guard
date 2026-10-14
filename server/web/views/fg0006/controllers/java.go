@@ -28,7 +28,7 @@ func NewJavaController(db *dbx.DB) *JavaController {
 	return &JavaController{db: db}
 }
 
-// QueryApps 返回每个 Java 进程的当前堆、线程和回收累计。
+// QueryApps 返回每个 Java 实例的当前堆、线程和回收累计。
 func (c *JavaController) QueryApps(g *gin.Context) {
 	p := middleware.Principal(g)
 	page := request.PageOf(g)

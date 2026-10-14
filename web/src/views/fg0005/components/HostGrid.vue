@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FgGrid from '@/components/grid/FgGrid.vue'
+import { RsTag } from '@/ui'
 import type { FgGridColumn, FgGridMenuItem, FgGridSort } from '@/components/grid/types'
 import { clock, count, fixed, percent, rate } from '../composables/format'
 import type { HostMonitor } from '../api'
@@ -40,6 +41,11 @@ function hostOf(row: unknown) {
     @menu-click="emit('menuClick', $event)"
     @update:sort="emit('update:sort', $event)"
   >
+    <template #onlineFlag="{ row }">
+      <RsTag size="sm" :variant="hostOf(row).onlineFlag === 'Y' ? 'success' : 'default'">
+        {{ hostOf(row).onlineFlag === 'Y' ? '在线' : '离线' }}
+      </RsTag>
+    </template>
     <template #hostName="{ row }">{{ hostOf(row).reportName || hostOf(row).hostName || '—' }}</template>
     <template #cpuUsagePercent="{ row }">{{ percent(hostOf(row).cpuUsagePercent) }}</template>
     <template #loadAvg1="{ row }">{{ fixed(hostOf(row).loadAvg1, 2) }}</template>

@@ -29,6 +29,7 @@ export interface HostMonitor {
   procCount: number
   zombieCount: number
   reportedTime: string
+  onlineFlag: string
 }
 
 export interface HostDisk {

@@ -3,7 +3,9 @@ package dao
 import (
 	"context"
 	"strings"
+	"time"
 
+	"fluxguard/server/limits"
 	"fluxguard/server/store"
 	"fluxguard/server/web/views/fg0005/models"
 	dbx "github.com/fluxsce/dbx/db"
@@ -69,6 +71,10 @@ func List(db *dbx.DB, tenantID string, filter HostFilter, page dbx.Page) ([]mode
 		item.ProcCount = asInt64(procCount)
 		item.ZombieCount = asInt64(zombie)
 		item.ReportedTime = timeText(reported)
+		item.OnlineFlag = "N"
+		if at, ok := store.TimeValue(reported); ok && time.Since(at) <= limits.OnlineWindow {
+			item.OnlineFlag = "Y"
+		}
 		out = append(out, item)
 	}
 	if out == nil {

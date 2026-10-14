@@ -22,6 +22,7 @@ export interface JavaApp {
   collectionCount: number
   collectionTimeMs: number
   reportedTime: string
+  onlineFlag: string
   findings?: string[]
   findingLevel?: string
 }

@@ -40,15 +40,17 @@ type Host struct {
 	CommandAddress string    `json:"commandAddress,omitempty"`
 }
 
-// Java 是 Java 代理看到的当前进程资料。它不是曲线点，一个进程保留最新一份。
+// Java 是 Java 代理看到的当前进程资料。它不是曲线点，一个实例保留最新一份。
+// InstanceName 区分同一台机器上的同一服务。留空时用主机名或 Pod 名。
 type Java struct {
-	AppName     string    `json:"appName,omitempty"`
-	MainClass   string    `json:"mainClass,omitempty"`
-	ProcessID   string    `json:"processId,omitempty"`
-	JavaVersion string    `json:"javaVersion,omitempty"`
-	StartTime   time.Time `json:"startTime,omitempty"`
-	HostName    string    `json:"hostName,omitempty"`
-	IPAddress   string    `json:"ipAddress,omitempty"`
+	AppName      string    `json:"appName,omitempty"`
+	InstanceName string    `json:"instanceName,omitempty"`
+	MainClass    string    `json:"mainClass,omitempty"`
+	ProcessID    string    `json:"processId,omitempty"`
+	JavaVersion  string    `json:"javaVersion,omitempty"`
+	StartTime    time.Time `json:"startTime,omitempty"`
+	HostName     string    `json:"hostName,omitempty"`
+	IPAddress    string    `json:"ipAddress,omitempty"`
 }
 
 // CollectResult 一个代理这一轮采集的产出，上报时放进 Request。

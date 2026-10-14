@@ -1,6 +1,6 @@
 package models
 
-// JavaRow 一个 Java 进程的当前占用，列表一行。
+// JavaRow 一个 Java 实例的当前占用，列表一行。
 type JavaRow struct {
 	AgentID          string   `json:"agentId"`
 	AppName          string   `json:"appName"`
@@ -19,6 +19,7 @@ type JavaRow struct {
 	CollectionCount  int64    `json:"collectionCount"`
 	CollectionTimeMs int64    `json:"collectionTimeMs"`
 	ReportedTime     string   `json:"reportedTime"`
+	OnlineFlag       string   `json:"onlineFlag"`
 	Findings         []string `json:"findings"`
 	FindingLevel     string   `json:"findingLevel"`
 }

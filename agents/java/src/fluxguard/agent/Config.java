@@ -15,6 +15,7 @@ final class Config {
     String token = "agt_dev_local";
     int intervalSec = 15;
     String appName = "";
+    String instanceName = "";
     boolean once;
 
     static Config load(String args) {
@@ -57,6 +58,10 @@ final class Config {
         String app = first(values, "appName", "app_name");
         if (app != null) {
             cfg.appName = app.trim();
+        }
+        String instance = first(values, "instanceName", "instance_name");
+        if (instance != null) {
+            cfg.instanceName = instance.trim();
         }
         String once = first(values, "once");
         cfg.once = "true".equalsIgnoreCase(once) || "1".equals(once);

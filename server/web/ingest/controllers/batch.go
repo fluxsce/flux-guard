@@ -53,7 +53,7 @@ func (c *BatchController) Accept(g *gin.Context) {
 }
 
 // resolveAgent 用机器编号把同一租户里的多台主机分成多行。
-// Java 进程用主机名加进程号区分。没有机器编号时，仍按登记令牌或种类共用一行。
+// Java 用服务名加实例名。重启后进程号变了仍落在同一行。没有机器编号时，仍按登记令牌或种类共用一行。
 func resolveAgent(agents *agent.Store, tenantID, token string, body protocol.Request) (string, error) {
 	if !protocol.KnownAgent(body.AgentCode) {
 		return "", agent.ErrAgentIdentity
@@ -67,7 +67,9 @@ func resolveAgent(agents *agent.Store, tenantID, token string, body protocol.Req
 	return agents.EnsureReportingAgent(tenantID, body.AgentCode)
 }
 
-// reportingMachineID 取出这一批用来分行的机器编号。主机用操作系统编号，Java 用主机名和进程号。
+// reportingMachineID 取出这一批用来分行的机器编号。
+// 主机用操作系统编号。Java 用「服务名@实例」：实例优先取配置名，否则用主机名或 Pod 名。
+// 进程号不参与编号，同一实例重启仍是这一行。没有主机名时才退回进程号。
 func reportingMachineID(body protocol.Request) string {
 	if body.Host != nil {
 		if id := strings.TrimSpace(body.Host.MachineID); id != "" {
@@ -77,20 +79,30 @@ func reportingMachineID(body protocol.Request) string {
 	if body.Java == nil {
 		return ""
 	}
-	pid := strings.TrimSpace(body.Java.ProcessID)
-	if pid == "" {
+	return javaInstanceID(body.Java)
+}
+
+func javaInstanceID(java *protocol.Java) string {
+	if java == nil {
 		return ""
 	}
-	host := strings.TrimSpace(body.Java.HostName)
-	id := pid
-	if host != "" {
-		id = host + ":" + pid
+	app := strings.TrimSpace(java.AppName)
+	if app == "" {
+		app = "java"
 	}
+	slot := strings.TrimSpace(java.InstanceName)
+	if slot == "" {
+		slot = strings.TrimSpace(java.HostName)
+	}
+	if slot == "" {
+		return clipMachineID(strings.TrimSpace(java.ProcessID))
+	}
+	return clipMachineID(app + "@" + slot)
+}
+
+func clipMachineID(id string) string {
 	if len(id) <= 64 {
 		return id
 	}
-	if len(pid) <= 64 {
-		return pid
-	}
-	return pid[len(pid)-64:]
+	return id[:64]
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"fluxguard/server/store"
 	"fluxguard/server/web/views/fg0006/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
@@ -20,7 +19,8 @@ var javaOrder = map[string]struct{}{
 	"heapUsedPercent": {}, "threadCount": {}, "collectionCount": {}, "reportedTime": {},
 }
 
-// List 返回本租户每个 Java 进程的当前堆、线程和回收累计。当前值在上报时写入 FG_AGENT_JAVA。
+// List 返回每个 Java 实例的当前占用，平铺成一行。
+// 同一实例重启不另起一行；同一主机上按进程号留下的旧记录只保留最近一条。
 func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]models.JavaRow, int64, error) {
 	if db == nil {
 		return []models.JavaRow{}, 0, nil
@@ -28,58 +28,13 @@ func List(db *dbx.DB, tenantID string, filter JavaFilter, page dbx.Page) ([]mode
 	if _, ok := javaOrder[page.OrderBy]; !ok {
 		page.OrderBy = ""
 	}
-	args := dbx.Args{"tenantId": tenantID}
-	where := " WHERE j.tenantId = @tenantId AND j.activeFlag = 'Y'"
-	where += store.LikeClause(args, "j.appName", "appLike", filter.AppName)
-	where += store.LikeClause(args, "j.hostName", "hostLike", filter.HostName)
-	countSQL := "SELECT COUNT(*) FROM FG_AGENT_JAVA j" + where
-	listSQL := `
-		SELECT j.agentId, j.appName AS appName, COALESCE(j.mainClass, ''), COALESCE(j.processId, ''),
-		       COALESCE(j.javaVersion, '') AS javaVersion, j.startTime, COALESCE(j.hostName, '') AS hostName,
-		       COALESCE(j.ipAddress, '') AS ipAddress,
-		       COALESCE(j.heapUsedPercent, 0) AS heapUsedPercent, COALESCE(j.heapUsedBytes, 0), COALESCE(j.heapMaxBytes, 0),
-		       COALESCE(j.nonHeapUsedBytes, 0),
-		       COALESCE(j.threadCount, 0) AS threadCount, COALESCE(j.daemonCount, 0),
-		       COALESCE(j.collectionCount, 0) AS collectionCount, COALESCE(j.collectionTimeMs, 0),
-		       j.reportedTime AS reportedTime
-		FROM FG_AGENT_JAVA j` + where + `
-		ORDER BY j.appName`
-	rows, total, err := db.QueryPage(context.Background(), countSQL, listSQL, page, args)
+	instances, err := listInstances(db, tenantID, filter)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
-	var out []models.JavaRow
-	for rows.Next() {
-		var item models.JavaRow
-		var start, heapPct, heapUsed, heapMax, nonUsed, threads, daemon, gcCount, gcTime, reported any
-		if err := rows.Scan(
-			&item.AgentID, &item.AppName, &item.MainClass, &item.ProcessID, &item.JavaVersion, &start,
-			&item.HostName, &item.IPAddress, &heapPct, &heapUsed, &heapMax, &nonUsed,
-			&threads, &daemon, &gcCount, &gcTime, &reported,
-		); err != nil {
-			return out, total, err
-		}
-		item.StartTime = timeText(start)
-		item.HeapUsedPercent = asFloat(heapPct)
-		if item.HeapUsedPercent >= 0 {
-			item.HeapUsedPercent = shownPercent(item.HeapUsedPercent)
-		}
-		item.HeapUsedBytes = asInt64(heapUsed)
-		item.HeapMaxBytes = asInt64(heapMax)
-		item.NonHeapUsedBytes = asInt64(nonUsed)
-		item.ThreadCount = asInt64(threads)
-		item.DaemonCount = asInt64(daemon)
-		item.CollectionCount = asInt64(gcCount)
-		item.CollectionTimeMs = asInt64(gcTime)
-		item.ReportedTime = timeText(reported)
-		out = append(out, item)
-	}
-	if out == nil {
-		out = []models.JavaRow{}
-	}
-	attachFindings(db, tenantID, out)
-	return out, total, rows.Err()
+	attachFindings(db, tenantID, instances)
+	sortInstances(instances, page)
+	return pageInstances(instances, page), int64(len(instances)), nil
 }
 
 // Detail 返回一个进程最新一批回收器，以及与判断同一行的最近一拍。

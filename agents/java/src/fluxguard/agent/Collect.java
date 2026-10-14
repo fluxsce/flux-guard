@@ -21,7 +21,7 @@ final class Collect {
     private Collect() {
     }
 
-    static String snapshot(String appName) {
+    static String snapshot(String appName, String instanceName) {
         long now = System.currentTimeMillis();
         String at = Instant.ofEpochMilli(now).toString();
         Pauses.install();
@@ -146,6 +146,8 @@ final class Collect {
         }
         body.append("],\"java\":{");
         field(body, "appName", name, true);
+        String instance = instanceName == null ? "" : instanceName.trim();
+        field(body, "instanceName", instance, !instance.isEmpty());
         field(body, "mainClass", mainClass, !mainClass.isEmpty());
         field(body, "processId", pid, true);
         field(body, "javaVersion", who.javaVersion, true);

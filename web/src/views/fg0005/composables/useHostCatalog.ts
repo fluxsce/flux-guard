@@ -13,6 +13,7 @@ export const hostSearchFields: FgSearchField[] = [
 ]
 
 export const hostColumns: FgGridColumn[] = [
+  { key: 'onlineFlag', title: '在线', width: 88, sortable: false },
   { key: 'hostName', title: '主机', minWidth: 140, ellipsis: true },
   { key: 'ipAddress', title: '地址', minWidth: 140, ellipsis: true },
   { key: 'cpuUsagePercent', title: 'CPU', width: 88, align: 'right' },
@@ -30,7 +31,7 @@ export const hostColumns: FgGridColumn[] = [
   { key: 'procCount', title: '进程', width: 80, align: 'right' },
   { key: 'zombieCount', title: '僵尸', width: 80, align: 'right' },
   { key: 'reportedTime', title: '上报时间', width: 180 },
-].map((column) => ({ ...column, sortable: true }) as FgGridColumn)
+].map((column) => ({ ...column, sortable: column.sortable !== false }) as FgGridColumn)
 
 export const hostMenuItems: FgGridMenuItem[] = [{ key: 'monitor', label: '监控', icon: 'activity', code: 'fg0005:view' }]
 

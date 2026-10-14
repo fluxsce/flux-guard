@@ -2,6 +2,7 @@ package retention
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,166 @@ func TestPurgeExpiredAudit(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("remaining %d", count)
+	}
+}
+
+func TestPurgeStopsIdentityGrowth(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup, err := store.OpenTemp(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	archive.Put("retain", archive.Policy{
+		Enabled:         true,
+		Mode:            "interval",
+		IntervalMinutes: 60,
+		Params: archive.Params{
+			OpsLogDays: 30,
+			SampleDays: 14,
+		},
+	})
+	old := store.FormatTime(time.Now().UTC().AddDate(0, 0, -40))
+	fresh := store.FormatTime(time.Now().UTC())
+	insertJavaIdentity(t, ctx, db, "live-java", fresh)
+	insertJavaIdentity(t, ctx, db, "dead-java", old)
+	insertJavaRun(t, ctx, db, "live-open", "live-java", old, "")
+	insertJavaRun(t, ctx, db, "live-closed", "live-java", old, old)
+	insertJavaRun(t, ctx, db, "dead-open", "dead-java", old, "")
+	insertShell(t, ctx, db, "shell-closed", "C", old)
+	insertShell(t, ctx, db, "shell-open", "O", old)
+	insertHostIdentity(t, ctx, db, "live-host", fresh)
+	insertHostIdentity(t, ctx, db, "dead-host", old)
+	insertAgent(t, ctx, db, "live-agent", fresh)
+	insertAgent(t, ctx, db, "dead-agent", old)
+	insertAgent(t, ctx, db, "never-agent", "")
+
+	for _, name := range []string{"java-run", "java-identity", "host-identity", "agent-identity", "shell-session"} {
+		if err := runNamed(ctx, db, name, "retain"); err != nil {
+			t.Fatal(name, err)
+		}
+	}
+	assertCount(t, ctx, db, "FG_JAVA_RUN", "retain", 1)
+	assertCount(t, ctx, db, "FG_AGENT_JAVA", "retain", 1)
+	assertCount(t, ctx, db, "FG_AGENT_HOST", "retain", 1)
+	assertCount(t, ctx, db, "FG_SHELL", "retain", 1)
+	var agents int
+	if err := store.Scan(ctx, db, `SELECT count(*) FROM FG_AGENT WHERE tenantId = @tenantId AND agentId IN ('live-agent','dead-agent','never-agent')`,
+		dbx.Args{"tenantId": "retain"}, &agents); err != nil {
+		t.Fatal(err)
+	}
+	if agents != 2 {
+		t.Fatalf("agents remaining %d", agents)
+	}
+}
+
+func runNamed(ctx context.Context, db *dbx.DB, name, tenantID string) error {
+	for _, job := range NewJobs(db) {
+		if job.Name() == name {
+			_, err := job.Run(ctx, []string{tenantID})
+			return err
+		}
+	}
+	return errors.New("missing job " + name)
+}
+
+func assertCount(t *testing.T, ctx context.Context, db *dbx.DB, table, tenantID string, want int) {
+	t.Helper()
+	var count int
+	err := store.Scan(ctx, db, `SELECT count(*) FROM `+table+` WHERE tenantId = @tenantId`, dbx.Args{"tenantId": tenantID}, &count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != want {
+		t.Fatalf("%s remaining %d, want %d", table, count, want)
+	}
+}
+
+func insertJavaIdentity(t *testing.T, ctx context.Context, db *dbx.DB, agentID, reported string) {
+	t.Helper()
+	_, err := db.Exec(ctx, `
+		INSERT INTO FG_AGENT_JAVA (
+		  agentId, tenantId, appName, reportedTime,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @agentId, 'retain', 'app', @reported,
+		  @reported, 'system', @reported, 'system', 'T', 1, 'Y'
+		)`, dbx.Args{"agentId": agentID, "reported": reported})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertJavaRun(t *testing.T, ctx context.Context, db *dbx.DB, runID, agentID, opened, closed string) {
+	t.Helper()
+	var closedAt any
+	if closed != "" {
+		closedAt = closed
+	}
+	_, err := db.Exec(ctx, `
+		INSERT INTO FG_JAVA_RUN (
+		  runId, agentId, tenantId, startTime, openedTime, closedTime,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @runId, @agentId, 'retain', @opened, @opened, @closed,
+		  @opened, 'system', @opened, 'system', 'T', 1, 'Y'
+		)`, dbx.Args{"runId": runID, "agentId": agentID, "opened": opened, "closed": closedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertShell(t *testing.T, ctx context.Context, db *dbx.DB, shellID, status, addTime string) {
+	t.Helper()
+	_, err := db.Exec(ctx, `
+		INSERT INTO FG_SHELL (
+		  shellId, tenantId, agentId, userId, shellTitle, shellNo, statusFlag,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @shellId, 'retain', 'agent', 'u1', '终端', 1, @status,
+		  @addTime, 'system', @addTime, 'system', 'T', 1, 'Y'
+		)`, dbx.Args{"shellId": shellID, "status": status, "addTime": addTime})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertHostIdentity(t *testing.T, ctx context.Context, db *dbx.DB, agentID, reported string) {
+	t.Helper()
+	_, err := db.Exec(ctx, `
+		INSERT INTO FG_AGENT_HOST (
+		  agentId, tenantId, hostName, osName, archName, reportedTime,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @agentId, 'retain', 'box', 'linux', 'amd64', @reported,
+		  @reported, 'system', @reported, 'system', 'T', 1, 'Y'
+		)`, dbx.Args{"agentId": agentID, "reported": reported})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertAgent(t *testing.T, ctx context.Context, db *dbx.DB, agentID, seen string) {
+	t.Helper()
+	var last any
+	if seen != "" {
+		last = seen
+	}
+	stamp := seen
+	if stamp == "" {
+		stamp = store.FormatTime(time.Now().UTC())
+	}
+	_, err := db.Exec(ctx, `
+		INSERT INTO FG_AGENT (
+		  agentId, tenantId, agentName, agentTokenHash, lastSeenTime,
+		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  @agentId, 'retain', @agentId, 'hash', @seen,
+		  @stamp, 'system', @stamp, 'system', 'T', 1, 'Y'
+		)`, dbx.Args{"agentId": agentID, "seen": last, "stamp": stamp})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
