@@ -42,7 +42,7 @@ func main() {
 		AgentCode:  host.Code,
 		MachineID:  host.MachineID(),
 		Listen:     cfg.CommandListen,
-	}, func(cmdCtx context.Context, call protocol.CommandCall) (string, error) {
+	}, func(cmdCtx context.Context, call protocol.CommandCall) (protocol.CommandOutcome, error) {
 		return runCommand(cmdCtx, cfg, ctl, call)
 	}, func(addr string) {
 		commandAddr.Store(addr)
@@ -71,19 +71,23 @@ func main() {
 	}, ctl)
 }
 
-func runCommand(ctx context.Context, cfg report.Config, ctl *report.Control, call protocol.CommandCall) (string, error) {
+func runCommand(ctx context.Context, cfg report.Config, ctl *report.Control, call protocol.CommandCall) (protocol.CommandOutcome, error) {
 	switch call.Action {
 	case protocol.ActionCollectNow:
 		ctl.Nudge()
-		return "已触发采集", nil
+		return protocol.CommandOutcome{Message: "已触发采集"}, nil
 	case protocol.ActionIntervalSet:
 		if err := ctl.SetInterval(call.IntervalSec); err != nil {
-			return "", err
+			return protocol.CommandOutcome{}, err
 		}
-		return fmt.Sprintf("上报间隔已改为 %d 秒", call.IntervalSec), nil
+		return protocol.CommandOutcome{Message: fmt.Sprintf("上报间隔已改为 %d 秒", call.IntervalSec)}, nil
 	case protocol.ActionAgentUpdate:
-		return agentupdate.Apply(ctx, cfg.ServerURL, cfg.AgentToken, host.Code, host.MachineID(), call)
+		msg, err := agentupdate.Apply(ctx, cfg.ServerURL, cfg.AgentToken, host.Code, host.MachineID(), call)
+		if err != nil {
+			return protocol.CommandOutcome{Message: err.Error()}, err
+		}
+		return protocol.CommandOutcome{Message: msg}, nil
 	default:
-		return "", fmt.Errorf("不支持的动作 %s", call.Action)
+		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", call.Action)
 	}
 }

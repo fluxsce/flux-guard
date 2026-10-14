@@ -4,14 +4,31 @@ import { getDefaultPageSize, pageSizePolicy } from '@/api/pagination'
 import type { FgFormField, FgFormMode, FgSearchField } from '@/components/form/types'
 import type { FgGridMenuItem } from '@/components/grid/types'
 import { useSessionStore } from '@/stores/session'
-import { useRsToast } from '@/ui'
-import { dispatchCommand, queryAgents, queryCommand, registerAgent, type Agent, type CommandView } from '../api'
+import { rsConfirm, useRsToast } from '@/ui'
+import {
+  deleteAgents,
+  dispatchCommand,
+  queryAgents,
+  queryCommand,
+  registerAgent,
+  renameAgent,
+  type Agent,
+  type CommandView,
+} from '../api'
 
 export type FlagOption = { label: string; value: string }
 
 export const onlineOptions: FlagOption[] = [
   { label: '在线', value: 'Y' },
   { label: '离线', value: 'N' },
+]
+
+export const agentCodeOptions: FlagOption[] = [
+  { label: '主机', value: 'host' },
+  { label: 'Go', value: 'go' },
+  { label: 'Go', value: 'app' },
+  { label: 'Java', value: 'java' },
+  { label: '应用', value: 'appside' },
 ]
 
 export const agentColumns = [
@@ -28,6 +45,11 @@ export const agentColumns = [
   { key: 'lastSeenTime', title: '最近心跳', width: 180 },
 ]
 
+/** 代理种类展示名。同机可同时跑主机 / Go / 应用代理，列表用种类区分。 */
+export function agentCodeLabel(value: string) {
+  return flagLabel(agentCodeOptions, value)
+}
+
 /** 是否支持中央自更新的代理种类。 */
 export function isUpgradableAgent(row: { agentCode?: string } | null | undefined) {
   if (!row?.agentCode) return false
@@ -41,6 +63,7 @@ export function isHostAgent(row: { agentCode?: string } | null | undefined) {
 
 export const agentMenuItems: FgGridMenuItem[] = [
   { key: 'view', label: '查看', icon: 'eye' },
+  { key: 'rename', label: '改名', icon: 'pencil', code: 'fg0002:edit' },
   {
     key: 'collect',
     label: '立即采集',
@@ -63,6 +86,7 @@ export const agentMenuItems: FgGridMenuItem[] = [
     disabled: (row) => !isHostAgent(row),
   },
   { key: 'history', label: '操作记录', icon: 'history', code: 'fg0002:view' },
+  { key: 'delete', label: '删除', icon: 'trash', code: 'fg0002:delete', danger: true },
 ]
 
 export const agentSearchFields: FgSearchField[] = [
@@ -80,6 +104,10 @@ export const agentSearchFields: FgSearchField[] = [
 export const agentCreateFields: FgFormField[] = [
   { field: 'agentName', label: '名称', required: true, placeholder: '在列表里认出这台代理' },
   { field: 'hostName', label: '主机' },
+]
+
+export const agentRenameFields: FgFormField[] = [
+  { field: 'agentName', label: '显示名', required: true, placeholder: '只改列表显示，不影响身份分行' },
 ]
 
 export const agentFormFields: FgFormField[] = [
@@ -157,8 +185,11 @@ export function useAgentCatalog() {
   const formMode = ref<FgFormMode>('view')
   const current = ref<Record<string, unknown>>({})
   const active = ref<Agent | null>(null)
+  const selectedKeys = ref<string[]>([])
   const intervalOpen = ref(false)
   const intervalCurrent = ref<Record<string, unknown>>({ intervalSec: 15 })
+  const renameOpen = ref(false)
+  const renameCurrent = ref<Record<string, unknown>>({})
   const commandBusy = ref(false)
   let commandToken = 0
 
@@ -199,6 +230,11 @@ export function useAgentCatalog() {
     }
   }
 
+  function syncSelected() {
+    const alive = new Set(filtered.value.map((item) => item.agentId))
+    selectedKeys.value = selectedKeys.value.filter((id) => alive.has(id))
+  }
+
   async function reload() {
     if (!allow('fg0002:search')) return
     const result = await queryAgents()
@@ -209,6 +245,7 @@ export function useAgentCatalog() {
     }
     rows.value = parseApiData<Agent[]>(result) ?? []
     syncActive()
+    syncSelected()
   }
 
   function openView(row: Agent) {
@@ -232,6 +269,40 @@ export function useAgentCatalog() {
     active.value = target
     intervalCurrent.value = { intervalSec: 15 }
     intervalOpen.value = true
+  }
+
+  function openRename(row?: Agent) {
+    const target = row ?? active.value
+    if (!target || !allow('fg0002:edit')) return
+    active.value = target
+    renameCurrent.value = { agentName: target.agentName || '' }
+    renameOpen.value = true
+  }
+
+  async function submitRename(values: Record<string, unknown>) {
+    const target = active.value
+    if (!target || !allow('fg0002:edit')) return
+    const agentName = str(values.agentName).trim()
+    if (!agentName) {
+      error.value = '请填写显示名'
+      toast.error(error.value)
+      return
+    }
+    error.value = ''
+    try {
+      const result = await renameAgent(target.agentId, agentName)
+      if (!isApiSuccess(result)) {
+        error.value = getApiMessage(result, '改名失败')
+        toast.error(error.value)
+        return
+      }
+      renameOpen.value = false
+      toast.success('已更新显示名')
+      await reload()
+    } catch (err) {
+      error.value = getHttpErrorMessage(err, '改名失败')
+      toast.error(error.value)
+    }
   }
 
   async function submitAgent(values: Record<string, unknown>) {
@@ -350,8 +421,61 @@ export function useAgentCatalog() {
     active.value = row
   }
 
+  /** 解析待删代理：右键传入单行；工具栏优先勾选，否则用当前高亮行。 */
+  function targetsForRemove(row?: Agent): Agent[] {
+    if (row) return [row]
+    if (selectedKeys.value.length > 0) {
+      const picked = new Set(selectedKeys.value)
+      return filtered.value.filter((item) => picked.has(item.agentId))
+    }
+    return active.value ? [active.value] : []
+  }
+
+  async function removeAgents(row?: Agent) {
+    if (!allow('fg0002:delete')) return
+    const targets = targetsForRemove(row)
+    if (targets.length === 0) {
+      error.value = '请先勾选或选中要删除的代理'
+      toast.error(error.value)
+      return
+    }
+    const names = targets.map((item) => item.agentName || item.agentId).join('、')
+    const ok = await rsConfirm.confirm({
+      title: '删除代理',
+      description:
+        targets.length === 1
+          ? `确定删除代理 ${names}？将从库中移除该代理及身份、终端、命令等关联数据；同机再次上报会新建一行。`
+          : `确定删除选中的 ${targets.length} 台代理（${names}）？将从库中移除这些代理及身份、终端、命令等关联数据。`,
+      confirmText: '删除',
+      confirmVariant: 'danger',
+      overlayBlur: 0,
+      teleportTo: '#fg0002',
+    })
+    if (!ok) return
+    error.value = ''
+    try {
+      const result = await deleteAgents(targets.map((item) => item.agentId))
+      if (!isApiSuccess(result)) {
+        error.value = getApiMessage(result, '删除失败')
+        toast.error(error.value)
+        return
+      }
+      const deleted = parseApiData<{ deleted?: number }>(result)?.deleted ?? targets.length
+      if (active.value && targets.some((item) => item.agentId === active.value?.agentId)) {
+        active.value = null
+      }
+      selectedKeys.value = []
+      toast.success(`已删除 ${deleted} 台代理`)
+      await reload()
+    } catch (err) {
+      error.value = getHttpErrorMessage(err, '删除失败')
+      toast.error(error.value)
+    }
+  }
+
   async function onSearch(values: Record<string, unknown>) {
     page.value = 1
+    selectedKeys.value = []
     query.value = {
       agentName: str(values.agentName),
       hostName: str(values.hostName),
@@ -362,6 +486,7 @@ export function useAgentCatalog() {
 
   async function onReset() {
     page.value = 1
+    selectedKeys.value = []
     query.value = { agentName: '', hostName: '', onlineFlag: '' }
     await reload()
   }
@@ -399,17 +524,23 @@ export function useAgentCatalog() {
     formMode,
     current,
     active,
+    selectedKeys,
     rows,
     pageRows,
     intervalOpen,
     intervalCurrent,
+    renameOpen,
+    renameCurrent,
     commandBusy,
     openView,
     openCreate,
     openInterval,
+    openRename,
     submitAgent,
     submitInterval,
+    submitRename,
     collect,
+    removeAgents,
     onRow,
     onSearch,
     onReset,

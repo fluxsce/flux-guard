@@ -90,6 +90,7 @@ INSERT OR IGNORE INTO FG_AUTH_ROLE_RESOURCE (
   addWho, editWho, oprSeqFlag, currentVersion, activeFlag
 ) VALUES
 ('RR_SA_fg0002_upgrade', 'default', 'ROLE_SUPER_ADMIN', 'fg0002:upgrade', 'ALLOW', 'system', 'system', 'system', 'INIT', 1, 'Y'),
+('RR_SA_fg0002_delete', 'default', 'ROLE_SUPER_ADMIN', 'fg0002:delete', 'ALLOW', 'system', 'system', 'system', 'INIT', 1, 'Y'),
 ('RR_SA_fg0008', 'default', 'ROLE_SUPER_ADMIN', 'fg0008', 'ALLOW', 'system', 'system', 'system', 'INIT', 1, 'Y'),
 ('RR_SA_fg0008_search', 'default', 'ROLE_SUPER_ADMIN', 'fg0008:search', 'ALLOW', 'system', 'system', 'system', 'INIT', 1, 'Y'),
 ('RR_SA_fg0008_view', 'default', 'ROLE_SUPER_ADMIN', 'fg0008:view', 'ALLOW', 'system', 'system', 'system', 'INIT', 1, 'Y'),

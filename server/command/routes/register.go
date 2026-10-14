@@ -1,17 +1,22 @@
 package commandroutes
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"fluxguard/protocol"
+	"fluxguard/server/command/service"
 	"fluxguard/server/helper/agent"
 	"fluxguard/server/helper/agentrelease"
+	"fluxguard/server/helper/appfile"
+	"fluxguard/server/helper/applist"
 	"fluxguard/server/helper/apprelease"
-	"fluxguard/server/command/service"
-	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/setting"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/request"
 	"github.com/gin-gonic/gin"
@@ -86,6 +91,74 @@ func Register(router *gin.Engine, agents *agent.Store, svc *service.Service) {
 			return
 		}
 		httpx.WriteOK(c, map[string]string{"commandId": body.CommandID})
+	})
+	router.POST(protocol.FilePushPath, func(c *gin.Context) {
+		tenantID, _, ok := agentIdentity(c, agents)
+		if !ok {
+			return
+		}
+		commandID := strings.TrimSpace(c.PostForm("commandId"))
+		if commandID == "" {
+			httpx.WriteErr(c, http.StatusBadRequest, "缺少命令")
+			return
+		}
+		file, header, err := c.Request.FormFile("file")
+		if err != nil {
+			httpx.WriteErr(c, http.StatusBadRequest, "请上传文件")
+			return
+		}
+		defer file.Close()
+		if header.Size > 512<<20 {
+			httpx.WriteErr(c, http.StatusBadRequest, "文件超过 512MB")
+			return
+		}
+		if err := appfile.Save(tenantID, commandID, file); err != nil {
+			httpx.WriteErr(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		name := filepath.Base(strings.TrimSpace(header.Filename))
+		if name == "" || name == "." {
+			name = commandID
+		}
+		if path, err := appfile.Path(tenantID, commandID); err == nil {
+			_ = os.WriteFile(path+".name", []byte(name), 0o644)
+		}
+		httpx.WriteOK(c, map[string]string{"commandId": commandID})
+	})
+	router.POST(protocol.FileListPushPath, func(c *gin.Context) {
+		tenantID, agentID, ok := agentIdentity(c, agents)
+		if !ok {
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<20)
+		var body struct {
+			CommandID string                 `json:"commandId"`
+			Instance  string                 `json:"instance"`
+			Artifacts []protocol.AppArtifact `json:"artifacts"`
+		}
+		if err := json.NewDecoder(c.Request.Body).Decode(&body); err != nil {
+			httpx.WriteErr(c, http.StatusBadRequest, "清单格式无效")
+			return
+		}
+		commandID := strings.TrimSpace(body.CommandID)
+		if commandID == "" {
+			httpx.WriteErr(c, http.StatusBadRequest, "缺少命令")
+			return
+		}
+		instance, err := svc.ListCommandMeta(c.Request.Context(), tenantID, agentID, commandID)
+		if err != nil {
+			httpx.WriteErr(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if inst := strings.TrimSpace(body.Instance); inst != "" && inst != instance {
+			httpx.WriteErr(c, http.StatusBadRequest, "实例与命令不一致")
+			return
+		}
+		if err := applist.Save(tenantID, commandID, body.Artifacts); err != nil {
+			httpx.WriteErr(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.WriteOK(c, map[string]string{"commandId": commandID, "instance": instance})
 	})
 }
 

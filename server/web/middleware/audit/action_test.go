@@ -18,6 +18,7 @@ func TestActionOf(t *testing.T) {
 		{"/fluxguard/api/fg0021/saveUserRoles", "fg0021:grant", ActionGrant},
 		{"/fluxguard/api/fg0022/saveRoleResources", "fg0022:edit", ActionGrant},
 		{"/fluxguard/api/fg0002/registerAgent", "fg0002:edit", ActionCreate},
+		{"/fluxguard/api/fg0002/deleteAgents", "fg0002:delete", ActionDelete},
 		{"/fluxguard/api/fg0002/dispatchCommand", "fg0002:command", ActionCommand},
 		{"/fluxguard/api/fg0002/openShell", "fg0002:shell", ActionCommand},
 		{"/fluxguard/api/fg0002/closeShell", "fg0002:shell", ActionCommand},

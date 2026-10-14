@@ -26,7 +26,11 @@ var shellRunner = func(ctx context.Context, cmdline string) error {
 }
 
 // Running 查看这一套是否在跑。服务名或命令来自本机配置，不来自中央命令。
+// mode=files 是制品目录仓，没有进程，恒为未运行。
 func Running(ctx context.Context, rt Runtime) bool {
+	if strings.TrimSpace(rt.Mode) == "files" {
+		return false
+	}
 	switch strings.TrimSpace(rt.Kind) {
 	case "systemd":
 		service := strings.TrimSpace(rt.Service)

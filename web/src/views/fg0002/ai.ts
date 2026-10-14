@@ -1,7 +1,7 @@
 import { defineTools } from '@/ai/catalog'
 import { unwrap } from '@/ai/call'
-import { argNumber, argString } from '@/ai/validate'
-import { dispatchCommand, queryAgents, registerAgent } from './api'
+import { argNumber, argString, argStrings } from '@/ai/validate'
+import { deleteAgents, dispatchCommand, queryAgents, registerAgent, renameAgent } from './api'
 
 defineTools([
   {
@@ -26,6 +26,31 @@ defineTools([
       { name: 'hostName', type: 'string', description: '主机名' },
     ],
     execute: async (args) => unwrap(await registerAgent(argString(args, 'agentName'), argString(args, 'hostName')), '登记失败'),
+  },
+  {
+    name: 'fg0002.rename',
+    moduleId: 'fg0002',
+    title: '改代理显示名',
+    description: '只改列表显示名。同机多代理仍按种类和机器编号分行，上报不会冲掉改过的名字。',
+    risk: 'write',
+    resourceCode: 'fg0002:edit',
+    parameters: [
+      { name: 'agentId', type: 'string', description: '代理编号', required: true },
+      { name: 'agentName', type: 'string', description: '显示名', required: true },
+    ],
+    execute: async (args) => unwrap(await renameAgent(argString(args, 'agentId'), argString(args, 'agentName')), '改名失败'),
+  },
+  {
+    name: 'fg0002.delete',
+    moduleId: 'fg0002',
+    title: '删除代理',
+    description: '物理删除一台或多台采集代理及身份、终端、命令等关联数据。',
+    risk: 'write',
+    resourceCode: 'fg0002:delete',
+    parameters: [
+      { name: 'agentIds', type: 'string[]', description: '代理编号列表', required: true },
+    ],
+    execute: async (args) => unwrap(await deleteAgents(argStrings(args, 'agentIds')), '删除失败'),
   },
   {
     name: 'fg0002.command',

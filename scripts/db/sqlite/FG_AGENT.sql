@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS FG_AGENT (
   agentVersion TEXT,
   goos TEXT,
   goarch TEXT,
+  commandAddress TEXT,
   agentTokenHash TEXT NOT NULL,
   statusFlag TEXT NOT NULL DEFAULT 'Y',
   lastSeenTime TEXT,
@@ -40,6 +41,8 @@ CREATE INDEX IF NOT EXISTS IDX_FG_AGENT_ADD ON FG_AGENT(tenantId, addTime);
 ALTER TABLE FG_AGENT ADD COLUMN agentVersion TEXT;
 ALTER TABLE FG_AGENT ADD COLUMN goos TEXT;
 ALTER TABLE FG_AGENT ADD COLUMN goarch TEXT;
+-- 命令端口写在代理行上，采集列表只读 FG_AGENT；拨号仍按种类读专表。
+ALTER TABLE FG_AGENT ADD COLUMN commandAddress TEXT;
 
 INSERT INTO FG_AGENT (
   agentId, tenantId, agentName, hostName, ipAddress, agentTokenHash, statusFlag,

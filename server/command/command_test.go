@@ -38,8 +38,8 @@ func TestDispatchPushAndPull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := httptest.NewServer(agentcommand.Handler(setting.DevIngestPlain, func(context.Context, protocol.CommandCall) (string, error) {
-		return "已触发采集", nil
+	agent := httptest.NewServer(agentcommand.Handler(setting.DevIngestPlain, func(context.Context, protocol.CommandCall) (protocol.CommandOutcome, error) {
+		return protocol.CommandOutcome{Message: "已触发采集"}, nil
 	}))
 	t.Cleanup(agent.Close)
 	insertHost(t, db, agentID, strings.TrimPrefix(agent.URL, "http://"), "127.0.0.1")

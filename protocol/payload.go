@@ -54,7 +54,8 @@ type Java struct {
 }
 
 // AppArtifact 是应用侧代理看到的一个可更新制品。
-// Kind 只允许 war、jar、static、node、script。WAR/JAR 版本来自文件名里的 ##，没有则为空。
+// Kind 只允许 war、jar、static、node、script。mode=files 的目录仓也按扩展名报 war/jar/static。
+// WAR/JAR 版本来自文件名里的 ##，没有则为空。
 type AppArtifact struct {
 	AppName string `json:"appName"`
 	Kind    string `json:"kind"`

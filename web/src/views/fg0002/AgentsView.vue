@@ -13,10 +13,12 @@ import AgentHistoryDialog from './components/AgentHistoryDialog.vue'
 import AgentUpgradeDialog from './components/AgentUpgradeDialog.vue'
 import ShellDock from './components/ShellDock.vue'
 import {
+  agentCodeLabel,
   agentColumns,
   agentCreateFields,
   agentFormFields,
   agentMenuItems,
+  agentRenameFields,
   agentSearchFields,
   flagLabel,
   intervalFields,
@@ -34,18 +36,24 @@ const {
   formMode,
   current,
   active,
+  selectedKeys,
   rows,
   total,
   pageRows,
   intervalOpen,
   intervalCurrent,
+  renameOpen,
+  renameCurrent,
   commandBusy,
   openView,
   openCreate,
   openInterval,
+  openRename,
   submitAgent,
   submitInterval,
+  submitRename,
   collect,
+  removeAgents,
   onRow,
   onSearch,
   onReset,
@@ -55,6 +63,7 @@ const {
 const formFields = computed(() => (formMode.value === 'view' ? agentFormFields : agentCreateFields))
 const formTitle = computed(() => (formMode.value === 'create' ? '登记代理' : '代理'))
 const canCommand = computed(() => isHostAgent(active.value) && !commandBusy.value)
+const canDelete = computed(() => selectedKeys.value.length > 0 || !!active.value)
 
 const toolbarButtons = computed<FgToolbarButton[]>(() => [
   { key: 'edit', label: '登记', icon: 'plus', onClick: openCreate },
@@ -66,6 +75,22 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
     onClick: () => {
       if (active.value) openView(active.value)
     },
+  },
+  {
+    key: 'rename',
+    label: '改名',
+    icon: 'pencil',
+    code: 'fg0002:edit',
+    disabled: !active.value,
+    onClick: () => openRename(),
+  },
+  {
+    key: 'delete',
+    label: selectedKeys.value.length > 1 ? `删除(${selectedKeys.value.length})` : '删除',
+    icon: 'trash',
+    code: 'fg0002:delete',
+    disabled: !canDelete.value,
+    onClick: () => void removeAgents(),
   },
   {
     key: 'collect',
@@ -124,6 +149,7 @@ useModuleAi(
       formMode: formMode.value,
       selectedAgentId: active.value?.agentId ?? '',
       selectedAgentName: active.value?.agentName ?? '',
+      selectedCount: selectedKeys.value.length,
       online: pageRows.value.filter((row) => row.onlineFlag === 'Y').length,
     }),
   }),
@@ -170,10 +196,12 @@ function openHistory(row?: Agent) {
 function onMenu(payload: { key: string; row: Agent | null }) {
   if (!payload.row) return
   if (payload.key === 'view') openView(payload.row)
+  if (payload.key === 'rename') openRename(payload.row)
   if (payload.key === 'collect') collect(payload.row)
   if (payload.key === 'interval') openInterval(payload.row)
   if (payload.key === 'shell') void openShell(payload.row)
   if (payload.key === 'history') openHistory(payload.row)
+  if (payload.key === 'delete') void removeAgents(payload.row)
 }
 </script>
 
@@ -195,12 +223,17 @@ function onMenu(payload: { key: string; row: Agent | null }) {
         :data="pageRows"
         :columns="agentColumns"
         row-key="agentId"
+        selectable
+        v-model:selected-row-keys="selectedKeys"
         :module-id="moduleId"
         :menu-items="agentMenuItems"
         @row-click="onRow"
         @row-dblclick="openView"
         @menu-click="onMenu"
       >
+        <template #agentCode="{ row }">
+          {{ agentCodeLabel(String((row as Agent).agentCode ?? '')) }}
+        </template>
         <template #onlineFlag="{ row }">
           <RsTag size="sm" :variant="(row as Agent).onlineFlag === 'Y' ? 'success' : 'default'">
             {{ flagLabel(onlineOptions, String((row as Agent).onlineFlag ?? '')) }}
@@ -246,6 +279,18 @@ function onMenu(payload: { key: string; row: Agent | null }) {
       save-action="command"
       :teleport-to="`#${moduleId}-layer`"
       @submit="submitInterval"
+    />
+    <FgDataFormModal
+      v-model:open="renameOpen"
+      mode="create"
+      title="修改显示名"
+      :fields="agentRenameFields"
+      :initial-data="renameCurrent"
+      :auto-close="false"
+      :module-id="moduleId"
+      save-action="edit"
+      :teleport-to="`#${moduleId}-layer`"
+      @submit="submitRename"
     />
     <div :id="`${moduleId}-layer`" class="fg-layer" />
   </div>

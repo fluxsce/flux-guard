@@ -131,7 +131,7 @@ func checkAppSide(side *protocol.AppSide) error {
 		return errAppSide
 	}
 	switch strings.TrimSpace(side.Mode) {
-	case "tomcat", "node", "script", "jar", "static":
+	case "tomcat", "node", "script", "jar", "static", "files":
 	default:
 		return errAppSide
 	}
@@ -149,7 +149,7 @@ func checkAppSide(side *protocol.AppSide) error {
 			return errAppSide
 		}
 		switch strings.TrimSpace(item.Kind) {
-		case "war", "jar", "static", "node", "script":
+		case "war", "jar", "static", "node", "script", "runtime", "dir", "log":
 		default:
 			return errAppSide
 		}

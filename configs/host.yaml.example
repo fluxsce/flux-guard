@@ -3,7 +3,7 @@
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 上报间隔（秒）
-report_name: 本机主机 # 上报名称，写入 FG_HOST.reportName，并更新 FG_AGENT.agentName
+report_name: 本机主机 # 写入主机专表 reportName；仅当代理仍是系统底名时同步到列表显示名，手工改名后不再覆盖
 command_listen: 127.0.0.1:7700 # 命令端口。留空或没有 agent_token 时不监听，只拉取。校验与上报同一把令牌
 shell_enabled: false # 生产环境保持 false。本机调试交互终端时再改为 true
 

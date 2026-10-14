@@ -51,6 +51,7 @@ INSERT OR IGNORE INTO FG_AUTH_RESOURCE (
 ('fg0002:search', 'default', '查询', 'fg0002:search', 'BUTTON', NULL, 'fg0002', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:view', 'default', '查看', 'fg0002:view', 'BUTTON', NULL, 'fg0002', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:edit', 'default', '登记代理', 'fg0002:edit', 'BUTTON', NULL, 'fg0002', 3, 30, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
+('fg0002:delete', 'default', '删除代理', 'fg0002:delete', 'BUTTON', NULL, 'fg0002', 3, 35, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:command', 'default', '下发命令', 'fg0002:command', 'BUTTON', NULL, 'fg0002', 3, 40, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:upgrade', 'default', '升级代理', 'fg0002:upgrade', 'BUTTON', NULL, 'fg0002', 3, 45, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:shell', 'default', '打开终端', 'fg0002:shell', 'BUTTON', NULL, 'fg0002', 3, 50, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
@@ -72,7 +73,7 @@ INSERT OR IGNORE INTO FG_AUTH_RESOURCE (
 ('fg0007:zk', 'default', 'ZooKeeper', 'fg0007:zk', 'BUTTON', NULL, 'fg0007', 3, 80, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0007:nacos', 'default', 'Nacos', 'fg0007:nacos', 'BUTTON', NULL, 'fg0007', 3, 90, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0007:shell', 'default', '打开终端', 'fg0007:shell', 'BUTTON', NULL, 'fg0007', 3, 100, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
-('fg0008', 'default', '应用', 'fg0008', 'MODULE', '/fg0008', 'group:observe', 2, 48, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
+('fg0008', 'default', '应用管理', 'fg0008', 'MODULE', '/fg0008', 'group:observe', 2, 48, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0008:search', 'default', '查询', 'fg0008:search', 'BUTTON', NULL, 'fg0008', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0008:view', 'default', '查看', 'fg0008:view', 'BUTTON', NULL, 'fg0008', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0008:edit', 'default', '改名', 'fg0008:edit', 'BUTTON', NULL, 'fg0008', 3, 30, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
@@ -150,7 +151,7 @@ WHERE tenantId = 'default' AND resourceId = 'group:app';
 
 -- 已有库若已有 fg0008 行，校正归属到运行观测。
 UPDATE FG_AUTH_RESOURCE
-SET resourceName = '应用', resourceCode = 'fg0008', resourcePath = '/fg0008', parentResourceId = 'group:observe',
+SET resourceName = '应用管理', resourceCode = 'fg0008', resourcePath = '/fg0008', parentResourceId = 'group:observe',
     sortOrder = 48, resourceStatus = 'Y', activeFlag = 'Y'
 WHERE tenantId = 'default' AND resourceId = 'fg0008';
 

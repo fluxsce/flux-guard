@@ -67,14 +67,22 @@ const (
 	DialTimeout = 12 * time.Second
 	// DialConnect TCP 拨号超时。
 	DialConnect = 2 * time.Second
-	// DialReplyMax 拨号回包最大读取字节。
-	DialReplyMax = 4096
+	// DialReplyMax 拨号回包最大读取字节（含换包步骤与路径）。
+	DialReplyMax = 64 << 10
+	// CommandResultNoteMax 命令步骤 JSON 写入 noteText 的上限。
+	CommandResultNoteMax = 16 << 10
 	// OnlineWindow 心跳窗口内视为在线。
 	OnlineWindow = 2 * time.Minute
 	// AgentUpgradeBatchMax 单次代理自更新最多同时下发的台数（金丝雀后续批次也受此限）。
 	AgentUpgradeBatchMax = 32
 	// AgentUpgradeCanaryDefault 未指定金丝雀台数时，首批只升 1 台。
 	AgentUpgradeCanaryDefault = 1
+	// AppReleaseBatchMax 单次应用换包/回滚最多同时下发的实例数。
+	AppReleaseBatchMax = 32
+	// AppReleaseCanaryDefault 未指定金丝雀台数时，首批只更新 1 台实例。
+	AppReleaseCanaryDefault = 1
+	// AppFileDownloadTimeout 中央代下应用代理看守文件的总超时（大 WAR 可能较慢）。
+	AppFileDownloadTimeout = 10 * time.Minute
 )
 
 // --- Shell 终端 ---

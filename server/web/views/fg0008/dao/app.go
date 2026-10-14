@@ -2,6 +2,7 @@ package dao
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +76,154 @@ func ListApps(ctx context.Context, db *dbx.DB, tenantID, appName string) ([]mode
 	return apps, nil
 }
 
+// ListSites 按代理 + 实例名汇总运行时套件（左侧导航）。
+func ListSites(ctx context.Context, db *dbx.DB, tenantID, keyword string) ([]models.Site, error) {
+	all, err := listInst(ctx, db, tenantID, "")
+	if err != nil {
+		return nil, err
+	}
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	type key struct{ agent, inst string }
+	order := make([]key, 0)
+	by := map[key]*models.Site{}
+	for _, row := range all {
+		k := key{row.AgentID, row.InstanceName}
+		site, ok := by[k]
+		if !ok {
+			site = &models.Site{
+				AgentID: row.AgentID, InstanceName: row.InstanceName,
+				HostName: row.HostName, IPAddress: row.IPAddress,
+				ModeCode: row.ModeCode, RuntimeKind: row.RuntimeKind,
+				CommandAddress: row.CommandAddress, TomcatVersion: row.TomcatVersion,
+				ReportedTime: row.ReportedTime, OnlineFlag: row.OnlineFlag,
+				BasePath: siteBase(row),
+			}
+			by[k] = site
+			order = append(order, k)
+		}
+		if row.ArtifactKind != "runtime" {
+			site.FileCount++
+		}
+		if row.OnlineFlag == "Y" {
+			site.OnlineFlag = "Y"
+		}
+		if row.ReportedTime > site.ReportedTime {
+			site.ReportedTime = row.ReportedTime
+		}
+		if bp := siteBase(row); bp != "" && (site.BasePath == "" || row.ArtifactKind == "runtime") {
+			site.BasePath = bp
+		}
+		if site.CommandAddress == "" {
+			site.CommandAddress = row.CommandAddress
+		}
+		if site.TomcatVersion == "" {
+			site.TomcatVersion = row.TomcatVersion
+		}
+	}
+	out := make([]models.Site, 0, len(order))
+	for _, k := range order {
+		site := by[k]
+		if keyword != "" {
+			blob := strings.ToLower(site.InstanceName + " " + site.HostName + " " + site.IPAddress + " " + site.ModeCode + " " + site.BasePath)
+			if !strings.Contains(blob, keyword) {
+				continue
+			}
+		}
+		out = append(out, *site)
+	}
+	if out == nil {
+		out = []models.Site{}
+	}
+	return out, nil
+}
+
+// ListSiteFiles 返回一套运行时下的制品文件（右侧文件仓）。不返回 files 心跳站点标记。
+func ListSiteFiles(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName string) ([]models.Instance, error) {
+	agentID = strings.TrimSpace(agentID)
+	instanceName = strings.TrimSpace(instanceName)
+	if agentID == "" || instanceName == "" {
+		return nil, ErrMissing
+	}
+	all, err := listInst(ctx, db, tenantID, "")
+	if err != nil {
+		return nil, err
+	}
+	var out []models.Instance
+	for _, row := range all {
+		if row.AgentID == agentID && row.InstanceName == instanceName && row.ArtifactKind != "runtime" {
+			out = append(out, row)
+		}
+	}
+	if out == nil {
+		out = []models.Instance{}
+	}
+	return out, nil
+}
+
+// SiteMode 读一套运行时的 mode（取任意一行）。
+func SiteMode(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName string) (string, error) {
+	all, err := listInst(ctx, db, tenantID, "")
+	if err != nil {
+		return "", err
+	}
+	for _, row := range all {
+		if row.AgentID == agentID && row.InstanceName == instanceName {
+			return row.ModeCode, nil
+		}
+	}
+	return "", ErrMissing
+}
+
+func siteBase(row models.Instance) string {
+	path := strings.TrimSpace(row.ArtifactPath)
+	if path == "" {
+		return ""
+	}
+	// files 站点标记的 path 就是 base，不要再剥一层。
+	if row.ModeCode == "files" && row.ArtifactKind == "runtime" {
+		return path
+	}
+	return baseOf(path, row.ModeCode)
+}
+
+func baseOf(path, mode string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	// files / tomcat / node 等：展示目录；jar 仍展示文件所在目录。
+	sep := "/"
+	if strings.Contains(path, `\`) {
+		sep = `\`
+	}
+	i := strings.LastIndex(path, sep)
+	if i <= 0 {
+		return path
+	}
+	if mode == "jar" || mode == "static" {
+		return path[:i]
+	}
+	return path[:i]
+}
+
+// GetInstance 按实例号取一行。
+func GetInstance(ctx context.Context, db *dbx.DB, tenantID, instID string) (models.Instance, error) {
+	instID = strings.TrimSpace(instID)
+	if instID == "" {
+		return models.Instance{}, ErrMissing
+	}
+	all, err := listInst(ctx, db, tenantID, "")
+	if err != nil {
+		return models.Instance{}, err
+	}
+	for _, row := range all {
+		if row.InstID == instID {
+			return row, nil
+		}
+	}
+	return models.Instance{}, ErrMissing
+}
+
 // ListInstances 返回一个应用下仍在上报的实例。
 func ListInstances(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]models.Instance, error) {
 	return listInst(ctx, db, tenantID, appCode)
@@ -88,8 +237,9 @@ func listInst(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]mode
 		args["appCode"] = appCode
 	}
 	rows, err := db.Query(ctx, `
-		SELECT instId, agentId, appCode, COALESCE(machineId, ''), COALESCE(hostName, ''), instanceName,
-		       runtimeKind, COALESCE(modeCode, ''), artifactKind, COALESCE(versionText, ''), COALESCE(tomcatVersion, ''),
+		SELECT instId, agentId, appCode, COALESCE(machineId, ''), COALESCE(hostName, ''), COALESCE(ipAddress, ''),
+		       instanceName, runtimeKind, COALESCE(modeCode, ''), artifactKind, COALESCE(artifactPath, ''),
+		       COALESCE(versionText, ''), COALESCE(tomcatVersion, ''), COALESCE(commandAddress, ''),
 		       runningFlag, reportedTime
 		FROM FG_APP_INST`+where+`
 		ORDER BY instanceName, instId`, args)
@@ -103,8 +253,9 @@ func listInst(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]mode
 		var item models.Instance
 		var reported any
 		if err := rows.Scan(
-			&item.InstID, &item.AgentID, &item.AppCode, &item.MachineID, &item.HostName, &item.InstanceName,
-			&item.RuntimeKind, &item.ModeCode, &item.ArtifactKind, &item.VersionText, &item.TomcatVersion,
+			&item.InstID, &item.AgentID, &item.AppCode, &item.MachineID, &item.HostName, &item.IPAddress,
+			&item.InstanceName, &item.RuntimeKind, &item.ModeCode, &item.ArtifactKind, &item.ArtifactPath,
+			&item.VersionText, &item.TomcatVersion, &item.CommandAddress,
 			&item.RunningFlag, &reported,
 		); err != nil {
 			return nil, err
@@ -163,7 +314,7 @@ func ListReleases(ctx context.Context, db *dbx.DB, tenantID, appCode string, lim
 		limit = 20
 	}
 	rows, err := db.Query(ctx, `
-		SELECT releaseId, appCode, artifactKind, versionText, fileName, addTime, addWho
+		SELECT releaseId, appCode, artifactKind, versionText, fileName, addTime, addWho, COALESCE(extProperty, '')
 		FROM FG_APP_RELEASE
 		WHERE tenantId = @tenantId AND appCode = @appCode AND activeFlag = 'Y'
 		ORDER BY addTime DESC, releaseId DESC
@@ -176,10 +327,20 @@ func ListReleases(ctx context.Context, db *dbx.DB, tenantID, appCode string, lim
 	for rows.Next() {
 		var item models.Release
 		var added any
-		if err := rows.Scan(&item.ReleaseID, &item.AppCode, &item.ArtifactKind, &item.VersionText, &item.FileName, &added, &item.AddWho); err != nil {
+		var extRaw string
+		if err := rows.Scan(&item.ReleaseID, &item.AppCode, &item.ArtifactKind, &item.VersionText, &item.FileName, &added, &item.AddWho, &extRaw); err != nil {
 			return nil, err
 		}
 		item.AddTime = store.FormatTime(timeFrom(added))
+		var ext struct {
+			Purpose         string `json:"purpose"`
+			SourceReleaseID string `json:"sourceReleaseId"`
+			PendingInstIDs  []string `json:"pendingInstIds"`
+		}
+		_ = json.Unmarshal([]byte(extRaw), &ext)
+		item.Purpose = ext.Purpose
+		item.SourceReleaseID = ext.SourceReleaseID
+		item.PendingCount = len(ext.PendingInstIDs)
 		out = append(out, item)
 	}
 	if out == nil {

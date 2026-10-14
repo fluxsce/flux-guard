@@ -13,8 +13,8 @@ import (
 )
 
 func TestListenRequiresToken(t *testing.T) {
-	handler := Handler("secret", func(context.Context, protocol.CommandCall) (string, error) {
-		return "ok", nil
+	handler := Handler("secret", func(context.Context, protocol.CommandCall) (protocol.CommandOutcome, error) {
+		return protocol.CommandOutcome{Message: "ok"}, nil
 	})
 	body := `{"commandId":"c1","action":"host.collect.now"}`
 
@@ -47,9 +47,9 @@ func TestListenRequiresToken(t *testing.T) {
 }
 
 func TestEmptyKeyNeverAuthorizes(t *testing.T) {
-	handler := Handler("", func(context.Context, protocol.CommandCall) (string, error) {
+	handler := Handler("", func(context.Context, protocol.CommandCall) (protocol.CommandOutcome, error) {
 		t.Fatal("empty key must not execute")
-		return "", nil
+		return protocol.CommandOutcome{}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, protocol.ExecPath, strings.NewReader(`{"commandId":"c1","action":"host.collect.now"}`))
 	req.Header.Set("Authorization", protocol.AuthorizationValue("secret"))

@@ -26,6 +26,10 @@ var (
 	ErrAgentIdentity = errcode.New("agent.identity.invalid", "机器编号或代理种类无效")
 	// ErrAgentNameTaken 表示同一租户下名称重复。
 	ErrAgentNameTaken = errcode.New("agent.name.taken", "代理名称已存在")
+	// ErrAgentIDsRequired 表示删除时没有传入代理编号。
+	ErrAgentIDsRequired = errcode.New("agent.ids.required", "请选择要删除的代理")
+	// ErrAgentMissing 表示改名或操作的代理不存在。
+	ErrAgentMissing = errcode.New("agent.missing", "代理不存在")
 )
 
 // onlineWindow 内没有心跳则视为离线。
@@ -84,15 +88,15 @@ func Open(conn *dbx.DB) *Store {
 }
 
 // ListAgents 返回采集代理。在线状态按最近心跳推导。
+// 列表只读 FG_AGENT；主机名、地址、命令端口由各类代理上报时写回本表。
 func (a *Store) ListAgents(tenantID string) []AgentView {
 	rows, err := a.db.Query(context.Background(), `
-		SELECT a.agentId, a.agentName, COALESCE(a.agentCode, ''), COALESCE(a.machineId, ''),
-		       COALESCE(a.agentVersion, ''), COALESCE(a.goos, ''), COALESCE(a.goarch, ''),
-		       COALESCE(a.hostName, ''), COALESCE(a.ipAddress, ''),
-		       COALESCE(h.commandAddress, ''), a.statusFlag, a.lastSeenTime
-		FROM FG_AGENT a
-		LEFT JOIN FG_AGENT_HOST h ON h.tenantId = a.tenantId AND h.agentId = a.agentId
-		WHERE a.tenantId = @tenantId AND a.activeFlag = 'Y'`, dbx.Args{"tenantId": tenantID})
+		SELECT agentId, agentName, COALESCE(agentCode, ''), COALESCE(machineId, ''),
+		       COALESCE(agentVersion, ''), COALESCE(goos, ''), COALESCE(goarch, ''),
+		       COALESCE(hostName, ''), COALESCE(ipAddress, ''), COALESCE(commandAddress, ''),
+		       statusFlag, lastSeenTime
+		FROM FG_AGENT
+		WHERE tenantId = @tenantId AND activeFlag = 'Y'`, dbx.Args{"tenantId": tenantID})
 	if err != nil {
 		return nil
 	}
@@ -157,7 +161,8 @@ func (a *Store) RegisterAgent(ctx context.Context, in RegisterInput) (AgentView,
 }
 
 // EnsureMachineAgent 按租户、种类和机器编号找到或建出一台代理。
-// 上报令牌只证明租户。同一台机器每次上报落在同一行。
+// 上报令牌只证明租户。同一台机器上不同种类（host / appside / go）各占一行；
+// 同种类靠 machineId 区分（Go/Java 实例编号里已带进程名）。显示名先用系统底名，可在控制台改。
 func (a *Store) EnsureMachineAgent(tenantID, agentCode, machineID string) (string, error) {
 	agentCode = strings.TrimSpace(agentCode)
 	machineID = strings.TrimSpace(machineID)
@@ -196,6 +201,82 @@ func (a *Store) EnsureMachineAgent(tenantID, agentCode, machineID string) (strin
 		return "", err
 	}
 	return agentID, nil
+}
+
+// RenameAgent 只改显示名。身份仍按 agentId / machineId，上报不会冲掉这里改过的名字。
+func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (AgentView, error) {
+	sess, err := request.Require(ctx)
+	if err != nil {
+		return AgentView{}, err
+	}
+	agentID = strings.TrimSpace(agentID)
+	name := strings.TrimSpace(agentName)
+	if agentID == "" {
+		return AgentView{}, ErrAgentIDsRequired
+	}
+	if name == "" {
+		return AgentView{}, ErrAgentNameEmpty
+	}
+	name = clipName(name, 100)
+	var taken int
+	err = store.Scan(ctx, a.db, `
+		SELECT count(*) FROM FG_AGENT
+		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentName = @agentName AND agentId <> @agentId`,
+		dbx.Args{"tenantId": sess.TenantID, "agentName": name, "agentId": agentID}, &taken)
+	if err != nil {
+		return AgentView{}, err
+	}
+	if taken > 0 {
+		return AgentView{}, ErrAgentNameTaken
+	}
+	now := sess.When()
+	res, err := a.db.Exec(ctx, `
+		UPDATE FG_AGENT
+		SET agentName = @agentName, editTime = @editTime, editWho = @editWho,
+		    currentVersion = currentVersion + 1
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
+		dbx.Args{
+			"agentName": name, "editTime": now, "editWho": sess.UserID,
+			"tenantId": sess.TenantID, "agentId": agentID,
+		})
+	if err != nil {
+		return AgentView{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return AgentView{}, err
+	}
+	if n != 1 {
+		return AgentView{}, ErrAgentMissing
+	}
+	view, err := a.agentView(ctx, sess.TenantID, agentID)
+	if err != nil {
+		return AgentView{}, err
+	}
+	return view, nil
+}
+
+// agentView 读一台代理的当前展示行。
+func (a *Store) agentView(ctx context.Context, tenantID, agentID string) (AgentView, error) {
+	row, err := a.db.QueryRow(ctx, `
+		SELECT agentId, agentName, COALESCE(agentCode, ''), COALESCE(machineId, ''),
+		       COALESCE(agentVersion, ''), COALESCE(goos, ''), COALESCE(goarch, ''),
+		       COALESCE(hostName, ''), COALESCE(ipAddress, ''), COALESCE(commandAddress, ''),
+		       statusFlag, lastSeenTime
+		FROM FG_AGENT
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
+		dbx.Args{"tenantId": tenantID, "agentId": agentID})
+	if err != nil {
+		return AgentView{}, err
+	}
+	view, err := scanAgent(row, time.Now())
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AgentView{}, ErrAgentMissing
+		}
+		return AgentView{}, err
+	}
+	return view, nil
 }
 
 // EnsureReportingAgent 按种类找到或建出共用令牌下的代理行。
@@ -280,6 +361,53 @@ func (a *Store) TouchAgent(tenantID, agentID string, info TouchInfo) {
 		})
 }
 
+// agentDeleteTables 删除代理时一并清掉的关联表（先子后主）。历史样本表留给归档任务按保留期清理。
+var agentDeleteTables = []string{
+	"FG_SHELL_AUDIT",
+	"FG_SHELL",
+	"FG_COMMAND",
+	"FG_AGENT_RELEASE_ITEM",
+	"FG_APP_RELEASE_ITEM",
+	"FG_APP_INST",
+	"FG_HOST_INCIDENT",
+	"FG_AGENT_HOST",
+	"FG_AGENT_JAVA",
+	"FG_AGENT_GO",
+	"FG_AGENT",
+}
+
+// DeleteAgents 物理删除本租户下的代理及身份、终端、命令等关联行。
+// 再次上报同机器编号时会新建一行。返回实际删掉的代理行数。
+func (a *Store) DeleteAgents(ctx context.Context, agentIDs []string) (int, error) {
+	sess, err := request.Require(ctx)
+	if err != nil {
+		return 0, err
+	}
+	ids := uniqueIDs(agentIDs)
+	if len(ids) == 0 {
+		return 0, ErrAgentIDsRequired
+	}
+	n := 0
+	err = a.db.Tx(ctx, func(tx *dbx.DB) error {
+		for _, agentID := range ids {
+			args := dbx.Args{"tenantId": sess.TenantID, "agentId": agentID}
+			for _, table := range agentDeleteTables {
+				result, err := tx.Exec(ctx,
+					"DELETE FROM "+table+" WHERE tenantId = @tenantId AND agentId = @agentId", args)
+				if err != nil {
+					return err
+				}
+				if table == "FG_AGENT" {
+					affected, _ := result.RowsAffected()
+					n += int(affected)
+				}
+			}
+		}
+		return nil
+	})
+	return n, err
+}
+
 // AgentByToken 用明文令牌换租户和代理。
 func (a *Store) AgentByToken(token string) (string, string, bool) {
 	if token == "" {
@@ -346,4 +474,22 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+// uniqueIDs 去掉空白与重复的代理编号。
+func uniqueIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

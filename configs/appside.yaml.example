@@ -1,8 +1,9 @@
 # 示例配置。复制为 configs/appside.yaml 后再改。appside.yaml 是本机文件，不要提交。
-# 一台机器只装这一个程序。下面 runtimes 里，一段就是这一台机器上的一套程序。
+# 一台机器只装这一个应用代理进程（可与主机代理、Go 代理同机共存，种类不同各占一行）。
+# 下面 runtimes 里，一段就是这一台机器上的一套程序。
 # 一套 Tomcat 里有好几个网站（WAR）时，只写这一段。网站会从这套的 webapps 里自动找出来，不用逐个写。
 #
-# mode 是应用类型：tomcat / node / script / jar / static。换包规则和 command 默认脚本都按它来。
+# mode 是应用类型：tomcat / node / script / jar / static / files。换包规则和 command 默认脚本都按它来。
 # kind 是怎么启停：
 #   systemd   Linux 系统服务。service 填服务名。
 #   windows   Windows 服务。service 填服务名。
@@ -12,15 +13,19 @@
 #             node / script -> 优先用 base/bin、base、base/scripts 下的 start/stop/status，
 #                             没有则落到 base/bin/start.sh（Windows 为 .bat）
 #             jar -> 在 jar 同目录找上述约定脚本
+#             files -> 不启停；心跳只报站点，文件清单在控制台打开时向代理请求
 #
 # tomcat / node / script 填 base。换包或升级都会先挪到 backup_dir，再写回原路径，然后重启。
+# files 填 base 为制品目录：心跳只登记这一套运行时；打开/刷新文件仓时向代理要清单
+# （中央能拨则短拨；隔离网拨不通则代理出站推清单）。只换文件、不重启。
+# 文件移动或删除后点刷新即可。隔离网须代理能访问中央（command_listen 可仅本机）。
 #
 # 环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_SERVER_URL 覆盖 server_url。
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 多久上报一次，单位秒
 command_listen: 127.0.0.1:7701 # 中央连这台机器下发换包命令的端口。整台机器一个。留空则由这台机器自己去中央取命令
-backup_dir: /data/fluxguard/backup # 换包和升级前，旧文件挪到这里。必须填写，不要放在 webapps 里面
+backup_dir: /data/fluxguard/backup # 换包和升级前，旧文件挪到这里。必须填写，不要放在 webapps / 制品目录里面。Windows 可写成 E:\fluxguard\backup
 
 runtimes:
   # 系统服务启动的一套 Tomcat。
@@ -56,6 +61,11 @@ runtimes:
   #   mode: static
   #   static_app: order-static
   #   static_dir: /data/www/order
+  # 发版目录仓：只换文件，不启停。例如 Windows 上的 WAR 包目录。
+  - kind: command
+    instance: war-v10-p05
+    mode: files
+    base: E:\war\V10.0.0-P05
 
 log:
   file: logs/appside.log

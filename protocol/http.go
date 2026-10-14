@@ -42,7 +42,7 @@ func RetryableStatus(code int) bool {
 // FromAgent 判断这是代理打到中央的路径。这些请求带代理令牌，不走控制台登录。
 func FromAgent(path string) bool {
 	switch path {
-	case IngestPath, WaitPath, ResultPath, ShellSessionsPath, ShellInputPath, ShellOutputPath:
+	case IngestPath, WaitPath, ResultPath, FilePushPath, FileListPushPath, ArtifactPath, ShellSessionsPath, ShellInputPath, ShellOutputPath:
 		return true
 	default:
 		return false

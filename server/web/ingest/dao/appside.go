@@ -9,12 +9,14 @@ import (
 
 	"fluxguard/common/id"
 	"fluxguard/protocol"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
 // SaveAppside 按应用侧代理的清单更新应用和实例。其它代理什么都不写。
 // 已有应用的显示名和忽略标记保持不动。这次没再报上来的实例标成不活动。
+// 同时把主机名、地址、命令端口写回 FG_AGENT，供采集列表只读代理表。
 func SaveAppside(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 	sides := batch.Sides()
 	if strings.TrimSpace(batch.AgentCode) != protocol.AgentAppside || len(sides) == 0 {
@@ -22,9 +24,17 @@ func SaveAppside(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 	}
 	reported := store.FormatTime(batch.SentAt)
 	edited := store.FormatTime(time.Now().UTC())
+	if err := syncAppsideAgent(ctx, tx, batch, sides, edited); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
+	// files 心跳只报站点标记时，不要把上次短拨同步进来的 war/日志行误注销。
+	filesHeartbeatOnly := map[string]bool{}
 	for i := range sides {
 		side := sides[i]
+		if strings.TrimSpace(side.Mode) == "files" && filesSiteHeartbeat(side) {
+			filesHeartbeatOnly[strings.TrimSpace(side.InstanceName)] = true
+		}
 		for _, item := range side.Artifacts {
 			appCode := clip(strings.TrimSpace(item.AppName), 100)
 			if appCode == "" {
@@ -39,7 +49,63 @@ func SaveAppside(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 			}
 		}
 	}
-	return retireMissing(ctx, tx, batch.TenantID, batch.AgentID, seen, edited)
+	return retireMissing(ctx, tx, batch.TenantID, batch.AgentID, seen, filesHeartbeatOnly, edited)
+}
+
+// filesSiteHeartbeat 判断这一套 files 上报是否仅为站点标记（非全量清单）。
+func filesSiteHeartbeat(side protocol.AppSide) bool {
+	if len(side.Artifacts) != 1 {
+		return false
+	}
+	item := side.Artifacts[0]
+	kind := strings.TrimSpace(item.Kind)
+	name := strings.TrimSpace(item.AppName)
+	inst := strings.TrimSpace(side.InstanceName)
+	return kind == "runtime" || (name != "" && name == inst)
+}
+
+// syncAppsideAgent 用本批上报补全 FG_AGENT 的展示字段。空值不覆盖已有主机资料。
+// 显示名仅在系统底名时改成 appside@主机名，手工名不冲掉；同机其它种类代理另有 agentCode 分行。
+func syncAppsideAgent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, sides []protocol.AppSide, edited string) error {
+	hostName, ip, cmd := "", "", ""
+	for _, side := range sides {
+		if hostName == "" {
+			hostName = strings.TrimSpace(side.HostName)
+		}
+		if ip == "" {
+			ip = strings.TrimSpace(side.IPAddress)
+		}
+		if cmd == "" {
+			cmd = strings.TrimSpace(side.CommandAddress)
+		}
+	}
+	var keptAgent string
+	err := store.Scan(ctx, tx, `
+		SELECT COALESCE(agentName, '') FROM FG_AGENT WHERE tenantId = @tenantId AND agentId = @agentId`,
+		dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}, &keptAgent)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	display := agent.ResolveDisplayName(keptAgent, batch.AgentCode, "", hostName)
+	if hostName == "" && ip == "" && cmd == "" && display == keptAgent {
+		return nil
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE FG_AGENT
+		SET hostName = CASE WHEN @hostName = '' THEN hostName ELSE @hostName END,
+		    ipAddress = CASE WHEN @ipAddress = '' THEN ipAddress ELSE @ipAddress END,
+		    commandAddress = CASE WHEN @commandAddress = '' THEN commandAddress ELSE @commandAddress END,
+		    agentName = @agentName,
+		    editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
+		dbx.Args{
+			"hostName": hostName, "ipAddress": ip, "commandAddress": cmd, "agentName": display,
+			"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
+		})
+	return err
 }
 
 func slotKey(instance, appCode string) string {
@@ -133,7 +199,7 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 	return err
 }
 
-func retireMissing(ctx context.Context, tx *dbx.DB, tenantID, agentID string, seen map[string]bool, edited string) error {
+func retireMissing(ctx context.Context, tx *dbx.DB, tenantID, agentID string, seen map[string]bool, filesHeartbeatOnly map[string]bool, edited string) error {
 	rows, err := tx.Query(ctx, `
 		SELECT instId, instanceName, appCode FROM FG_APP_INST
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
@@ -147,6 +213,12 @@ func retireMissing(ctx context.Context, tx *dbx.DB, tenantID, agentID string, se
 		if err := rows.Scan(&instID, &instanceName, &appCode); err != nil {
 			rows.Close()
 			return err
+		}
+		if filesHeartbeatOnly[strings.TrimSpace(instanceName)] {
+			// 心跳站点标记：只允许注销「站点行本身」；子文件等短拨清单保留到下次刷新。
+			if strings.TrimSpace(appCode) != strings.TrimSpace(instanceName) {
+				continue
+			}
 		}
 		if !seen[slotKey(instanceName, appCode)] {
 			drop = append(drop, instID)

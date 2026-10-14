@@ -2,12 +2,14 @@ package dao
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
 
 	"fluxguard/common/id"
 	"fluxguard/protocol"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/store"
 	"fluxguard/server/web/ingest/models"
 	dbx "github.com/fluxsce/dbx/db"
@@ -65,6 +67,7 @@ func InsertEvents(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 }
 
 // SaveHost 更新主机资料。没有主机块时什么都不写。
+// 列表显示名仅在系统底名时用 reportName 或 host@主机名填一次，手工名不覆盖。
 func SaveHost(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 	if batch.Host == nil {
 		return nil
@@ -127,26 +130,31 @@ func SaveHost(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 		)`, args); err != nil {
 		return err
 	}
-	_ = store.Scan(ctx, tx, `
+	if err := store.Scan(ctx, tx, `
 		SELECT COALESCE(ipAddress, ''), COALESCE(agentName, '')
 		FROM FG_AGENT WHERE tenantId = @tenantId AND agentId = @agentId`,
-		dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}, &keptIP, &keptAgent)
+		dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}, &keptIP, &keptAgent); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
 	ip := strings.TrimSpace(host.IPAddress)
 	if ip == "" {
 		ip = keptIP
 	}
-	name := incomingName
-	if name == "" {
-		name = keptAgent
-	}
+	hostName := strings.TrimSpace(host.HostName)
+	name := agent.ResolveDisplayName(keptAgent, batch.AgentCode, incomingName, hostName)
+	cmdAddr := strings.TrimSpace(host.CommandAddress)
 	_, err := tx.Exec(ctx, `
 		UPDATE FG_AGENT
 		SET hostName = @hostName, osName = @osName, ipAddress = @ipAddress, agentName = @agentName,
+		    commandAddress = CASE WHEN @commandAddress = '' THEN commandAddress ELSE @commandAddress END,
 		    editTime = @editTime, editWho = 'system'
 		WHERE tenantId = @tenantId AND agentId = @agentId`,
 		dbx.Args{
-			"hostName": strings.TrimSpace(host.HostName), "osName": host.OSName, "ipAddress": ip, "agentName": name,
-			"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
+			"hostName": hostName, "osName": host.OSName, "ipAddress": ip, "agentName": name,
+			"commandAddress": cmdAddr, "editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
 		})
 	return err
 }
@@ -248,19 +256,28 @@ func SaveJava(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 		)`, args); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `
-		UPDATE FG_AGENT SET
-		  agentName = @agentName,
-		  hostName = CASE WHEN @hostName = '' THEN hostName ELSE @hostName END,
-		  ipAddress = CASE WHEN @ipAddress = '' THEN ipAddress ELSE @ipAddress END,
-		  editTime = @editTime, editWho = 'system'
-		WHERE tenantId = @tenantId AND agentId = @agentId`,
-		dbx.Args{
-			"agentName": clip(appName, 100), "hostName": strings.TrimSpace(hostName), "ipAddress": strings.TrimSpace(ip),
-			"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
-		})
-	if err != nil {
+	var keptAgent string
+	err := store.Scan(ctx, tx, `
+		SELECT COALESCE(agentName, '') FROM FG_AGENT WHERE tenantId = @tenantId AND agentId = @agentId`,
+		dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}, &keptAgent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
+	}
+	if err == nil {
+		display := agent.ResolveDisplayName(keptAgent, batch.AgentCode, appName, hostName)
+		if _, err := tx.Exec(ctx, `
+			UPDATE FG_AGENT SET
+			  agentName = @agentName,
+			  hostName = CASE WHEN @hostName = '' THEN hostName ELSE @hostName END,
+			  ipAddress = CASE WHEN @ipAddress = '' THEN ipAddress ELSE @ipAddress END,
+			  editTime = @editTime, editWho = 'system'
+			WHERE tenantId = @tenantId AND agentId = @agentId`,
+			dbx.Args{
+				"agentName": display, "hostName": strings.TrimSpace(hostName), "ipAddress": strings.TrimSpace(ip),
+				"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
+			}); err != nil {
+			return err
+		}
 	}
 	return noteJavaGeneration(ctx, tx, batch, start, processID)
 }

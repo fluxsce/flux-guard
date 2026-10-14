@@ -22,10 +22,17 @@ func init() {
 func Init(router *gin.Engine, db *dbx.DB) {
 	ctrl := controllers.NewAppController(db)
 	router.GET(APIPrefix+"/queryApps", middleware.RequireButton("fg0008:search", ctrl.QueryApps))
+	router.GET(APIPrefix+"/querySites", middleware.RequireButton("fg0008:search", ctrl.QuerySites))
+	router.GET(APIPrefix+"/querySiteFiles", middleware.RequireButton("fg0008:view", ctrl.QuerySiteFiles))
 	router.GET(APIPrefix+"/queryInstances", middleware.RequireButton("fg0008:view", ctrl.QueryInstances))
 	router.GET(APIPrefix+"/queryReleases", middleware.RequireButton("fg0008:view", ctrl.QueryReleases))
 	router.GET(APIPrefix+"/queryRelease", middleware.RequireButton("fg0008:view", ctrl.QueryRelease))
+	router.POST(APIPrefix+"/requestFileFetch", middleware.RequireButton("fg0008:view", ctrl.RequestFileFetch))
+	router.GET(APIPrefix+"/queryFileFetch", middleware.RequireButton("fg0008:view", ctrl.QueryFileFetch))
+	router.GET(APIPrefix+"/downloadFileFetch", middleware.RequireButton("fg0008:view", ctrl.DownloadFileFetch))
 	router.POST(APIPrefix+"/rename", middleware.RequireButton("fg0008:edit", ctrl.Rename))
 	router.POST(APIPrefix+"/ignore", middleware.RequireButton("fg0008:edit", ctrl.Ignore))
 	router.POST(APIPrefix+"/release", middleware.RequireButton("fg0008:release", ctrl.Release))
+	router.POST(APIPrefix+"/continueRelease", middleware.RequireButton("fg0008:release", ctrl.ContinueRelease))
+	router.POST(APIPrefix+"/rollback", middleware.RequireButton("fg0008:release", ctrl.Rollback))
 }

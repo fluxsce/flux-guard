@@ -16,8 +16,8 @@ import (
 	"fluxguard/protocol"
 )
 
-// Exec 执行一条已通过密钥校验的命令。返回的文字写入命令结果。
-type Exec func(ctx context.Context, call protocol.CommandCall) (string, error)
+// Exec 执行一条已通过密钥校验的命令。短文案与可选步骤一并回传。
+type Exec func(ctx context.Context, call protocol.CommandCall) (protocol.CommandOutcome, error)
 
 // Config 是命令通道配置。上报、取令、回执和命令端口都校验同一把代理令牌。
 type Config struct {
@@ -26,6 +26,10 @@ type Config struct {
 	AgentCode  string
 	MachineID  string
 	Listen     string
+	// FileOpen 非空时开放本机文件下载（应用代理用）。
+	FileOpen FileOpen
+	// FileList 非空时开放按实例列制品目录（files 模式实时清单）。
+	FileList FileList
 }
 
 // Run 先按配置决定是否监听，然后一直长轮询，直到 ctx 取消。
@@ -40,6 +44,19 @@ func Run(ctx context.Context, cfg Config, exec Exec, onListen func(addr string))
 		go serve(ctx, cfg, exec, onListen)
 	}
 	poll(ctx, cfg, exec)
+}
+
+// Mux 组装命令执行与可选的文件下载 / 列目录。
+func Mux(token string, exec Exec, open FileOpen, list FileList) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(protocol.ExecPath, Handler(token, exec))
+	if open != nil {
+		mux.Handle(protocol.FilePath, FileHandler(token, open))
+	}
+	if list != nil {
+		mux.Handle(protocol.FilesPath, FileListHandler(token, list))
+	}
+	return mux
 }
 
 // Handler 是命令端口。缺少或错误的代理令牌一律拒绝，不执行动作。
@@ -60,12 +77,16 @@ func Handler(token string, exec Exec) http.Handler {
 			writeReply(w, http.StatusBadRequest, protocol.ExecReply{Message: "命令不完整"})
 			return
 		}
-		message, err := exec(r.Context(), call)
+		out, err := exec(r.Context(), call)
 		if err != nil {
-			writeReply(w, http.StatusOK, protocol.ExecReply{Message: err.Error()})
+			msg := err.Error()
+			if out.Message != "" {
+				msg = out.Message
+			}
+			writeReply(w, http.StatusOK, protocol.ExecReply{Message: msg, Steps: out.Steps})
 			return
 		}
-		writeReply(w, http.StatusOK, protocol.ExecReply{OK: true, Message: message})
+		writeReply(w, http.StatusOK, protocol.ExecReply{OK: true, Message: out.Message, Steps: out.Steps})
 	})
 }
 
@@ -141,7 +162,7 @@ func serve(ctx context.Context, cfg Config, exec Exec, onListen func(addr string
 		}
 	}
 	srv := &http.Server{
-		Handler: Handler(cfg.AgentToken, exec),
+		Handler: Mux(cfg.AgentToken, exec, cfg.FileOpen, cfg.FileList),
 		// 与 server/utils/const/limits.HTTPReadHeader 保持一致（common 不依赖 server）。
 		ReadHeaderTimeout: 5 * time.Second,
 	}

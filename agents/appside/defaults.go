@@ -14,6 +14,10 @@ func fillCommandDefaults(rt *Runtime) error {
 	if rt == nil || rt.Kind != "command" {
 		return nil
 	}
+	// 文件目录仓只换文件，不启停进程。
+	if rt.Mode == "files" {
+		return nil
+	}
 	if rt.Start != "" && rt.Stop != "" && rt.Status != "" {
 		return nil
 	}

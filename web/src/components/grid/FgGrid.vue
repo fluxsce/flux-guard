@@ -13,6 +13,12 @@ const props = withDefaults(
     treeConfig?: RsTableTreeConfig<any>
     menuItems?: FgGridMenuItem[]
     expandedRowKeys?: string[]
+    /** 是否显示勾选列，支持多选（表头自带全选）。 */
+    selectable?: boolean
+    /** 受控勾选行键。与 selectable 一起用。 */
+    selectedRowKeys?: string[]
+    /** 按行决定能否勾选；目录等不可选行返回 false。 */
+    rowSelectable?: (row: any, index: number) => boolean
     /** 表头拖动调整列宽 */
     resizable?: boolean
     /** 当前排序。传入后由外部排序，表格只显示表头状态。 */
@@ -25,6 +31,8 @@ const props = withDefaults(
     rowKey: 'id',
     loading: false,
     menuItems: () => [],
+    selectable: false,
+    selectedRowKeys: () => [],
     resizable: true,
     remoteSort: false,
   },
@@ -35,6 +43,8 @@ const emit = defineEmits<{
   rowDblclick: [row: any]
   menuClick: [payload: { key: string; row: any }]
   'update:expandedRowKeys': [keys: string[]]
+  'update:selectedRowKeys': [keys: string[]]
+  selectionChange: [keys: string[]]
   'update:sort': [value: FgGridSort | null]
 }>()
 
@@ -85,6 +95,9 @@ function onMenu(key: string, row: any) {
       :row-key="rowKey"
       :tree-config="treeConfig"
       :expanded-row-keys="expandedRowKeys"
+      :selectable="selectable"
+      :selected-row-keys="selectable ? selectedRowKeys : undefined"
+      :row-selectable="rowSelectable"
       :context-menu="contextMenu"
       :context-menu-items="menuForRow"
       bordered
@@ -104,6 +117,8 @@ function onMenu(key: string, row: any) {
       @row-dblclick="(row) => emit('rowDblclick', row)"
       @context-menu-select="onMenu"
       @update:expanded-row-keys="emit('update:expandedRowKeys', $event)"
+      @update:selected-row-keys="emit('update:selectedRowKeys', $event)"
+      @selection-change="emit('selectionChange', $event)"
       @update:sort="emit('update:sort', $event)"
     >
       <template v-for="(_, name) in $slots" #[name]="slotProps">

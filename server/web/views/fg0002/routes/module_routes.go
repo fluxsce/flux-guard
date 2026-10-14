@@ -24,6 +24,8 @@ func Init(router *gin.Engine, db *dbx.DB) {
 	ctrl := controllers.NewAgentController(db)
 	router.GET(APIPrefix+"/queryAgents", middleware.RequireButton("fg0002:search", ctrl.QueryAgents))
 	router.POST(APIPrefix+"/registerAgent", middleware.RequireButton("fg0002:edit", ctrl.RegisterAgent))
+	router.POST(APIPrefix+"/renameAgent", middleware.RequireButton("fg0002:edit", ctrl.RenameAgent))
+	router.POST(APIPrefix+"/deleteAgents", middleware.RequireButton("fg0002:delete", ctrl.DeleteAgents))
 	router.POST(APIPrefix+"/dispatchCommand", middleware.RequireButton("fg0002:command", ctrl.DispatchCommand))
 	router.GET(APIPrefix+"/queryCommand", middleware.RequireButton("fg0002:command", ctrl.QueryCommand))
 	router.GET(APIPrefix+"/queryCommands", middleware.RequireButton("fg0002:view", ctrl.QueryCommands))

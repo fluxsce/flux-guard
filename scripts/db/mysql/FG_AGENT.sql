@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `FG_AGENT` (
   `agentVersion` VARCHAR(64) DEFAULT NULL COMMENT '代理产品版本',
   `goos` VARCHAR(32) DEFAULT NULL COMMENT '代理操作系统，如 linux、windows',
   `goarch` VARCHAR(32) DEFAULT NULL COMMENT '代理架构，如 amd64、arm64',
+  `commandAddress` VARCHAR(128) DEFAULT NULL COMMENT '命令端口地址，由代理上报',
   `agentTokenHash` VARCHAR(64) NOT NULL COMMENT '代理令牌 SHA-256',
   `statusFlag` VARCHAR(1) NOT NULL DEFAULT 'Y' COMMENT '是否允许上报：Y允许，N停用',
   `lastSeenTime` DATETIME DEFAULT NULL COMMENT '最近心跳时间',
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS `FG_AGENT` (
 ALTER TABLE `FG_AGENT` ADD COLUMN `agentVersion` VARCHAR(64) DEFAULT NULL COMMENT '代理产品版本' AFTER `machineId`;
 ALTER TABLE `FG_AGENT` ADD COLUMN `goos` VARCHAR(32) DEFAULT NULL COMMENT '代理操作系统' AFTER `agentVersion`;
 ALTER TABLE `FG_AGENT` ADD COLUMN `goarch` VARCHAR(32) DEFAULT NULL COMMENT '代理架构' AFTER `goos`;
+ALTER TABLE `FG_AGENT` ADD COLUMN `commandAddress` VARCHAR(128) DEFAULT NULL COMMENT '命令端口地址，由代理上报' AFTER `goarch`;
 
 INSERT INTO `FG_AGENT` (
   `agentId`, `tenantId`, `agentName`, `hostName`, `ipAddress`, `agentTokenHash`, `statusFlag`,

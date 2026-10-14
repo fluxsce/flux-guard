@@ -33,10 +33,14 @@ func poll(ctx context.Context, cfg Config, exec Exec) {
 		if call == nil {
 			continue
 		}
-		message, err := exec(ctx, *call)
-		result := protocol.CommandResult{CommandID: call.CommandID, OK: err == nil, Message: message}
+		out, err := exec(ctx, *call)
+		result := protocol.CommandResult{
+			CommandID: call.CommandID, OK: err == nil, Message: out.Message, Steps: out.Steps,
+		}
 		if err != nil {
-			result.Message = err.Error()
+			if result.Message == "" {
+				result.Message = err.Error()
+			}
 		}
 		if err := postResult(ctx, client, cfg, result); err != nil && ctx.Err() == nil {
 			logger.Error(ctx, "command: 回执: %v", err)

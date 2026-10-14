@@ -86,6 +86,13 @@ func Collect(ctx context.Context, rt Runtime, commandAddr string) (protocol.Coll
 			Kind:    "static",
 			Path:    rt.StaticDir,
 		}}
+	case "files":
+		// 心跳只报站点标记（base 本身）。子目录 / war / 日志在控制台打开时短拨列目录，避免移动删除后脏数据。
+		side.Artifacts = []protocol.AppArtifact{{
+			AppName: rt.Instance,
+			Kind:    "runtime",
+			Path:    rt.Base,
+		}}
 	}
 	return protocol.CollectResult{AppSide: side}, nil
 }

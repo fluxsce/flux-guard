@@ -60,7 +60,7 @@ flowchart TB
 | Server | `server` | 是，中央一份 | 登录、权限、代理登记、接收批次、主机记录、菜单和转发 |
 | 主机代理 | `agents/host` | 是，每台机器一份 | CPU、内存、磁盘容量与 inode、磁盘 IO、网卡、TCP、进程内存和 CPU。按机器编号上报 |
 | Go 运行时代理 | `agents/goruntime` | 是，跟这个 Go 进程一起装 | 上报本进程的显示名、版本、进程号、协程、堆和 GC。种类 `go`。旧种类 `app` 仍接收，身份写入 `FG_AGENT_GO` |
-| 应用代理 | `agents/appside` | 是，一台机器一份，独立进程 | 配置列出这台机器上的各套 Tomcat、Node、脚本、JAR 和静态目录，并指定 `backup_dir`。Tomcat/Node/script 填 `base`。换包或升级前把旧内容移进备份目录，再写回原路径；重启支持 systemd / Windows 服务 / docker，以及本机命令（可按类型推导）。应用进程退出后代理还在。种类 `appside` |
+| 应用代理 | `agents/appside` | 是，一台机器一份，独立进程 | 配置列出这台机器上的各套 Tomcat、Node、脚本、JAR、静态目录或 `files` 制品目录，并指定 `backup_dir`。Tomcat/Node/script/files 填 `base`。换包或升级前把旧内容移进备份目录，再写回原路径；`files` 只换一层目录里的 war/jar/zip、不重启。其它模式重启支持 systemd / Windows 服务 / docker / 本机命令。应用进程退出后代理还在。种类 `appside` |
 | JVM 代理 | `agents/java` | 是，挂进目标进程 | 以 `-javaagent` 采集堆、GC、线程，种类 `java` |
 | 通讯协议 | `protocol` | 否 | 路径、鉴权头、正文、应答、重试约定。任意语言按这一份实现即可 |
 | 共享代码 | `common` | 否 | 主键 `common/id`，YAML 配置 `common/yamlcfg`（viper），对称加解密 `common/crypto`，Go 上报 `common/report`，Go 命令通道 `common/command`，Go 终端通道 `common/shellrun` |
@@ -132,7 +132,7 @@ sequenceDiagram
 1. `protocol` 写路径、命令正文和应答。动作名是固定枚举，不接受任意命令行。
 2. `server/command` 写入和认领 `FG_COMMAND`。先拨号：代理在主机资料里报了命令地址，并且目标属于这台机器或回环，就带代理令牌去拨；成功则把结果写回并返回给控制台。失败、没有地址或还原不出令牌则改为待取，并唤醒该代理已经挂着的长轮询。
 3. 控制台挂在 fg0002，按钮码 `fg0002:command`（立即采集 / 改间隔）与 `fg0002:upgrade`（上传代理包并批量自更新）。对列表里的一台代理下发，页面看这一行从拨号中到完成。拨不通时继续看同一行，直到回执到来。自更新只走长轮询。按钮行在 `FG_AUTH_RESOURCE.sql`，初始授权由 `FG_AUTH_ROLE_RESOURCE.sql` 授给超级管理员。
-4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随资料上报。`cmd/host` 的动作是立即再采一轮和修改进程内上报间隔。`cmd/appside` 的动作是替换静态资源、WAR、JAR，以及升级它看守的运行时。`agent.self.update` 让 host / go / appside 从中央拉取自身安装包并替换后重启（首次部署仍手工安装；下发只走长轮询；须匹配 goos/goarch；默认金丝雀分批；失败回滚上一版二进制）。名单之外的命令行仍然拒绝。
+4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随资料上报。`cmd/host` 的动作是立即再采一轮和修改进程内上报间隔。`cmd/appside` 的动作是替换静态资源、WAR、JAR，升级它看守的运行时，以及按备份路径回滚（`app.file.rollback`，备份须在本机 `backup_dir` 内）。应用换包与回滚由 fg0008 下发，默认金丝雀先 1 台再「继续下一批」。`agent.self.update` 让 host / go / appside 从中央拉取自身安装包并替换后重启（首次部署仍手工安装；下发只走长轮询；须匹配 goos/goarch；默认金丝雀分批；失败回滚上一版二进制）。名单之外的命令行仍然拒绝。
 5. 修改上报间隔只活在这次进程里，重启后回到 `interval_sec`。重启服务等要另增名单项，仍不开放任意 shell。
 
 没配 `command_listen` 或 `agent_token` 的代理只有拉取这一条路。
@@ -206,7 +206,7 @@ server/plugin       外置插件进程。按 plugins/manifests/*.yaml 启动和�
 server/config       本进程监听配置。产品版本不在 YAML 里
 agents/host         主机采集：CPU、内存、磁盘、流量、连接、句柄、进程内存
 agents/goruntime    Go 进程上报自己：身份、协程、堆、GC
-agents/appside      应用代理：一台机器一份，列出各套 Tomcat、JAR 和静态目录
+agents/appside      应用代理：一台机器一份，列出各套 Tomcat、JAR、静态目录或 files 制品仓
 agents/java         JVM 代理：-javaagent 采集堆、GC、线程
 protocol/           通讯协议：字段、路径、鉴权头、应答、重试
 common/id           两边共用的主键

@@ -55,8 +55,54 @@ func TestAcceptDuplicate(t *testing.T) {
 	if err := store.Scan(context.Background(), svc.db, `SELECT agentName FROM FG_AGENT WHERE tenantId = 'default' AND agentId = 'agent-local'`, nil, &agentName); err != nil {
 		t.Fatal(err)
 	}
-	if agentName != "机房A" {
+	// 种子行「本机开发代理」不是系统底名，上报 reportName 只写入主机专表，不冲掉显示名。
+	if agentName != "本机开发代理" {
 		t.Fatalf("agentName=%s", agentName)
+	}
+}
+
+func TestDisplayNameFillOnceAndKeepManual(t *testing.T) {
+	svc := testService(t)
+	if _, err := svc.db.Exec(context.Background(), `
+		INSERT INTO FG_AGENT (
+		  agentId, tenantId, agentName, agentCode, machineId, agentTokenHash, statusFlag,
+		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
+		) VALUES (
+		  'host-box', 'default', 'host-a1b2c3d4', 'host', 'machine-box', 'x', 'Y',
+		  'system', 'system', 'INGEST', 1, 'Y'
+		)`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Accept(context.Background(), protocol.Batch{
+		TenantID: "default", AgentID: "host-box", BatchID: "batch-name-1", AgentCode: "host",
+		Host: &protocol.Host{HostName: "box", OSName: "linux", ArchName: "amd64", ReportName: "本机主机", MachineID: "machine-box"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	if err := store.Scan(context.Background(), svc.db, `
+		SELECT agentName FROM FG_AGENT WHERE agentId = 'host-box'`, nil, &name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "本机主机" {
+		t.Fatalf("fill once got %s", name)
+	}
+	if _, err := svc.db.Exec(context.Background(), `
+		UPDATE FG_AGENT SET agentName = '机房A' WHERE agentId = 'host-box'`, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Accept(context.Background(), protocol.Batch{
+		TenantID: "default", AgentID: "host-box", BatchID: "batch-name-2", AgentCode: "host",
+		Host: &protocol.Host{HostName: "box", OSName: "linux", ArchName: "amd64", ReportName: "本机主机", MachineID: "machine-box"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Scan(context.Background(), svc.db, `
+		SELECT agentName FROM FG_AGENT WHERE agentId = 'host-box'`, nil, &name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "机房A" {
+		t.Fatalf("manual kept %s", name)
 	}
 }
 

@@ -88,7 +88,7 @@ func normalizeRuntime(rt Runtime) (Runtime, error) {
 		return rt, fmt.Errorf("每一套都要填写 kind、instance、mode")
 	}
 	switch rt.Mode {
-	case "tomcat", "node", "script":
+	case "tomcat", "node", "script", "files":
 		if rt.Base == "" {
 			return rt, fmt.Errorf("%s 模式请填写 base", rt.Mode)
 		}
@@ -101,7 +101,7 @@ func normalizeRuntime(rt Runtime) (Runtime, error) {
 			return rt, fmt.Errorf("static 模式请填写 static_dir")
 		}
 	default:
-		return rt, fmt.Errorf("runtime.mode 只允许 tomcat、node、script、jar、static")
+		return rt, fmt.Errorf("runtime.mode 只允许 tomcat、node、script、jar、static、files")
 	}
 	switch rt.Kind {
 	case "systemd", "windows", "docker":

@@ -16,6 +16,7 @@ import (
 	"fluxguard/server/command/models"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
+	"fluxguard/server/utils/const/limits"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -53,7 +54,20 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	if in.Action == protocol.ActionIntervalSet && (in.IntervalSec < protocol.IntervalMin || in.IntervalSec > protocol.IntervalMax) {
 		return models.View{}, models.ErrBadInterval
 	}
-	if (protocol.AppAction(in.Action) || protocol.AgentAction(in.Action)) &&
+	if in.Action == protocol.ActionAppRollback {
+		if strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.Version) == "" ||
+			strings.TrimSpace(in.Instance) == "" || strings.TrimSpace(in.TargetPath) == "" || strings.TrimSpace(in.BackupPath) == "" {
+			return models.View{}, models.ErrBadRelease
+		}
+	} else if in.Action == protocol.ActionAppFilePush {
+		if strings.TrimSpace(in.Instance) == "" || strings.TrimSpace(in.TargetPath) == "" {
+			return models.View{}, models.ErrBadRelease
+		}
+	} else if in.Action == protocol.ActionAppFileList {
+		if strings.TrimSpace(in.Instance) == "" {
+			return models.View{}, models.ErrBadRelease
+		}
+	} else if (protocol.AppAction(in.Action) || protocol.AgentAction(in.Action)) &&
 		(strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.SHA256) == "" || strings.TrimSpace(in.Version) == "") {
 		return models.View{}, models.ErrBadRelease
 	}
@@ -89,10 +103,11 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 			return models.View{}, models.ErrNotUpdatable
 		}
 	}
-	// 自更新要下载安装包，超过拨号时限；只走长轮询，避免拨入超时后重复执行。
+	// 自更新与出站推文件超过拨号时限或专供隔离网；只走长轮询。
 	primary, list, addr := s.targetAddress(ctx, tenantID, agentID, in.Action)
 	token := setting.IngestPlain(tenantID)
-	canDial := !protocol.AgentAction(in.Action) && addr != "" && token != "" && allowedTarget(addr, primary, list)
+	canDial := !protocol.AgentAction(in.Action) && !protocol.FilePushAction(in.Action) &&
+		addr != "" && token != "" && allowedTarget(addr, primary, list)
 	commandID := id.New()
 	statusFlag := models.StatusWaiting
 	if canDial {
@@ -210,7 +225,7 @@ func commandCall(commandID string, in models.DispatchInput) protocol.CommandCall
 		CommandID: commandID, Action: in.Action, IntervalSec: in.IntervalSec,
 		ReleaseID: in.ReleaseID, AppName: in.AppName, Kind: in.Kind,
 		Version: in.Version, SHA256: in.SHA256, FileName: in.FileName, Instance: in.Instance,
-		GoOS: in.GoOS, GoArch: in.GoArch,
+		GoOS: in.GoOS, GoArch: in.GoArch, TargetPath: in.TargetPath, BackupPath: in.BackupPath,
 	}
 }
 
@@ -287,7 +302,7 @@ func (s *Service) push(ctx context.Context, tenantID, commandID, addr, key strin
 	if !reply.OK {
 		flag = models.StatusFailed
 	}
-	if err := s.finish(ctx, commandID, flag, reply.Message); err != nil {
+	if err := s.finish(ctx, commandID, flag, reply.Message, reply.Steps); err != nil {
 		return models.View{}, false
 	}
 	view, err := s.Get(ctx, tenantID, commandID)
@@ -332,14 +347,18 @@ func (s *Service) markWaiting(ctx context.Context, commandID string) {
 		dbx.Args{"editTime": store.FormatTime(time.Now().UTC()), "commandId": commandID})
 }
 
-func (s *Service) finish(ctx context.Context, commandID, flag, message string) error {
+func (s *Service) finish(ctx context.Context, commandID, flag, message string, steps []protocol.CommandStep) error {
+	note, err := encodeSteps(steps)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.Exec(ctx, `
 		UPDATE FG_COMMAND
-		SET statusFlag = @statusFlag, resultText = @resultText, editTime = @editTime, editWho = 'system',
-		    currentVersion = currentVersion + 1
+		SET statusFlag = @statusFlag, resultText = @resultText, noteText = @noteText,
+		    editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
 		WHERE commandId = @commandId AND statusFlag = 'R' AND activeFlag = 'Y'`,
 		dbx.Args{
-			"statusFlag": flag, "resultText": clip(message, 200),
+			"statusFlag": flag, "resultText": clip(message, 200), "noteText": note,
 			"editTime": store.FormatTime(time.Now().UTC()), "commandId": commandID,
 		})
 	if err != nil {
@@ -353,6 +372,22 @@ func (s *Service) finish(ctx context.Context, commandID, flag, message string) e
 		return models.ErrCommandGone
 	}
 	return nil
+}
+
+// encodeSteps 把步骤写成 noteText。空步骤清掉旧值。
+func encodeSteps(steps []protocol.CommandStep) (any, error) {
+	if len(steps) == 0 {
+		return nil, nil
+	}
+	raw, err := json.Marshal(steps)
+	if err != nil {
+		return nil, err
+	}
+	text := string(raw)
+	if len(text) > limits.CommandResultNoteMax {
+		text = text[:limits.CommandResultNoteMax]
+	}
+	return text, nil
 }
 
 func clip(text string, n int) string {

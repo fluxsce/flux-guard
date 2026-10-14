@@ -52,3 +52,47 @@ func (c *AgentController) RegisterAgent(g *gin.Context) {
 	audit.Note(g, "", "AGENT", view.AgentID, view.AgentName, "登记采集代理 "+audit.Named(view.AgentName, view.HostName))
 	httpx.WriteOK(g, map[string]any{"agent": view, "agentToken": token})
 }
+
+// deleteAgentsBody 批量删除代理的请求体。
+type deleteAgentsBody struct {
+	AgentIDs []string `json:"agentIds"`
+}
+
+// DeleteAgents 物理删除选中的采集代理。
+func (c *AgentController) DeleteAgents(g *gin.Context) {
+	var body deleteAgentsBody
+	if !request.Bind(g, &body) {
+		return
+	}
+	audit.Note(g, "", "AGENT", "", "", "删除采集代理")
+	n, err := c.agents.DeleteAgents(g.Request.Context(), body.AgentIDs)
+	if err != nil {
+		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+		return
+	}
+	audit.Note(g, "", "AGENT", "", "", "删除采集代理 "+strings.TrimSpace(strings.Join(body.AgentIDs, ",")))
+	httpx.WriteOK(g, map[string]any{"deleted": n})
+}
+
+// renameAgentBody 改显示名的请求体。
+type renameAgentBody struct {
+	AgentID   string `json:"agentId"`
+	AgentName string `json:"agentName"`
+}
+
+// RenameAgent 只改显示名。上报不会冲掉这里改过的名字。
+func (c *AgentController) RenameAgent(g *gin.Context) {
+	var body renameAgentBody
+	if !request.Bind(g, &body) {
+		return
+	}
+	name := strings.TrimSpace(body.AgentName)
+	audit.Note(g, "", "AGENT", body.AgentID, name, "修改代理显示名 "+name)
+	view, err := c.agents.RenameAgent(g.Request.Context(), body.AgentID, body.AgentName)
+	if err != nil {
+		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+		return
+	}
+	audit.Note(g, "", "AGENT", view.AgentID, view.AgentName, "修改代理显示名 "+view.AgentName)
+	httpx.WriteOK(g, view)
+}

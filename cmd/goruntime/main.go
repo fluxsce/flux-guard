@@ -42,11 +42,15 @@ func main() {
 		AgentToken: cfg.AgentToken,
 		AgentCode:  goruntime.Code,
 		MachineID:  machineID,
-	}, func(cmdCtx context.Context, call protocol.CommandCall) (string, error) {
+	}, func(cmdCtx context.Context, call protocol.CommandCall) (protocol.CommandOutcome, error) {
 		if call.Action != protocol.ActionAgentUpdate {
-			return "", fmt.Errorf("不支持的动作 %s", call.Action)
+			return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", call.Action)
 		}
-		return agentupdate.Apply(cmdCtx, cfg.ServerURL, cfg.AgentToken, goruntime.Code, machineID, call)
+		msg, err := agentupdate.Apply(cmdCtx, cfg.ServerURL, cfg.AgentToken, goruntime.Code, machineID, call)
+		if err != nil {
+			return protocol.CommandOutcome{Message: err.Error()}, err
+		}
+		return protocol.CommandOutcome{Message: msg}, nil
 	}, nil)
 	report.Run(ctx, cfg, goruntime.Code, func(ctx context.Context) (protocol.CollectResult, error) {
 		result, err := goruntime.Collect(ctx)

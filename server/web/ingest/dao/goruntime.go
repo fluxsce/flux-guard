@@ -2,10 +2,13 @@ package dao
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
 	"fluxguard/protocol"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
 )
@@ -92,14 +95,25 @@ func SaveGo(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 		)`, args); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `
+	var keptAgent string
+	err := store.Scan(ctx, tx, `
+		SELECT COALESCE(agentName, '') FROM FG_AGENT WHERE tenantId = @tenantId AND agentId = @agentId`,
+		dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}, &keptAgent)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	display := agent.ResolveDisplayName(keptAgent, batch.AgentCode, appName, hostName)
+	_, err = tx.Exec(ctx, `
 		UPDATE FG_AGENT SET
 		  agentName = @agentName,
 		  hostName = CASE WHEN @hostName = '' THEN hostName ELSE @hostName END,
 		  editTime = @editTime, editWho = 'system'
 		WHERE tenantId = @tenantId AND agentId = @agentId`,
 		dbx.Args{
-			"agentName": clip(appName, 100), "hostName": hostName,
+			"agentName": display, "hostName": hostName,
 			"editTime": edited, "tenantId": batch.TenantID, "agentId": batch.AgentID,
 		})
 	return err

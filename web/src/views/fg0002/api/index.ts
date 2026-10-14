@@ -51,6 +51,23 @@ export function registerAgent(agentName: string, hostName: string) {
   return fg0002.post('/registerAgent', { agentName, hostName })
 }
 
+/**
+ * 只改代理显示名。身份键不变，后续上报不会冲掉。
+ * @param agentId - 代理编号
+ * @param agentName - 新显示名
+ */
+export function renameAgent(agentId: string, agentName: string) {
+  return fg0002.post<Agent>('/renameAgent', { agentId, agentName })
+}
+
+/**
+ * 物理删除选中的采集代理及其身份、终端、命令等关联行。
+ * @param agentIds - 代理编号列表
+ */
+export function deleteAgents(agentIds: string[]) {
+  return fg0002.post<{ deleted: number }>('/deleteAgents', { agentIds })
+}
+
 export interface CommandView {
   commandId: string
   agentId: string

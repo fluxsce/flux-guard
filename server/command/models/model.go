@@ -50,6 +50,8 @@ type DispatchInput struct {
 	Instance    string `json:"instance,omitempty"`
 	GoOS        string `json:"goos,omitempty"`
 	GoArch      string `json:"goarch,omitempty"`
+	TargetPath  string `json:"targetPath,omitempty"`
+	BackupPath  string `json:"backupPath,omitempty"`
 }
 
 // View 是控制台看到的一行命令。
