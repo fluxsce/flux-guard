@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-14
+
+### 新增
+- 应用管理单独成一组。应用代理一台机器一份，配置列出这台机器上的各套 Tomcat、JAR 和静态目录。一套 Tomcat 里的多个 WAR 由扫描得到，不用按应用再装代理。应用挂了，代理继续上报。控制台按上报的应用选择实例，再更新静态资源、WAR、JAR 或运行时。主机代理不扫描、不更新应用。
+
+### 变更
+- Go 进程上报自己改名为 Go 运行时代理，目录 `agents/goruntime`，种类 `go`。显示名、版本、进程号、协程、堆和 GC 写入 `FG_AGENT_GO`，同一进程每次更新这一行。同一台机器上的多份进程用 `report_name` 区分。旧种类 `app` 仍接收，只带两个样本时也会落库。它不负责应用换包。
+- 应用代理换包前把旧 WAR、JAR 或静态目录移到配置里的 `backup_dir`，按实例分子目录。原路径不再留下 `.bak`。`backup_dir` 必须填写。
+- 应用代理去掉 `home` 与旁路版本目录。Tomcat 只填 `base`；运行时升级同样先备份再写回原路径，并保留 conf、logs、webapps。新增 `kind: command`，用本机 `start` / `stop` / `status` 启停，覆盖非系统服务部署。
+- 应用代理增加 `mode: node`（zip 换到 `base`，版本读 `package.json`）和 `mode: script`（通用脚本目录，同样 zip 换包）。`command` 未填启停时按类型推导：Tomcat 用 `base/bin` 标准脚本；node / script / jar 同目录按约定找 `start`/`stop`/`status`，否则落到 `base/bin`。
+
 ## [1.1.1] - 2026-10-14
 
 ### 变更

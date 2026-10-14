@@ -186,6 +186,12 @@ func isIgnorableAlter(stmt string, err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	upper := strings.ToUpper(stmt)
+	if strings.Contains(upper, " DROP INDEX ") || strings.Contains(upper, " DROP KEY ") {
+		return strings.Contains(msg, "check that column/key exists") ||
+			strings.Contains(msg, "doesn't exist") ||
+			strings.Contains(msg, "does not exist") ||
+			strings.Contains(msg, "no such index")
+	}
 	if strings.Contains(upper, " RENAME ") {
 		return strings.Contains(msg, "no such table") ||
 			strings.Contains(msg, "doesn't exist") ||
@@ -219,5 +225,8 @@ func statements(text string) []string {
 
 func isSchema(stmt string) bool {
 	word := strings.ToUpper(strings.TrimSpace(stmt))
+	if strings.HasPrefix(word, "DROP INDEX") {
+		return true
+	}
 	return strings.HasPrefix(word, "CREATE") || strings.HasPrefix(word, "ALTER") || strings.HasPrefix(word, "UPDATE")
 }

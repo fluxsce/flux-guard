@@ -68,7 +68,8 @@ func resolveAgent(agents *agent.Store, tenantID, token string, body protocol.Req
 }
 
 // reportingMachineID 取出这一批用来分行的机器编号。
-// 主机用操作系统编号。Java 用「服务名@实例」：实例优先取配置名，否则用主机名或 Pod 名。
+// 主机用操作系统编号。Go 进程用「显示名@主机名」，重启后仍是这一行。
+// Java 用「服务名@实例」：实例优先取配置名，否则用主机名或 Pod 名。
 // 进程号不参与编号，同一实例重启仍是这一行。没有主机名时才退回进程号。
 func reportingMachineID(body protocol.Request) string {
 	if body.Host != nil {
@@ -76,10 +77,28 @@ func reportingMachineID(body protocol.Request) string {
 			return id
 		}
 	}
+	if body.Go != nil {
+		return goInstanceID(body.Go)
+	}
 	if body.Java == nil {
 		return ""
 	}
 	return javaInstanceID(body.Java)
+}
+
+func goInstanceID(item *protocol.Go) string {
+	if item == nil {
+		return ""
+	}
+	name := strings.TrimSpace(item.AppName)
+	if name == "" {
+		name = "go"
+	}
+	slot := strings.TrimSpace(item.HostName)
+	if slot == "" {
+		return clipMachineID(strings.TrimSpace(item.ProcessID))
+	}
+	return clipMachineID(name + "@" + slot)
 }
 
 func javaInstanceID(java *protocol.Java) string {

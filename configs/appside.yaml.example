@@ -1,0 +1,66 @@
+# 示例配置。复制为 configs/appside.yaml 后再改。appside.yaml 是本机文件，不要提交。
+# 一台机器只装这一个程序。下面 runtimes 里，一段就是这一台机器上的一套程序。
+# 一套 Tomcat 里有好几个网站（WAR）时，只写这一段。网站会从这套的 webapps 里自动找出来，不用逐个写。
+#
+# mode 是应用类型：tomcat / node / script / jar / static。换包规则和 command 默认脚本都按它来。
+# kind 是怎么启停：
+#   systemd   Linux 系统服务。service 填服务名。
+#   windows   Windows 服务。service 填服务名。
+#   docker    容器。service 填容器名。
+#   command   本机命令。可手写 start / stop / status；未填时按 mode 推导：
+#             tomcat -> base/bin/startup.sh（Windows 为 .bat）等
+#             node / script -> 优先用 base/bin、base、base/scripts 下的 start/stop/status，
+#                             没有则落到 base/bin/start.sh（Windows 为 .bat）
+#             jar -> 在 jar 同目录找上述约定脚本
+#
+# tomcat / node / script 填 base。换包或升级都会先挪到 backup_dir，再写回原路径，然后重启。
+#
+# 环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_SERVER_URL 覆盖 server_url。
+server_url: http://127.0.0.1:8080 # 中央地址
+agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
+interval_sec: 15 # 多久上报一次，单位秒
+command_listen: 127.0.0.1:7701 # 中央连这台机器下发换包命令的端口。整台机器一个。留空则由这台机器自己去中央取命令
+backup_dir: /data/fluxguard/backup # 换包和升级前，旧文件挪到这里。必须填写，不要放在 webapps 里面
+
+runtimes:
+  # 系统服务启动的一套 Tomcat。
+  - kind: systemd
+    instance: tomcat-a # 控制台里显示的这套的名字。同一台机器上不能重名
+    service: tomcat-a
+    mode: tomcat
+    base: /opt/tomcat-a
+  # 脚本启动的 Tomcat：不写 start/stop/status，按 base/bin 推导。
+  - kind: command
+    instance: tomcat-b
+    mode: tomcat
+    base: /opt/tomcat-b
+  # Node：换包是 zip 解到 base。启停可手写，也可放约定脚本后自动推导。
+  - kind: command
+    instance: order-api
+    mode: node
+    base: /opt/order-api
+  # 通用脚本应用：目录 + start/stop/status，换包同样进 base。
+  - kind: command
+    instance: batch-job
+    mode: script
+    base: /opt/batch-job
+    # 约定脚本：base/bin/start.sh、stop.sh、status.sh（或放在 base、base/scripts）
+  # jar：同目录有约定脚本时可省略 start/stop/status。
+  # - kind: command
+  #   instance: order-jar
+  #   mode: jar
+  #   jar: /opt/order/order.jar
+  # - kind: systemd
+  #   instance: order-static
+  #   service: order-static
+  #   mode: static
+  #   static_app: order-static
+  #   static_dir: /data/www/order
+
+log:
+  file: logs/appside.log
+  level: info # 最低级别：debug、info、warn、error。低于此级别的不写
+  max_size_mb: 20
+  max_backups: 5
+  max_age_days: 14
+  console: true

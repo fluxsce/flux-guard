@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,6 +53,12 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	if in.Action == protocol.ActionIntervalSet && (in.IntervalSec < protocol.IntervalMin || in.IntervalSec > protocol.IntervalMax) {
 		return models.View{}, models.ErrBadInterval
 	}
+	if protocol.AppAction(in.Action) && (strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.SHA256) == "" || strings.TrimSpace(in.Version) == "") {
+		return models.View{}, models.ErrBadRelease
+	}
+	if in.Action == protocol.ActionAppReplace && (strings.TrimSpace(in.AppName) == "" || strings.TrimSpace(in.Kind) == "") {
+		return models.View{}, models.ErrBadRelease
+	}
 	agentID := strings.TrimSpace(in.AgentID)
 	var code, status string
 	err := store.Scan(ctx, s.db, `
@@ -67,10 +74,13 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	if status != "Y" {
 		return models.View{}, models.ErrStopped
 	}
-	if code != "" && code != "host" {
+	if protocol.HostAction(in.Action) && code != "" && code != protocol.AgentHost {
 		return models.View{}, models.ErrNotHost
 	}
-	primary, list, addr := s.hostAddress(ctx, tenantID, agentID)
+	if protocol.AppAction(in.Action) && code != protocol.AgentAppside {
+		return models.View{}, models.ErrNotAppside
+	}
+	primary, list, addr := s.targetAddress(ctx, tenantID, agentID, in.Action)
 	token := setting.IngestPlain(tenantID)
 	canDial := addr != "" && token != "" && allowedTarget(addr, primary, list)
 	commandID := id.New()
@@ -85,14 +95,15 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 	now := store.FormatTime(time.Now().UTC())
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO FG_COMMAND (
-		  commandId, tenantId, agentId, actionName, intervalSec, statusFlag,
+		  commandId, tenantId, agentId, actionName, intervalSec, statusFlag, extProperty,
 		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
-		  @commandId, @tenantId, @agentId, @actionName, @intervalSec, @statusFlag,
+		  @commandId, @tenantId, @agentId, @actionName, @intervalSec, @statusFlag, @extProperty,
 		  @now, @user, @now, @user, 'CMD', 1, 'Y'
 		)`, dbx.Args{
 		"commandId": commandID, "tenantId": tenantID, "agentId": agentID, "actionName": in.Action,
-		"intervalSec": interval, "statusFlag": statusFlag, "now": now, "user": user,
+		"intervalSec": interval, "statusFlag": statusFlag, "extProperty": commandExt(in),
+		"now": now, "user": user,
 	}); err != nil {
 		return models.View{}, err
 	}
@@ -162,9 +173,77 @@ func (s *Service) ListByAgent(ctx context.Context, tenantID, agentID string, lim
 	return out, rows.Err()
 }
 
+// OwnsRelease 判断这件制品是否发给了这台应用侧代理。
+func (s *Service) OwnsRelease(ctx context.Context, tenantID, agentID, releaseID string) bool {
+	if s == nil || strings.TrimSpace(releaseID) == "" {
+		return false
+	}
+	var count int
+	err := store.Scan(ctx, s.db, `
+		SELECT count(*) FROM FG_COMMAND
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND extProperty LIKE @marker`,
+		dbx.Args{
+			"tenantId": tenantID, "agentId": agentID,
+			"marker": "%\"releaseId\":\"" + releaseID + "\"%",
+		}, &count)
+	return err == nil && count > 0
+}
+
 // Wait 挂起直到该代理有待取命令或超时。
 func (s *Service) Wait(agentID string, ctx context.Context, hold time.Duration) {
 	s.hub.wait(agentID, ctx, hold)
+}
+
+func commandCall(commandID string, in models.DispatchInput) protocol.CommandCall {
+	return protocol.CommandCall{
+		CommandID: commandID, Action: in.Action, IntervalSec: in.IntervalSec,
+		ReleaseID: in.ReleaseID, AppName: in.AppName, Kind: in.Kind,
+		Version: in.Version, SHA256: in.SHA256, FileName: in.FileName, Instance: in.Instance,
+	}
+}
+
+func commandExt(in models.DispatchInput) any {
+	if !protocol.AppAction(in.Action) {
+		return nil
+	}
+	body, err := json.Marshal(commandCall("", in))
+	if err != nil {
+		return nil
+	}
+	return string(body)
+}
+
+func callFromExt(commandID, action, raw string, interval int) protocol.CommandCall {
+	call := protocol.CommandCall{CommandID: commandID, Action: action, IntervalSec: interval}
+	if raw == "" {
+		return call
+	}
+	_ = json.Unmarshal([]byte(raw), &call)
+	call.CommandID = commandID
+	call.Action = action
+	call.IntervalSec = interval
+	return call
+}
+
+func (s *Service) targetAddress(ctx context.Context, tenantID, agentID, action string) (primary, list, addr string) {
+	if protocol.AppAction(action) {
+		return s.appsideAddress(ctx, tenantID, agentID)
+	}
+	return s.hostAddress(ctx, tenantID, agentID)
+}
+
+func (s *Service) appsideAddress(ctx context.Context, tenantID, agentID string) (primary, list, addr string) {
+	err := store.Scan(ctx, s.db, `
+		SELECT COALESCE(ipAddress, ''), COALESCE(commandAddress, '')
+		FROM FG_APP_INST
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND commandAddress IS NOT NULL AND commandAddress <> ''`,
+		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &primary, &addr)
+	if err != nil {
+		return "", "", ""
+	}
+	return strings.TrimSpace(primary), strings.TrimSpace(primary), strings.TrimSpace(addr)
 }
 
 func (s *Service) hostAddress(ctx context.Context, tenantID, agentID string) (primary, list, addr string) {
@@ -188,9 +267,7 @@ func (s *Service) push(ctx context.Context, tenantID, commandID, addr, key strin
 		s.release(ctx, commandID)
 		return models.View{}, false
 	}
-	reply, err := postExec(ctx, endpoint, key, protocol.CommandCall{
-		CommandID: commandID, Action: in.Action, IntervalSec: in.IntervalSec,
-	})
+	reply, err := postExec(ctx, endpoint, key, commandCall(commandID, in))
 	if err != nil {
 		s.release(ctx, commandID)
 		return models.View{}, false

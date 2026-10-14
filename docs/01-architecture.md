@@ -1,6 +1,6 @@
 # Flux Guard 架构
 
-运行时中央只部署一份 server。每台被监控机器按种类安装代理：主机代理采 CPU、内存、磁盘容量、磁盘 IO、网卡流量和进程内存；应用代理采该应用自己的运行时。一台机器可以同时跑多个代理。代理各自安装、升级和停机，只把批次上报给 server，代理之间不通信。server 不启动代理，也不把代理编进自己的进程。
+运行时中央只部署一份 server。每台被监控机器按种类安装代理：主机代理采 CPU、内存、磁盘容量、磁盘 IO、网卡流量和进程内存；Go 运行时代理只上报自己这个进程；Java 代理挂在 JVM 里采堆和 GC；应用代理一台机器一份，配置里列出这台机器上的各套 Tomcat、JAR 和静态目录并负责换包。一台机器可以同时跑多个种类的代理。代理各自安装、升级和停机，只把批次上报给 server，代理之间不通信。server 不启动代理，也不把代理编进自己的进程。
 
 对齐两边的是通讯协议，不是实现语言。协议放在 `protocol`，规定路径、鉴权头、JSON 正文和应答。Java、Python 或其它语言自己实现一个代理，按这份协议上报即可。协议不是进程。
 
@@ -25,7 +25,8 @@ flowchart TB
   subgraph machine ["同一台被监控服务器"]
     hostAgent["主机代理 host"]
     cmdPort["命令端口"]
-    appAgent["应用代理 app"]
+    goAgent["Go 运行时代理 go"]
+    sideAgent["应用代理 appside"]
     otherAgent["其它语言的代理"]
   end
 
@@ -39,7 +40,8 @@ flowchart TB
   ingest --> builtin
   builtin --> tsdb
   hostAgent -->|"指标短连接"| ingest
-  appAgent -->|"指标短连接"| ingest
+  goAgent -->|"指标短连接"| ingest
+  sideAgent -->|"清单短连接"| ingest
   otherAgent -->|"指标短连接"| ingest
   mgmt --> commands
   commands -->|"优先：拨命令端口"| cmdPort
@@ -47,9 +49,9 @@ flowchart TB
   hostAgent -->|"拨不通：长轮询取令并回执"| commands
 ```
 
-同一台机器上的代理互不通信。指标都进中央这一个接收接口，命令不夹进上报批次，也不写在指标应答里。控制台只走 `/fluxguard`。代理不登录控制台。主机指标留在主机代理里；应用内部的堆、GC 由该语言的应用代理自己采。命令队列见「操控采集机」。
+同一台机器上的代理互不通信。指标都进中央这一个接收接口，命令不夹进上报批次，也不写在指标应答里。控制台只走 `/fluxguard`。代理不登录控制台。主机指标留在主机代理里。Go 进程自己的协程和堆由 Go 运行时代理上报。JVM 的堆和 GC 由 Java 代理采集。应用换包由应用代理执行。命令队列见「操控采集机」。
 
-开发时可以在同一台电脑上起 server、host、app 三个进程，配置里的 `server_url` 指向本机。正式环境中央只跑 server，把需要的代理装到被监控的机器上。
+开发时可以在同一台电脑上起 server、host、goruntime 进程，配置里的 `server_url` 指向本机。正式环境中央只跑 server，把需要的代理装到被监控的机器上。
 
 ## 三层，加一个共享工具层
 
@@ -57,23 +59,25 @@ flowchart TB
 |----|------|------------|--------|
 | Server | `server` | 是，中央一份 | 登录、权限、代理登记、接收批次、主机记录、菜单和转发 |
 | 主机代理 | `agents/host` | 是，每台机器一份 | CPU、内存、磁盘容量与 inode、磁盘 IO、网卡、TCP、进程内存和 CPU。按机器编号上报 |
-| 应用代理 | `agents/app` | 是，跟应用一起装 | Go 参考实现采本进程运行时 |
+| Go 运行时代理 | `agents/goruntime` | 是，跟这个 Go 进程一起装 | 上报本进程的显示名、版本、进程号、协程、堆和 GC。种类 `go`。旧种类 `app` 仍接收，身份写入 `FG_AGENT_GO` |
+| 应用代理 | `agents/appside` | 是，一台机器一份，独立进程 | 配置列出这台机器上的各套 Tomcat、Node、脚本、JAR 和静态目录，并指定 `backup_dir`。Tomcat/Node/script 填 `base`。换包或升级前把旧内容移进备份目录，再写回原路径；重启支持 systemd / Windows 服务 / docker，以及本机命令（可按类型推导）。应用进程退出后代理还在。种类 `appside` |
 | JVM 代理 | `agents/java` | 是，挂进目标进程 | 以 `-javaagent` 采集堆、GC、线程，种类 `java` |
 | 通讯协议 | `protocol` | 否 | 路径、鉴权头、正文、应答、重试约定。任意语言按这一份实现即可 |
 | 共享代码 | `common` | 否 | 主键 `common/id`，YAML 配置 `common/yamlcfg`（viper），对称加解密 `common/crypto`，Go 上报 `common/report`，Go 命令通道 `common/command`，Go 终端通道 `common/shellrun` |
 
 **Server** 管人和目录。它校验用户口令、按按钮码鉴权、签发代理令牌，并接收批次。进来的令牌按 SHA-256 校验；同一把令牌在环境设置里另有密文，拨代理时出示。同一 `tenantId` + `batchId` 只入库一次。口令和令牌摘要在 `server/secret`，不放进 `common`。管理功能按模块目录扩展，见下文「管理端模块」。
 
-**代理** 各自采集自己那一类数据。它不保存用户口令。准入是租户共用的上报令牌。正文里的 `agentCode` 只能是 `protocol` 里登记的 `host`、`app`、`java`，其它种类直接拒绝。主机代理再带操作系统机器编号，Java 代理用主机名和进程号，服务器按租户、种类和这个编号各保留一行。
+**代理** 各自采集自己那一类数据。它不保存用户口令。准入是租户共用的上报令牌。正文里的 `agentCode` 只能是 `protocol` 里登记的 `host`、`go`、`java`、`appside`。已经发出的 Go 进程仍可用旧种类 `app`。其它种类直接拒绝。主机代理再带操作系统机器编号，Go 进程用「显示名@主机名」，Java 代理用「服务名@实例」，服务器按租户、种类和这个编号各保留一行。
 
 **协议** 规定这些交互：
 
 - `POST /fluxguard/api/ingest/v1/batches`
 - 头 `Authorization: Bearer <上报令牌>`
-- 正文是 `protocol.Request`：`batchId`、`agentCode`、`sentAt`、`samples`、`events`、`host`、`java`。租户由令牌决定，不写进正文
+- 正文是 `protocol.Request`：`batchId`、`agentCode`、`sentAt`、`samples`、`events`、`host`、`java`、`go`、`appSide`。租户由令牌决定，不写进正文
 - 成功应答是 `protocol.Result`
 - 单批样本或事件超过 1000 条时，Go 代理拆成多批。网络失败或 5xx 用同一个 `batchId` 再送一次，仍失败则写入 `data/<种类>-spool.jsonl`，下一轮先补报，最多留 400 批；4xx 不重试、不入积压
 - 主机代理可带 `host`：主机名、系统、内核、架构、CPU 个数、内存总量、地址列表、开机时间、机器编号、代理版本和 `reportName`。身份写入 `FG_AGENT_HOST`，同一台代理每次上报更新这一行，并同步 `FG_AGENT` 的名称和地址。`reportName` 来自 `configs/host.yaml` 的 `report_name`
+- Go 运行时代理带 `go`：显示名、Go 版本、进程号、启动时间、主机名、CPU 个数、协程数、堆分配、堆申请、堆对象、GC 次数和累计停顿。身份和最近一次数值写入 `FG_AGENT_GO`，同一进程每次更新这一行，并同步 `FG_AGENT` 的名称。显示名来自 `configs/goruntime.yaml` 的 `report_name`，留空时用程序文件名。同一台机器上的多份进程靠这个名字分开。指标名用 `go.runtime.*`。旧进程若只上报 `app.runtime.goroutine.count` 和 `app.runtime.heap.alloc.bytes`，中央仍把这两个数写入同一张表
 - Java 代理带 `java`：应用名、主类、进程号、Java 版本、启动时间、主机名和地址。身份写入 `FG_AGENT_JAVA`，同一代理每次更新一行，并同步 `FG_AGENT` 的名称。JVM 启动时间变化时收口 `FG_JAVA_RUN` 的上一行并另开一代，列表上的 GC 次数是当前这一代启动以来的累计。停顿开销、区间分位、堆前后和晋升未知时记 -1，死锁采集失败时也不写成 0。判断与曲线共用堆 85%、停顿 200ms/500ms、开销 10%。应用名优先取 `java.appName`，没有时仍接受 `host.reportName`。堆、非堆、元空间写入 `FG_JAVA_HEAP`，分代、代码缓存和堆外写入 `FG_JAVA_POOL`，进程 CPU 与类加载写入 `FG_JAVA_RUNTIME`，各回收器累计次数和耗时写入 `FG_JAVA_GC`，两次上报之间的停顿写入 `FG_JAVA_GC_PAUSE`，线程数写入 `FG_JAVA_THREAD`，运行、阻塞和等待写入 `FG_JAVA_THREAD_STATE`，直接内存上限写入 `FG_JAVA_POOL_MAX`，这些表只插入。指标名用 `jvm.*`。列表和详情用最近几个点给出一句判断，曲线在 fg0006
 - 主机曲线按类别只插入：`FG_HOST_CPU`、`FG_HOST_CPU_CORE`、`FG_HOST_MEM`、`FG_HOST_DISK`、`FG_HOST_DISK_IO`、`FG_HOST_NET`、`FG_HOST_TCP`、`FG_HOST_FD`、`FG_HOST_PROC`、`FG_HOST_PROC_TOP`。列表和明细读最新一批，点开后按时间画曲线。主机规则在 fg0005，按主机最新指标判断后交给预警发送。
 
@@ -128,7 +132,7 @@ sequenceDiagram
 1. `protocol` 写路径、命令正文和应答。动作名是固定枚举，不接受任意命令行。
 2. `server/command` 写入和认领 `FG_COMMAND`。先拨号：代理在主机资料里报了命令地址，并且目标属于这台机器或回环，就带代理令牌去拨；成功则把结果写回并返回给控制台。失败、没有地址或还原不出令牌则改为待取，并唤醒该代理已经挂着的长轮询。
 3. 控制台挂在 fg0002，按钮码 `fg0002:command`。对列表里的一台代理下发，页面看这一行从拨号中到完成。拨不通时继续看同一行，直到回执到来。按钮行在 `FG_AUTH_RESOURCE.sql`，初始授权由 `FG_AUTH_ROLE_RESOURCE.sql` 授给超级管理员。
-4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随主机资料上报。`cmd/host` 在上报循环之外启动它，动作是立即再采一轮和修改进程内上报间隔。应用代理同样可以挂，第一期只接主机代理。
+4. `common/command` 给 Go 代理用：常开长轮询；`command_listen` 有值且配置了 `agent_token` 才开命令端口，并把地址随资料上报。`cmd/host` 的动作是立即再采一轮和修改进程内上报间隔。`cmd/appside` 的动作是替换静态资源、WAR、JAR，以及升级它看守的运行时。名单之外的命令行仍然拒绝。
 5. 修改上报间隔只活在这次进程里，重启后回到 `interval_sec`。重启服务等要另增名单项，仍不开放任意 shell。
 
 没配 `command_listen` 或 `agent_token` 的代理只有拉取这一条路。
@@ -187,7 +191,8 @@ sequenceDiagram
 ```text
 cmd/server          server 进程入口，只做组装
 cmd/host            主机代理入口
-cmd/app             Go 应用代理入口；其它语言不经过这里
+cmd/goruntime       Go 运行时代理入口。只上报自己这个进程
+cmd/appside         应用代理入口。换包和运行时升级走这里，不进主机代理
 server/auth         用户、角色、资源
 server/secret       口令和代理令牌摘要，只给 server 用
 server/web          管理端装配；模块在 views 下按目录扩展
@@ -199,7 +204,8 @@ server/shell        交互终端会话 FG_SHELL，字节只留在本进程内存
 server/plugin       外置插件进程。按 plugins/manifests/*.yaml 启动和停止，只把一次调用的结果交回。帧和信封在 protocol
 server/config       本进程监听配置。产品版本不在 YAML 里
 agents/host         主机采集：CPU、内存、磁盘、流量、连接、句柄、进程内存
-agents/app          Go 应用采集：本进程运行时
+agents/goruntime    Go 进程上报自己：身份、协程、堆、GC
+agents/appside      应用代理：一台机器一份，列出各套 Tomcat、JAR 和静态目录
 agents/java         JVM 代理：-javaagent 采集堆、GC、线程
 protocol/           通讯协议：字段、路径、鉴权头、应答、重试
 common/id           两边共用的主键
@@ -220,7 +226,7 @@ scripts/db/sqlite   同一套表的 SQLite 脚本，不含部门
 
 `cmd/server` 是控制面的参考进程。控制台是另一份前端，开发时由 Vite 转到这个进程；构建后可以由同一个进程托管 `web/dist`。
 
-`cmd/host` 与 `cmd/app` 是两个 Go 代理进程。它们各自采集，再调用 `common/report` 按 `protocol` 上报。换一种语言实现代理时，不需要这两个进程，只需要遵守 `protocol`。
+`cmd/host`、`cmd/goruntime` 与 `cmd/appside` 是各司其职的 Go 代理进程。它们各自采集，再调用 `common/report` 按 `protocol` 上报。换一种语言实现代理时，不需要这些进程，只需要遵守 `protocol`。
 
 ## 外置插件怎么挂上
 
@@ -250,6 +256,7 @@ server/web/views/fg0042     通知渠道（邮件、企业微信、钉钉、QQ�
 server/web/views/fg0043     预警事件（确认、恢复，页内带投递记录）
 server/web/views/fg0051     系统操作日志（0051–0070 日志管理，只读查询 FG_AUTH_AUDIT_LOG）
 server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_SHELL_AUDIT）
+server/web/views/fg0071     应用管理（0071–0090）。清单来自应用侧代理上报，换 WAR、JAR、静态资源和运行时升级都在这一页
 ```
 
 控制台按同一编号拆开，目录保持扁平。号段只用来占位，避免不同功能挤在同一段号里：0001–0020 运行观测，0021–0040 系统管理，0041–0050 预警管理，0051–0070 日志管理，其后每 20 号一段。侧栏和面包屑显示授权接口里的分组名，不显示号段。共用请求在 `web/src/api`：axios 实例、拦截器、`createApi`。一个模块一个 `web/src/views/fg00xx`，里面用 `createApi(moduleApiPrefix('fg00xx'))`。`web/src/router` 只负责把视图挂到路径。登录在 `web/src/views/auth`，对应后端 `views/auth`。

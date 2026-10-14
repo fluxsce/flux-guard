@@ -3,8 +3,8 @@
 $script:Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 function Assert-Name([string]$Name) {
-    if ($Name -notin @('server', 'host', 'app')) {
-        throw "用法: server、host 或 app"
+    if ($Name -notin @('server', 'host', 'goruntime', 'appside', 'app')) {
+        throw "用法: server、host、goruntime、appside 或 app"
     }
 }
 
@@ -12,6 +12,8 @@ function Get-BinaryName([string]$Name) {
     switch ($Name) {
         'server' { 'flux-guard-server' }
         'host' { 'flux-guard-agent-host' }
+        'goruntime' { 'flux-guard-agent-goruntime' }
+        'appside' { 'flux-guard-agent-appside' }
         'app' { 'flux-guard-agent-app' }
     }
 }
@@ -29,14 +31,14 @@ function Resolve-Name([string]$Name) {
         return $Name
     }
     $found = @()
-    foreach ($candidate in @('server', 'host', 'app')) {
+    foreach ($candidate in @('server', 'host', 'goruntime', 'appside', 'app')) {
         if (Test-BinaryPresent $candidate) { $found += $candidate }
     }
     if ($found.Count -eq 1) { return $found[0] }
     if ($found.Count -eq 0) {
-        throw "此目录没有可启动的程序。中央服务在安装包根目录，代理在 agents/host 或 agents/app。"
+        throw "此目录没有可启动的程序。中央服务在安装包根目录，代理在 agents/host、agents/goruntime 或 agents/appside。"
     }
-    throw "此目录有多个程序，请指定 server、host 或 app。"
+    throw "此目录有多个程序，请指定 server、host、goruntime、appside 或 app。"
 }
 
 function Resolve-Binary([string]$Name) {
@@ -45,7 +47,7 @@ function Resolve-Binary([string]$Name) {
     $plain = Join-Path $script:Root $base
     if (Test-Path -LiteralPath $exe) { return $exe }
     if (Test-Path -LiteralPath $plain) { return $plain }
-    throw "找不到 $base。请在该程序所在目录执行：中央服务在安装包根目录，代理在 agents/host 或 agents/app。"
+    throw "找不到 $base。请在该程序所在目录执行：中央服务在安装包根目录，代理在 agents/host、agents/goruntime 或 agents/appside。"
 }
 
 function Ensure-Config([string]$Name) {

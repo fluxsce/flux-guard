@@ -23,7 +23,7 @@ useModuleAi(() => ({
 <template>
   <div :id="moduleId || undefined" class="fg-page" data-fg-ai="surface" :data-fg-module="moduleId || undefined">
     <RsCard title="插件页面" :description="route.path">
-      <p>地址是模块号。示例告警 fg0100 只登记权限和入口，业务页后续再接到这里。</p>
+      <p>地址是模块号。插件登记权限和入口后，业务页再接到这里。</p>
     </RsCard>
   </div>
 </template>

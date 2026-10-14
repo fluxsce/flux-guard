@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"fluxguard/agents/app"
+	"fluxguard/agents/goruntime"
 	"fluxguard/agents/host"
 	"fluxguard/common/report"
 	"fluxguard/protocol"
@@ -29,14 +29,17 @@ func TestReportAppRuntime(t *testing.T) {
 	srv := httptest.NewServer(webinit.New(authDB))
 	defer srv.Close()
 
-	result, err := app.Collect(context.Background())
+	result, err := goruntime.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Go == nil || result.Go.GoVersion == "" || result.Go.GoroutineCount <= 0 {
+		t.Fatalf("go snapshot %+v", result.Go)
 	}
 	err = report.Report(context.Background(), report.Config{
 		ServerURL:  srv.URL,
 		AgentToken: "agt_dev_local",
-	}, srv.Client(), app.Code, result)
+	}, srv.Client(), goruntime.Code, result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +49,17 @@ func TestReportAppRuntime(t *testing.T) {
 		SELECT sampleCount, agentCode FROM FG_INGEST_BATCH WHERE tenantId = 'default' AND activeFlag = 'Y'`, nil, &sampleCount, &agentCode); err != nil {
 		t.Fatal(err)
 	}
-	if sampleCount != 2 || agentCode != app.Code {
+	if sampleCount != len(result.Samples) || agentCode != goruntime.Code {
 		t.Fatalf("sampleCount=%d agentCode=%s", sampleCount, agentCode)
+	}
+	var routines int
+	var version string
+	if err := store.Scan(context.Background(), authDB, `
+		SELECT goroutineCount, COALESCE(goVersion, '') FROM FG_AGENT_GO WHERE tenantId = 'default' AND activeFlag = 'Y'`, nil, &routines, &version); err != nil {
+		t.Fatal(err)
+	}
+	if routines != result.Go.GoroutineCount || version != result.Go.GoVersion {
+		t.Fatalf("stored routines=%d version=%s", routines, version)
 	}
 }
 

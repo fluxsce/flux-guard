@@ -14,10 +14,10 @@ import (
 // ClaimNext 认领该代理下一条待取命令。
 func (s *Service) ClaimNext(ctx context.Context, tenantID, agentID string) (protocol.CommandCall, bool, error) {
 	for range 3 {
-		var commandID, action string
+		var commandID, action, raw string
 		var interval int
 		query, args, err := store.PageQuery(s.db, `
-			SELECT commandId, actionName, COALESCE(intervalSec, 0)
+			SELECT commandId, actionName, COALESCE(intervalSec, 0), COALESCE(extProperty, '')
 			FROM FG_COMMAND
 			WHERE tenantId = @tenantId AND agentId = @agentId AND statusFlag = 'W' AND activeFlag = 'Y'
 			ORDER BY addTime`,
@@ -25,7 +25,7 @@ func (s *Service) ClaimNext(ctx context.Context, tenantID, agentID string) (prot
 		if err != nil {
 			return protocol.CommandCall{}, false, err
 		}
-		err = store.Scan(ctx, s.db, query, args, &commandID, &action, &interval)
+		err = store.Scan(ctx, s.db, query, args, &commandID, &action, &interval, &raw)
 		if errors.Is(err, sql.ErrNoRows) {
 			return protocol.CommandCall{}, false, nil
 		}
@@ -37,7 +37,7 @@ func (s *Service) ClaimNext(ctx context.Context, tenantID, agentID string) (prot
 			return protocol.CommandCall{}, false, err
 		}
 		if claimed {
-			return protocol.CommandCall{CommandID: commandID, Action: action, IntervalSec: interval}, true, nil
+			return callFromExt(commandID, action, raw, interval), true, nil
 		}
 	}
 	return protocol.CommandCall{}, false, nil

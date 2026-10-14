@@ -53,12 +53,57 @@ type Java struct {
 	IPAddress    string    `json:"ipAddress,omitempty"`
 }
 
+// AppArtifact 是应用侧代理看到的一个可更新制品。
+// Kind 只允许 war、jar、static、node、script。WAR/JAR 版本来自文件名里的 ##，没有则为空。
+type AppArtifact struct {
+	AppName string `json:"appName"`
+	Kind    string `json:"kind"`
+	Version string `json:"version,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+// AppSide 是应用侧代理看守的那一套运行时。它不是主机指标，也不是 Java 曲线。
+// 应用进程退出后这一份仍然上报，RunningFlag 为 N。
+type AppSide struct {
+	InstanceName   string        `json:"instanceName"`
+	RuntimeKind    string        `json:"runtimeKind"`
+	Mode           string        `json:"mode"`
+	HomePath       string        `json:"homePath,omitempty"` // 兼容旧上报，新代理不再填写
+	BasePath       string        `json:"basePath,omitempty"`
+	TomcatVersion  string        `json:"tomcatVersion,omitempty"`
+	CommandAddress string        `json:"commandAddress,omitempty"`
+	HostName       string        `json:"hostName,omitempty"`
+	IPAddress      string        `json:"ipAddress,omitempty"`
+	MachineID      string        `json:"machineId,omitempty"`
+	RunningFlag    string        `json:"runningFlag"`
+	Artifacts      []AppArtifact `json:"artifacts,omitempty"`
+}
+
+// Go 是 Go 进程看到的自己。它不是应用清单，进程退出后这一行不再更新。
+type Go struct {
+	AppName        string    `json:"appName,omitempty"`
+	GoVersion      string    `json:"goVersion,omitempty"`
+	ProcessID      string    `json:"processId,omitempty"`
+	StartTime      time.Time `json:"startTime,omitempty"`
+	HostName       string    `json:"hostName,omitempty"`
+	NumCPU         int       `json:"numCpu,omitempty"`
+	GoroutineCount int       `json:"goroutineCount,omitempty"`
+	HeapAllocBytes uint64    `json:"heapAllocBytes,omitempty"`
+	HeapSysBytes   uint64    `json:"heapSysBytes,omitempty"`
+	HeapObjects    uint64    `json:"heapObjects,omitempty"`
+	GCCount        uint32    `json:"gcCount,omitempty"`
+	GCPauseMs      float64   `json:"gcPauseMs,omitempty"`
+}
+
 // CollectResult 一个代理这一轮采集的产出，上报时放进 Request。
 type CollectResult struct {
-	Samples []Sample `json:"samples,omitempty"`
-	Events  []Event  `json:"events,omitempty"`
-	Host    *Host    `json:"host,omitempty"`
-	Java    *Java    `json:"java,omitempty"`
+	Samples  []Sample  `json:"samples,omitempty"`
+	Events   []Event   `json:"events,omitempty"`
+	Host     *Host     `json:"host,omitempty"`
+	Java     *Java     `json:"java,omitempty"`
+	Go       *Go       `json:"go,omitempty"`
+	AppSide  *AppSide  `json:"appSide,omitempty"`
+	AppSides []AppSide `json:"appSides,omitempty"`
 }
 
 // Request 是代理 POST 的 JSON 正文。租户和代理由令牌决定，不写进正文。
@@ -70,6 +115,9 @@ type Request struct {
 	Events    []Event   `json:"events,omitempty"`
 	Host      *Host     `json:"host,omitempty"`
 	Java      *Java     `json:"java,omitempty"`
+	Go        *Go       `json:"go,omitempty"`
+	AppSide   *AppSide  `json:"appSide,omitempty"`
+	AppSides  []AppSide `json:"appSides,omitempty"`
 }
 
 // Batch 把 Request 补上服务器从令牌认定的租户和代理。转发组件读的是这一份。
@@ -84,6 +132,9 @@ func (r Request) Batch(tenantID, agentID string) Batch {
 		Events:    r.Events,
 		Host:      r.Host,
 		Java:      r.Java,
+		Go:        r.Go,
+		AppSide:   r.AppSide,
+		AppSides:  r.AppSides,
 	}
 }
 
@@ -98,6 +149,19 @@ type Batch struct {
 	Events    []Event
 	Host      *Host
 	Java      *Java
+	Go        *Go
+	AppSide   *AppSide
+	AppSides  []AppSide
+}
+
+// Sides 返回这一批里的全部运行时。单套放在 AppSide，一台机器的多套放在 AppSides。
+func (b Batch) Sides() []AppSide {
+	out := make([]AppSide, 0, len(b.AppSides)+1)
+	if b.AppSide != nil {
+		out = append(out, *b.AppSide)
+	}
+	out = append(out, b.AppSides...)
+	return out
 }
 
 // Result 是上报接口的成功应答。

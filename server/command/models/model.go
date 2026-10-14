@@ -21,6 +21,10 @@ var (
 	ErrBadInterval = errors.New("上报间隔须在 5 到 3600 秒之间")
 	// ErrNotHost 表示目标不是主机代理。
 	ErrNotHost = errors.New("当前只支持主机代理")
+	// ErrNotAppside 表示目标不是应用侧代理。
+	ErrNotAppside = errors.New("这条命令只发给应用侧代理")
+	// ErrBadRelease 表示应用更新缺少发布参数。
+	ErrBadRelease = errors.New("发布参数不完整")
 	// ErrNotFound 表示找不到代理。
 	ErrNotFound = errors.New("找不到这台代理")
 	// ErrStopped 表示代理已停用。
@@ -30,10 +34,18 @@ var (
 )
 
 // DispatchInput 是控制台提交的一条命令。
+// 应用更新额外带上发布号、应用名、种类、版本、校验和和文件名。
 type DispatchInput struct {
 	AgentID     string `json:"agentId"`
 	Action      string `json:"action"`
 	IntervalSec int    `json:"intervalSec"`
+	ReleaseID   string `json:"releaseId,omitempty"`
+	AppName     string `json:"appName,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Version     string `json:"version,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	FileName    string `json:"fileName,omitempty"`
+	Instance    string `json:"instance,omitempty"`
 }
 
 // View 是控制台看到的一行命令。

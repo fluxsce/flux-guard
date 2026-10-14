@@ -69,7 +69,7 @@ func Report(ctx context.Context, cfg Config, client *http.Client, agentCode stri
 	if client == nil {
 		client = http.DefaultClient
 	}
-	if len(result.Samples) == 0 && len(result.Events) == 0 && result.Host == nil && result.Java == nil {
+	if len(result.Samples) == 0 && len(result.Events) == 0 && result.Host == nil && result.Java == nil && result.Go == nil && result.AppSide == nil && len(result.AppSides) == 0 {
 		return nil
 	}
 	payload := protocol.Request{
@@ -80,6 +80,9 @@ func Report(ctx context.Context, cfg Config, client *http.Client, agentCode stri
 		Events:    result.Events,
 		Host:      result.Host,
 		Java:      result.Java,
+		Go:        result.Go,
+		AppSide:   result.AppSide,
+		AppSides:  result.AppSides,
 	}
 	var errs []error
 	for _, chunk := range splitRequest(payload) {
@@ -111,6 +114,9 @@ func splitRequest(payload protocol.Request) []protocol.Request {
 		if n > 0 {
 			chunk.Host = nil
 			chunk.Java = nil
+			chunk.Go = nil
+			chunk.AppSide = nil
+			chunk.AppSides = nil
 		}
 		chunk.Samples, samples = takeSamples(samples)
 		chunk.Events, events = takeEvents(events)

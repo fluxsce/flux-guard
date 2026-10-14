@@ -2,10 +2,12 @@ package commandroutes
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"fluxguard/protocol"
 	"fluxguard/server/agent"
+	"fluxguard/server/apprelease"
 	"fluxguard/server/command/service"
 	"fluxguard/server/limits"
 	"fluxguard/server/setting"
@@ -42,6 +44,29 @@ func Register(router *gin.Engine, agents *agent.Store, svc *service.Service) {
 			}
 			svc.Wait(agentID, c.Request.Context(), remain)
 		}
+	})
+	router.GET(protocol.ArtifactPath, func(c *gin.Context) {
+		tenantID, agentID, ok := agentIdentity(c, agents)
+		if !ok {
+			return
+		}
+		releaseID := strings.TrimSpace(c.Query("releaseId"))
+		if !svc.OwnsRelease(c.Request.Context(), tenantID, agentID, releaseID) {
+			httpx.WriteCode(c, http.StatusNotFound, "release.missing", "找不到这件制品")
+			return
+		}
+		file, err := apprelease.Open(tenantID, releaseID)
+		if err != nil {
+			httpx.WriteCode(c, http.StatusNotFound, "release.missing", "找不到这件制品")
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			httpx.WriteCode(c, http.StatusNotFound, "release.missing", "找不到这件制品")
+			return
+		}
+		c.DataFromReader(http.StatusOK, info.Size(), "application/octet-stream", file, nil)
 	})
 	router.POST(protocol.ResultPath, func(c *gin.Context) {
 		tenantID, agentID, ok := agentIdentity(c, agents)

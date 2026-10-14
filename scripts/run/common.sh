@@ -8,13 +8,13 @@ root_dir() {
 ROOT="$(root_dir)"
 
 usage() {
-  echo "用法: $0 server|host|app" >&2
+  echo "用法: $0 server|host|goruntime|appside|app" >&2
   exit 1
 }
 
 check_name() {
   case "$1" in
-    server|host|app) ;;
+    server|host|goruntime|appside|app) ;;
     *) usage ;;
   esac
 }
@@ -23,6 +23,8 @@ binary_name() {
   case "$1" in
     server) echo flux-guard-server ;;
     host) echo flux-guard-agent-host ;;
+    goruntime) echo flux-guard-agent-goruntime ;;
+    appside) echo flux-guard-agent-appside ;;
     app) echo flux-guard-agent-app ;;
   esac
 }
@@ -34,17 +36,17 @@ present() {
 
 detect_name() {
   found=""
-  for name in server host app; do
+  for name in server host goruntime appside app; do
     if present "${name}"; then
       if [ -n "${found}" ]; then
-        echo "此目录有多个程序，请指定 server、host 或 app" >&2
+        echo "此目录有多个程序，请指定 server、host、goruntime、appside 或 app" >&2
         return 1
       fi
       found="${name}"
     fi
   done
   if [ -z "${found}" ]; then
-    echo "此目录没有可启动的程序。中央服务在安装包根目录，代理在 agents/host 或 agents/app。" >&2
+    echo "此目录没有可启动的程序。中央服务在安装包根目录，代理在 agents/host、agents/goruntime 或 agents/appside。" >&2
     return 1
   fi
   printf '%s\n' "${found}"
@@ -60,7 +62,7 @@ resolve_bin() {
     echo "${ROOT}/${base}"
     return 0
   fi
-  echo "找不到 ${base}。请在该程序所在目录执行：中央服务在安装包根目录，代理在 agents/host 或 agents/app。" >&2
+  echo "找不到 ${base}。请在该程序所在目录执行：中央服务在安装包根目录，代理在 agents/host、agents/goruntime 或 agents/appside。" >&2
   return 1
 }
 

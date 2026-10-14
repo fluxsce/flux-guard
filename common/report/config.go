@@ -44,6 +44,10 @@ func Load(path, fallback string) (Config, error) {
 func logFile(fallback string) string {
 	base := strings.ToLower(filepath.Base(fallback))
 	switch {
+	case strings.Contains(base, "appside"):
+		return "logs/appside.log"
+	case strings.Contains(base, "goruntime"):
+		return "logs/goruntime.log"
 	case strings.Contains(base, "host"):
 		return "logs/host.log"
 	case strings.Contains(base, "app"):

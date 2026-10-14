@@ -46,7 +46,7 @@ export const moduleNames: Record<string, string> = {
   fg0043: '预警事件',
   fg0051: '系统操作日志',
   fg0052: '代理操作日志',
-  fg0100: '示例告警',
+  fg0071: '应用管理',
 }
 
 export const targetTypeNames: Record<string, string> = {

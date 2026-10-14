@@ -20,5 +20,6 @@ import (
 	_ "fluxguard/server/web/views/fg0043/routes"
 	_ "fluxguard/server/web/views/fg0051/routes"
 	_ "fluxguard/server/web/views/fg0052/routes"
+	_ "fluxguard/server/web/views/fg0071/routes"
 	_ "fluxguard/server/web/views/login/routes"
 )

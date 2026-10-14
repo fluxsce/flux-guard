@@ -1,12 +1,14 @@
-# 示例配置。复制为 configs/app.yaml 后再改。app.yaml 是本机文件，不要提交。
-# 应用代理。环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_SERVER_URL 覆盖 server_url。
+# 示例配置。复制为 configs/goruntime.yaml 后再改。goruntime.yaml 是本机文件，不要提交。
+# Go 运行时代理：只上报自己这个进程。环境变量前缀 FLUX_GUARD，例如 FLUX_GUARD_SERVER_URL 覆盖 server_url。
+# 同一台机器上的多份进程，用 report_name 区分。它不负责应用换包。
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 上报间隔（秒）
+report_name: # 进程显示名。留空时用程序文件名
 
 # 日志。写到文件里，单个文件到大小就换新的，旧文件只留有限份和天数。
 log:
-  file: logs/app.log
+  file: logs/goruntime.log
   level: info # 最低级别：debug、info、warn、error。低于此级别的不写
   max_size_mb: 20
   max_backups: 5

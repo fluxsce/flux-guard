@@ -33,7 +33,7 @@
 | 使用层 | 在控制台查看总览、主机、Java 和代理，处理预警，管理权限与任务，查阅操作记录 |
 | 控制层 | 全局只部署一份。接收上报、校验身份、保存观测数据、按规则产生预警，并负责命令和交互终端 |
 | 数据层 | 保存账号、权限、指标、预警、任务和审计。默认 SQLite，可改用 MySQL |
-| 采集层 | 安装在被监控机器上。主机代理采集 CPU、内存、磁盘、网卡和进程；应用代理采集自身进程；Java 代理挂在 Java 进程内，采集堆、垃圾回收和线程 |
+| 采集层 | 安装在被监控机器上。主机代理采集 CPU、内存、磁盘、网卡和进程；Go 运行时代理只上报自己这个进程；应用代理看守 Tomcat、JAR 或静态目录并换包；Java 代理挂在 Java 进程内，采集堆、垃圾回收和线程 |
 
 一台机器可以同时安装多种代理。其它语言的代理按同一约定上报即可。预警可以送到邮件、企业微信、钉钉、飞书或 Webhook。
 
@@ -42,7 +42,7 @@
 1. 控制台向中央服务查询指标、处置告警，并管理权限与任务。
 2. 控制台经中央服务对主机下发命令，或打开交互终端。
 3. 中央服务写入并读取账号、指标、预警、任务和审计。
-4. 主机代理、应用代理和 Java 代理按间隔上报。同一批数据只保留一次。
+4. 主机代理、Go 运行时代理、应用代理和 Java 代理按间隔上报。同一批数据只保留一次。
 5. 命令先由中央服务直接发给主机代理。目标暂时不可达时，改由主机代理来取，执行后回传结果。命令只包含允许的动作。
 6. 交互终端默认关闭。打开之后由主机代理主动连回中央服务，主机在内网中也可以使用。终端画面在会话期间转发。
 
@@ -102,23 +102,24 @@ Windows 下复制配置：
 if (-not (Test-Path configs\server.yaml)) { Copy-Item configs\server.yaml.example configs\server.yaml }
 ```
 
-要看本机上报时，另开终端。先从对应的 `configs/*.yaml.example` 复制出 `host.yaml` 或 `app.yaml`，再执行 `go run ./cmd/host` 或 `go run ./cmd/app`。开发上报令牌是 `agt_dev_local`。Java 代理源码在 `agents/java`，配置是 `configs/java.yaml`。
+要看本机上报时，另开终端。先从对应的 `configs/*.yaml.example` 复制出 `host.yaml`、`goruntime.yaml` 或 `appside.yaml`，再执行 `go run ./cmd/host`、`go run ./cmd/goruntime` 或 `go run ./cmd/appside`。开发上报令牌是 `agt_dev_local`。Java 代理源码在 `agents/java`，配置是 `configs/java.yaml`。应用代理一台机器一份，在 `runtimes` 里列出各套 Tomcat、JAR 和静态目录，进程和应用分开。Go 运行时代理只上报自己这个进程，同一台机器上的多份进程用 `report_name` 区分。
 
 `go test ./...` 跑后端测试。`pnpm --dir web run typecheck` 检查控制台。监听地址和数据库写在 `configs/server.yaml`，也可用前缀 `FLUX_GUARD` 的环境变量覆盖。
 
 ### 安装运行
 
-安装包解开后是 `flux-guard/`。中央服务在根目录，用 `scripts/run` 启动和停止。三个代理已经各自打成压缩包，放在 `agents/` 里，拷到目标机器再解压：
+安装包解开后是 `flux-guard/`。中央服务在根目录，用 `scripts/run` 启动和停止。各代理已经各自打成压缩包，放在 `agents/` 里，拷到目标机器再解压：
 
 | 压缩包 | 解开后的目录 |
 |---|---|
 | `agents/flux-guard-agent-host.tar.gz` | `flux-guard-agent-host/` |
-| `agents/flux-guard-agent-app.tar.gz` | `flux-guard-agent-app/` |
+| `agents/flux-guard-agent-goruntime.tar.gz` | `flux-guard-agent-goruntime/` |
+| `agents/flux-guard-agent-appside.tar.gz` | `flux-guard-agent-appside/` |
 | `agents/flux-guard-agent-java.tar.gz` | `flux-guard-agent-java/` |
 
-主机代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理目录里有 `flux-guard-agent-java.jar` 和配置示例，挂载方式写在 `configs/java.yaml.example` 的注释里。第一次启动时，若还没有本机 `configs/*.yaml`，主机和应用的启动脚本会从示例复制一份。Java 代理没有启动脚本，把示例复制为 `configs/java.yaml` 后再改。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
+主机代理、Go 运行时代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理目录里有 `flux-guard-agent-java.jar` 和配置示例，挂载方式写在 `configs/java.yaml.example` 的注释里。第一次启动时，若还没有本机 `configs/*.yaml`，这些启动脚本会从示例复制一份。Java 代理没有启动脚本，把示例复制为 `configs/java.yaml` 后再改。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
 
-中央服务、主机代理和应用代理要在机器重启后自动起来，在各自目录执行一次 `scripts/run/install.sh`（Windows 用管理员执行 `install.ps1`）。这会登记成系统服务并立即启动：Linux 是 systemd，macOS 是 launchd，Windows 是开机任务。服务不把程序输出送进系统日志，日志仍写在安装目录的 `logs/` 里并按大小轮转。重启用同目录的 `restart.sh` 或 `restart.ps1`。取消开机启动用 `uninstall.sh` 或 `uninstall.ps1`。Java 代理不登记。
+中央服务、主机代理、Go 运行时代理和应用代理要在机器重启后自动起来，在各自目录执行一次 `scripts/run/install.sh`（Windows 用管理员执行 `install.ps1`）。这会登记成系统服务并立即启动：Linux 是 systemd，macOS 是 launchd，Windows 是开机任务。服务不把程序输出送进系统日志，日志仍写在安装目录的 `logs/` 里并按大小轮转。重启用同目录的 `restart.sh` 或 `restart.ps1`。取消开机启动用 `uninstall.sh` 或 `uninstall.ps1`。Java 代理不登记。
 
 安装包带有控制台页面。浏览器打开 `http://主机:listen端口/fluxguard/`，例如 `listen` 为 `:8080` 时是 `http://127.0.0.1:8080/fluxguard/`。根路径会转到这个地址。
 
