@@ -6,6 +6,9 @@ export interface ProductBuild {
   version: string
   commit: string
   date: string
+  /** 中央发行包平台，与 agents/ 包装一致。 */
+  goos?: string
+  goarch?: string
 }
 
 let pending: Promise<ProductBuild | null> | undefined

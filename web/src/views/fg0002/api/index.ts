@@ -81,12 +81,22 @@ export function dispatchCommand(agentId: string, action: string, intervalSec?: n
   return fg0002.post<CommandView>('/dispatchCommand', { agentId, action, intervalSec }, undefined, { timeout: 30000 })
 }
 
+/** 控制台下发代理自更新的请求体；安装包取自中央 agents/。 */
+export interface UpgradeAgentsInput {
+  agentCode: string
+  version: string
+  goos: string
+  goarch: string
+  agentIds: string[]
+  canaryCount: number
+}
+
 /**
- * 上传代理安装包并向选中代理下发自更新。
- * @param form - 含 agentCode、version、agentIds、file
+ * 使用中央 agents/ 包装并向选中代理下发自更新。
+ * @param body - 种类、版本、平台与目标代理
  */
-export function upgradeAgents(form: FormData) {
-  return fg0002.post<AgentRelease>('/upgradeAgents', form, undefined, { timeout: 120000 })
+export function upgradeAgents(body: UpgradeAgentsInput) {
+  return fg0002.post<AgentRelease>('/upgradeAgents', body, undefined, { timeout: 120000 })
 }
 
 /**

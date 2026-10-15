@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { getApiMessage, isApiSuccess, parseApiData } from '@/api/request'
-import { RsButton, RsDialog, useRsToast } from '@/ui'
+import { loadProductBuild } from '@/productVersion'
+import {
+  RsButton,
+  RsCheckbox,
+  RsDialog,
+  RsForm,
+  RsFormItem,
+  RsInput,
+  RsInputNumber,
+  RsSelect,
+  useRsToast,
+  type RsSelectOption,
+} from '@/ui'
 import {
   continueAgentRelease,
   queryAgentRelease,
@@ -22,27 +34,31 @@ const version = ref('')
 const goos = ref('linux')
 const goarch = ref('amd64')
 const canaryCount = ref(1)
-const file = ref<File | null>(null)
 const picked = ref<string[]>([])
 const busy = ref(false)
 const releasing = ref<AgentRelease | null>(null)
 
-const codeOptions = [
+const codeOptions: RsSelectOption[] = [
   { value: 'host', label: '主机代理' },
   { value: 'go', label: 'Go 运行时' },
   { value: 'appside', label: '应用代理' },
 ]
 
-const osOptions = [
-  { value: 'linux', label: 'linux' },
-  { value: 'windows', label: 'windows' },
-  { value: 'darwin', label: 'darwin' },
-]
+const formModel = computed(() => ({
+  agentCode: agentCode.value,
+  version: version.value,
+  goos: goos.value,
+  goarch: goarch.value,
+  canaryCount: canaryCount.value,
+}))
 
-const archOptions = [
-  { value: 'amd64', label: 'amd64' },
-  { value: 'arm64', label: 'arm64' },
-]
+const platformLabel = computed(() => `${goos.value}/${goarch.value}`)
+
+const packLabel = computed(() => {
+  if (agentCode.value === 'go') return 'agents/flux-guard-agent-goruntime.tar.gz'
+  if (agentCode.value === 'appside') return 'agents/flux-guard-agent-appside.tar.gz'
+  return 'agents/flux-guard-agent-host.tar.gz'
+})
 
 const candidates = computed(() =>
   props.agents.filter((row) => {
@@ -63,41 +79,46 @@ const skippedPlatform = computed(
     ).length,
 )
 
-watch([agentCode, goos, goarch], () => {
+const allPicked = computed({
+  get: () => candidates.value.length > 0 && picked.value.length === candidates.value.length,
+  set: (value: boolean) => {
+    picked.value = value ? candidates.value.map((row) => row.agentId) : []
+  },
+})
+
+const halfPicked = computed(
+  () => picked.value.length > 0 && picked.value.length < candidates.value.length,
+)
+
+watch(agentCode, () => {
   picked.value = []
 })
 
 watch(open, (value) => {
   if (!value) return
-  version.value = ''
-  file.value = null
   picked.value = []
   releasing.value = null
   canaryCount.value = 1
+  void loadProductBuild().then((build) => {
+    if (build?.version) version.value = build.version
+    if (build?.goos) goos.value = build.goos
+    if (build?.goarch) goarch.value = build.goarch
+  })
 })
 
-function onFile(ev: Event) {
-  const input = ev.target as HTMLInputElement
-  file.value = input.files?.[0] ?? null
+function isPicked(id: string) {
+  return picked.value.includes(id)
 }
 
-function toggle(id: string) {
-  if (picked.value.includes(id)) {
-    picked.value = picked.value.filter((item) => item !== id)
+function setPicked(id: string, on: boolean) {
+  if (on) {
+    if (!picked.value.includes(id)) picked.value = [...picked.value, id]
     return
   }
-  picked.value = [...picked.value, id]
-}
-
-function selectAll() {
-  picked.value = candidates.value.map((row) => row.agentId)
+  picked.value = picked.value.filter((item) => item !== id)
 }
 
 async function submit() {
-  if (!file.value) {
-    toast.error('请选择发行包里的代理 tar.gz')
-    return
-  }
   if (!version.value.trim()) {
     toast.error('请填写目标版本')
     return
@@ -106,17 +127,16 @@ async function submit() {
     toast.error('请选择要升级的代理')
     return
   }
-  const form = new FormData()
-  form.set('agentCode', agentCode.value)
-  form.set('version', version.value.trim())
-  form.set('goos', goos.value)
-  form.set('goarch', goarch.value)
-  form.set('canaryCount', String(canaryCount.value || 1))
-  form.set('agentIds', picked.value.join(','))
-  form.set('file', file.value)
   busy.value = true
   try {
-    const res = await upgradeAgents(form)
+    const res = await upgradeAgents({
+      agentCode: agentCode.value,
+      version: version.value.trim(),
+      goos: goos.value,
+      goarch: goarch.value,
+      agentIds: picked.value,
+      canaryCount: canaryCount.value || 1,
+    })
     if (!isApiSuccess(res)) {
       toast.error(getApiMessage(res, '升级下发失败'))
       return
@@ -186,125 +206,115 @@ function matchText(flag?: string) {
   <RsDialog
     v-model:open="open"
     title="升级代理"
+    layout="form"
     width="720px"
     :modal="false"
     :teleport-to="`#${moduleId}-layer`"
   >
-    <div class="upgrade-body">
-      <p class="hint">
-        首次部署仍手工安装。后续上传对应平台的代理 tar.gz；默认金丝雀先升 1 台，确认版本对齐后再继续下一批。代理自己拉取、校验并重启，失败会回滚上一版二进制。
-      </p>
+    <p class="hint">
+      安装包使用中央发行目录 <code>{{ packLabel }}</code>（平台 {{ platformLabel }}），无需本机上传。
+      默认金丝雀先升 1 台，确认版本对齐后再继续下一批。代理自己拉取、校验并重启，失败会回滚上一版二进制。
+    </p>
+    <RsForm :model="formModel" label-position="top" size="sm" class="upgrade-form">
       <div class="row">
-        <label class="field">
-          <span>种类</span>
-          <select v-model="agentCode">
-            <option v-for="item in codeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>系统</span>
-          <select v-model="goos">
-            <option v-for="item in osOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>架构</span>
-          <select v-model="goarch">
-            <option v-for="item in archOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
+        <RsFormItem name="agentCode" label="种类" required>
+          <RsSelect v-model="agentCode" :options="codeOptions" block match-trigger-width />
+        </RsFormItem>
+        <RsFormItem name="platform" label="平台">
+          <RsInput :model-value="platformLabel" disabled />
+        </RsFormItem>
       </div>
       <div class="row">
-        <label class="field grow">
-          <span>目标版本</span>
-          <input v-model="version" placeholder="与 package.json 版本一致，例如 1.1.3" />
-        </label>
-        <label class="field">
-          <span>金丝雀台数</span>
-          <input v-model.number="canaryCount" type="number" min="1" max="32" />
-        </label>
+        <RsFormItem name="version" label="目标版本" required class="grow">
+          <RsInput v-model="version" placeholder="默认与中央产品版本一致" clearable />
+        </RsFormItem>
+        <RsFormItem
+          name="canaryCount"
+          label="金丝雀台数"
+          tooltip="先只升级少数代理（默认 1 台），确认无问题后再点「继续下一批」。"
+        >
+          <RsInputNumber v-model="canaryCount" :min="1" :max="32" />
+        </RsFormItem>
       </div>
-      <label class="field">
-        <span>安装包</span>
-        <input type="file" accept=".tar.gz,.tgz,application/gzip" @change="onFile" />
-      </label>
+    </RsForm>
+    <div class="pick-head">
+      <RsCheckbox v-model="allPicked" :indeterminate="halfPicked" size="sm" :disabled="!candidates.length">
+        匹配 {{ platformLabel }} 在线代理（{{ candidates.length }}）
+        <template v-if="skippedPlatform"> · 平台不符或未上报 {{ skippedPlatform }}</template>
+      </RsCheckbox>
+    </div>
+    <ul class="pick-list">
+      <li v-for="row in candidates" :key="row.agentId">
+        <RsCheckbox
+          :model-value="isPicked(row.agentId)"
+          size="sm"
+          @update:model-value="setPicked(row.agentId, $event)"
+        >
+          <span class="name">{{ row.agentName }}</span>
+          <span class="meta">{{ row.agentVersion || '—' }} · {{ row.goos }}/{{ row.goarch }}</span>
+        </RsCheckbox>
+      </li>
+      <li v-if="!candidates.length" class="empty">没有匹配该平台的在线代理（需先有一次心跳上报 goos/goarch）</li>
+    </ul>
+    <div v-if="releasing" class="progress">
       <div class="pick-head">
-        <span>
-          匹配 {{ goos }}/{{ goarch }} 在线代理（{{ candidates.length }}）
-          <template v-if="skippedPlatform"> · 平台不符或未上报 {{ skippedPlatform }}</template>
-        </span>
-        <RsButton size="sm" variant="ghost" :disabled="!candidates.length" @click="selectAll">全选</RsButton>
+        <span>进度 · {{ releasing.versionText }} · {{ releasing.goos }}/{{ releasing.goarch }}</span>
+        <RsButton
+          v-if="(releasing.pendingCount ?? 0) > 0"
+          size="sm"
+          :loading="busy"
+          :disabled="busy"
+          @click="continueBatch"
+        >
+          继续下一批（剩 {{ releasing.pendingCount }}）
+        </RsButton>
       </div>
-      <ul class="pick-list">
-        <li v-for="row in candidates" :key="row.agentId">
-          <label>
-            <input type="checkbox" :checked="picked.includes(row.agentId)" @change="toggle(row.agentId)" />
-            <span>{{ row.agentName }}</span>
-            <span class="meta">{{ row.agentVersion || '—' }} · {{ row.goos }}/{{ row.goarch }}</span>
-          </label>
+      <ul>
+        <li v-for="item in releasing.items" :key="item.commandId">
+          <span>{{ item.agentName || item.agentId }} · {{ statusText(item.status) }}</span>
+          <span class="meta">
+            {{ item.agentVersion || '—' }} / {{ releasing.versionText }} · {{ matchText(item.versionMatched) }}
+            <template v-if="item.message"> · {{ item.message }}</template>
+          </span>
         </li>
-        <li v-if="!candidates.length" class="empty">没有匹配该平台的在线代理（需先有一次心跳上报 goos/goarch）</li>
       </ul>
-      <div v-if="releasing" class="progress">
-        <div class="pick-head">
-          <span>进度 · {{ releasing.versionText }} · {{ releasing.goos }}/{{ releasing.goarch }}</span>
-          <RsButton
-            v-if="(releasing.pendingCount ?? 0) > 0"
-            size="sm"
-            :loading="busy"
-            :disabled="busy"
-            @click="continueBatch"
-          >
-            继续下一批（剩 {{ releasing.pendingCount }}）
-          </RsButton>
-        </div>
-        <ul>
-          <li v-for="item in releasing.items" :key="item.commandId">
-            <span>{{ item.agentName || item.agentId }} · {{ statusText(item.status) }}</span>
-            <span class="meta">
-              {{ item.agentVersion || '—' }} / {{ releasing.versionText }} · {{ matchText(item.versionMatched) }}
-              <template v-if="item.message"> · {{ item.message }}</template>
-            </span>
-          </li>
-        </ul>
-      </div>
     </div>
     <template #footer>
-      <RsButton variant="ghost" @click="open = false">关闭</RsButton>
-      <RsButton :loading="busy" :disabled="busy || !!releasing" @click="submit">下发金丝雀</RsButton>
+      <RsButton size="sm" variant="ghost" @click="open = false">关闭</RsButton>
+      <RsButton size="sm" variant="primary" :loading="busy" :disabled="busy || !!releasing" @click="submit">
+        下发金丝雀
+      </RsButton>
     </template>
   </RsDialog>
 </template>
 
 <style scoped>
-.upgrade-body {
+.hint {
+  margin: 0 0 12px;
+  color: var(--rs-text-secondary, #667);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hint code {
+  font-size: 12px;
+}
+.upgrade-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-.hint {
-  margin: 0;
-  color: var(--rs-text-muted, #667);
-  font-size: 13px;
-  line-height: 1.5;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 .row {
   display: flex;
   gap: 12px;
 }
-.field {
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
+.row :deep(.rs-form-item) {
+  flex: 1;
   min-width: 0;
 }
-.field.grow {
-  flex: 1;
-}
-.field input,
-.field select {
-  min-height: 32px;
-  padding: 0 10px;
+.row :deep(.rs-form-item.grow),
+.grow {
+  flex: 1.4;
 }
 .pick-head {
   display: flex;
@@ -312,6 +322,7 @@ function matchText(flag?: string) {
   justify-content: space-between;
   gap: 8px;
   font-size: 13px;
+  margin-bottom: 8px;
 }
 .pick-list,
 .progress ul {
@@ -336,18 +347,33 @@ function matchText(flag?: string) {
 .progress li:last-child {
   border-bottom: 0;
 }
-.pick-list label {
+.pick-list :deep(.rs-checkbox) {
+  width: 100%;
+  justify-content: flex-start;
+}
+.pick-list :deep(.rs-checkbox__label) {
   display: flex;
   gap: 8px;
   align-items: center;
   width: 100%;
+  min-width: 0;
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .meta {
   margin-left: auto;
   color: var(--rs-text-muted, #667);
   text-align: right;
+  flex-shrink: 0;
 }
 .empty {
   color: var(--rs-text-muted, #667);
+}
+.progress {
+  margin-top: 12px;
 }
 </style>

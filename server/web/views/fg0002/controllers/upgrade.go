@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 
 	"fluxguard/server/web/httpx"
@@ -14,29 +15,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// UpgradeAgents 上传代理安装包，并向选中的代理分批下发自更新。
+// upgradeAgentsBody 是控制台下发代理自更新的 JSON 请求。
+type upgradeAgentsBody struct {
+	AgentCode   string   `json:"agentCode"`
+	Version     string   `json:"version"`
+	GoOS        string   `json:"goos"`
+	GoArch      string   `json:"goarch"`
+	AgentIDs    []string `json:"agentIds"`
+	CanaryCount int      `json:"canaryCount"`
+}
+
+// UpgradeAgents 使用中央 agents/ 包装，并向选中的代理分批下发自更新。
 func (c *AgentController) UpgradeAgents(g *gin.Context) {
 	p := middleware.Principal(g)
-	file, header, err := g.Request.FormFile("file")
-	if err != nil {
-		httpx.WriteErr(g, http.StatusBadRequest, "请选择文件")
+	var body upgradeAgentsBody
+	if !request.Bind(g, &body) {
 		return
 	}
-	defer file.Close()
-	if header.Size > 512<<20 {
-		httpx.WriteErr(g, http.StatusBadRequest, "文件超过 512MB")
-		return
+	code := strings.TrimSpace(body.AgentCode)
+	version := strings.TrimSpace(body.Version)
+	goos := strings.TrimSpace(body.GoOS)
+	goarch := strings.TrimSpace(body.GoArch)
+	if goos == "" {
+		goos = runtime.GOOS
 	}
-	code := strings.TrimSpace(g.PostForm("agentCode"))
-	version := strings.TrimSpace(g.PostForm("version"))
-	goos := strings.TrimSpace(g.PostForm("goos"))
-	goarch := strings.TrimSpace(g.PostForm("goarch"))
-	agentIDs := splitIDs(g.PostForm("agentIds"))
-	canary := upgrade.ParseCanary(g.PostForm("canaryCount"))
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
 	audit.Note(g, "", "AGENT", "", code, fmt.Sprintf("升级代理 %s %s %s/%s", code, version, goos, goarch))
 	out, err := upgrade.Submit(g.Request.Context(), c.db, p.TenantID, p.UserID, upgrade.Input{
 		AgentCode: code, Version: version, GoOS: goos, GoArch: goarch,
-		File: header.Filename, Body: file, AgentIDs: agentIDs, CanaryCount: canary,
+		AgentIDs: body.AgentIDs, CanaryCount: body.CanaryCount,
 	})
 	if err != nil {
 		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
@@ -85,18 +94,4 @@ func (c *AgentController) QueryAgentRelease(g *gin.Context) {
 		return
 	}
 	httpx.WriteOK(g, out)
-}
-
-func splitIDs(raw string) []string {
-	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\n' || r == '\t'
-	})
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

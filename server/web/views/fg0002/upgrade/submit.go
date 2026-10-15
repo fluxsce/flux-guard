@@ -1,4 +1,4 @@
-// Package upgrade 接收一次代理安装包上传，并向选中的代理分批下发自更新命令。
+// Package upgrade 从中央 agents/ 包装下发代理自更新，并向选中的代理分批下发命令。
 package upgrade
 
 import (
@@ -6,31 +6,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	"fluxguard/common/buildinfo"
 	"fluxguard/common/id"
 	"fluxguard/protocol"
-	"fluxguard/server/helper/agentrelease"
 	"fluxguard/server/command"
 	"fluxguard/server/command/models"
-	"fluxguard/server/utils/const/limits"
+	"fluxguard/server/helper/agentpack"
+	"fluxguard/server/helper/agentrelease"
 	"fluxguard/server/store"
+	"fluxguard/server/utils/const/limits"
 	fgmodels "fluxguard/server/web/views/fg0002/models"
+
 	dbx "github.com/fluxsce/dbx/db"
 )
 
-// Input 是控制台提交的一次代理升级。文件由调用方打开。
+// Input 是控制台提交的一次代理升级。安装包取自中央 agents/，不要求用户上传。
 type Input struct {
 	AgentCode   string
 	Version     string
 	GoOS        string
 	GoArch      string
-	File        string
-	Body        io.Reader
 	AgentIDs    []string
 	CanaryCount int // 首批台数；0 表示用默认金丝雀 1 台
 	BatchSize   int // 每批最多台数；0 表示用 AgentUpgradeBatchMax
@@ -41,27 +41,34 @@ type releaseExt struct {
 	BatchSize       int      `json:"batchSize"`
 }
 
-// Submit 校验平台与在线状态，保存制品，并按金丝雀/批次下发首批命令。
+// Submit 校验平台与在线状态，从中央 agents/ 复制制品，并按金丝雀/批次下发首批命令。
 func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (fgmodels.AgentRelease, error) {
 	code := strings.TrimSpace(in.AgentCode)
 	if !protocol.UpdatableAgent(code) {
 		return fgmodels.AgentRelease{}, errors.New("只支持升级 host、go、appside 代理")
 	}
 	version := strings.TrimSpace(in.Version)
+	if version == "" {
+		version = strings.TrimSpace(buildinfo.Version)
+	}
 	if version == "" || len(version) > 64 {
 		return fgmodels.AgentRelease{}, errors.New("请填写版本")
 	}
+	// 发行包里 agents/ 与中央同平台；只允许升级匹配该平台的在线代理。
+	packOS, packArch := runtime.GOOS, runtime.GOARCH
 	goos, goarch, err := normalizePlatform(in.GoOS, in.GoArch)
 	if err != nil {
 		return fgmodels.AgentRelease{}, err
 	}
-	fileName := filepath.Base(strings.TrimSpace(in.File))
-	if fileName == "" || fileName == "." || strings.Contains(fileName, "..") {
-		return fgmodels.AgentRelease{}, errors.New("文件名无效")
+	if goos != packOS || goarch != packArch {
+		return fgmodels.AgentRelease{}, fmt.Errorf(
+			"中央 agents/ 安装包为 %s/%s，不能下发到 %s/%s", packOS, packArch, goos, goarch)
 	}
-	if !strings.HasSuffix(strings.ToLower(fileName), ".tar.gz") && !strings.HasSuffix(strings.ToLower(fileName), ".tgz") {
-		return fgmodels.AgentRelease{}, errors.New("请上传发行包里的代理 tar.gz")
+	pack, fileName, err := agentpack.Open(code)
+	if err != nil {
+		return fgmodels.AgentRelease{}, err
 	}
+	defer pack.Close()
 	batchSize := in.BatchSize
 	if batchSize <= 0 || batchSize > limits.AgentUpgradeBatchMax {
 		batchSize = limits.AgentUpgradeBatchMax
@@ -82,7 +89,7 @@ func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (f
 		return fgmodels.AgentRelease{}, errors.New("命令通道未启用")
 	}
 	releaseID := id.New()
-	sum, err := agentrelease.Save(tenantID, releaseID, in.Body)
+	sum, err := agentrelease.Save(tenantID, releaseID, pack)
 	if err != nil {
 		return fgmodels.AgentRelease{}, err
 	}

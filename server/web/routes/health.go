@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"runtime"
+
 	"github.com/gin-gonic/gin"
 
 	"fluxguard/common/buildinfo"
@@ -16,6 +18,8 @@ func mountHealth(router *gin.Engine) {
 			"version": buildinfo.Version,
 			"commit":  buildinfo.Commit,
 			"date":    buildinfo.Date,
+			"goos":    runtime.GOOS,
+			"goarch":  runtime.GOARCH,
 		})
 	})
 }

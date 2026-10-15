@@ -120,7 +120,7 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
   {
     key: 'upgrade',
     label: '升级代理',
-    icon: 'upload',
+    icon: 'arrow-up-circle',
     code: 'fg0002:upgrade',
     onClick: () => {
       upgradeOpen.value = true
