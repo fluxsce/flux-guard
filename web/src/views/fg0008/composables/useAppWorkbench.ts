@@ -1,11 +1,11 @@
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
 import { useButtonAllowed } from '@/components/buttonAccess'
 import { rsConfirm, useRsToast } from '@/ui'
 import {
   continueRelease,
-  downloadFileFetch,
   queryFileFetch,
+  triggerFileFetchDownload,
   queryRelease,
   queryReleases,
   querySiteFiles,
@@ -16,6 +16,7 @@ import {
   type AppInstance,
   type AppRelease,
   type AppSite,
+  type DownloadProgress,
   type FileFetchJob,
 } from '../api'
 import { canRollbackRelease, kindLabel, moduleId, statusText, statusVariant, stepLabel } from './useAppCatalog'
@@ -64,26 +65,6 @@ export function modeLabel(mode: string) {
   return map[mode] || mode || '—'
 }
 
-function fileNameFromDisposition(header?: string) {
-  if (!header) return ''
-  const star = /filename\*=(?:UTF-8''|utf-8'')([^;]+)/i.exec(header)
-  if (star?.[1]) {
-    try {
-      return decodeURIComponent(star[1].trim().replace(/^"+|"+$/g, ''))
-    } catch {
-      /* fall through */
-    }
-  }
-  const plain = /filename="([^"]+)"|filename=([^;]+)/i.exec(header)
-  const raw = (plain?.[1] || plain?.[2] || '').trim()
-  if (!raw) return ''
-  try {
-    return decodeURIComponent(raw)
-  } catch {
-    return raw
-  }
-}
-
 /** 应用管理：左运行时 · 右文件仓 · 下操作日志。 */
 export function useAppWorkbench() {
   const toast = useRsToast()
@@ -103,9 +84,55 @@ export function useAppWorkbench() {
   const releasing = ref<AppRelease | null>(null)
   const continueBusy = ref(false)
   const downloadBusy = ref(false)
+  const downloadProgress = ref<DownloadProgress | null>(null)
   const logLines = ref<string[]>([])
+  /** 页面卸载后停止代下轮询与发布 poll，避免空跑请求。 */
+  let pageAlive = true
+  let downloadAbort: AbortController | null = null
 
   const canRelease = computed(() => allowed(moduleId, 'release'))
+
+  function sleep(ms: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException('aborted', 'AbortError'))
+        return
+      }
+      const timer = window.setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, ms)
+      const onAbort = () => {
+        window.clearTimeout(timer)
+        reject(new DOMException('aborted', 'AbortError'))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
+  function formatBytes(n: number) {
+    if (!n || n < 0) return '0 B'
+    if (n < 1024) return `${n} B`
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  function jobPercent(job: FileFetchJob) {
+    const total = job.bytesTotal || 0
+    const got = job.bytesReceived || 0
+    if (total > 0) return Math.min(99, Math.round((got / total) * 100))
+    return 0
+  }
+
+  function setDownloadProgress(next: DownloadProgress | null) {
+    downloadProgress.value = next
+  }
+
+  function patchDownloadProgress(partial: Partial<DownloadProgress>) {
+    const cur = downloadProgress.value
+    if (!cur) return
+    downloadProgress.value = { ...cur, ...partial }
+  }
 
   const selectedFiles = computed(() => files.value.filter((row) => picked.value.includes(row.instId)))
 
@@ -228,18 +255,23 @@ export function useAppWorkbench() {
       toast.error(`代理离线，无法代下：${offline.map(fileNameOf).join('、')}`)
       return
     }
+    downloadAbort?.abort()
+    downloadAbort = new AbortController()
+    const signal = downloadAbort.signal
     downloadBusy.value = true
     let ok = 0
     try {
       for (const row of list) {
-        const name = await fetchOneFile(row)
+        if (!pageAlive || signal.aborted) break
+        const name = await fetchOneFile(row, signal)
         if (name) ok += 1
       }
-      if (ok > 0) {
+      if (ok > 0 && pageAlive) {
         toast.success(ok === 1 ? `已下载 ${ok} 个文件` : `已下载 ${ok} / ${list.length} 个文件`)
       }
     } finally {
       downloadBusy.value = false
+      setDownloadProgress(null)
     }
   }
 
@@ -257,72 +289,152 @@ export function useAppWorkbench() {
     await downloadRows([row])
   }
 
-  async function fetchOneFile(row: AppInstance): Promise<string> {
+  async function fetchOneFile(row: AppInstance, signal: AbortSignal): Promise<string> {
     const label = fileNameOf(row)
+    let lastLogPct = -1
+    let lastWaitLogAt = 0
     try {
+      if (signal.aborted) return ''
+      setDownloadProgress({
+        fileName: label,
+        phase: 'request',
+        percent: 0,
+        bytesReceived: 0,
+        bytesTotal: 0,
+        message: '发起代下…',
+      })
       pushLog(`开始代下 ${label}`)
       const start = await requestFileFetch(row.instId)
+      if (signal.aborted) return ''
       if (!isApiSuccess(start)) {
-        toast.error(getApiMessage(start, `代下失败：${label}`))
-        pushLog(`代下失败 ${label}：${getApiMessage(start, '代下失败')}`)
+        const msg = getApiMessage(start, '代下失败')
+        toast.error(`代下失败：${label}`)
+        pushLog(`代下失败 ${label}：${msg}`)
+        patchDownloadProgress({ phase: 'failed', message: msg })
         return ''
       }
       let job = parseApiData<FileFetchJob>(start)
       if (!job?.jobId) {
         toast.error(`未返回任务号：${label}`)
+        patchDownloadProgress({ phase: 'failed', message: '未返回任务号' })
         return ''
       }
       if (job.mode === 'push') {
         pushLog(`中央拨不通，已改为代理出站推送（${label} · ${job.jobId}）`)
+        patchDownloadProgress({
+          phase: 'queued',
+          mode: 'push',
+          message: '等待代理出站推送…',
+        })
       } else if (job.status === 'ready') {
         pushLog(`短拨已就绪 ${label}`)
+      } else {
+        pushLog(`短拨拉取中 ${label}${job.bytesTotal ? ` · ${formatBytes(job.bytesTotal)}` : ''}`)
+        patchDownloadProgress({
+          phase: 'transferring',
+          mode: 'dial',
+          bytesTotal: job.bytesTotal || 0,
+          message: '中央短拨拉取中…',
+        })
       }
-      for (let i = 0; i < 90 && job.status === 'waiting'; i++) {
-        await new Promise((r) => window.setTimeout(r, 2000))
+
+      // 1GiB 级传输可能数十分钟；与中央 AppFileDownloadTimeout（60m）对齐。
+      const startedAt = Date.now()
+      const deadline = startedAt + 60 * 60 * 1000
+      while (Date.now() < deadline && job.status === 'waiting') {
+        await sleep(2000, signal)
+        if (signal.aborted || !pageAlive) {
+          pushLog(`代下已停止 ${label}`)
+          return ''
+        }
         const st = await queryFileFetch(job.jobId)
+        if (signal.aborted || !pageAlive) {
+          pushLog(`代下已停止 ${label}`)
+          return ''
+        }
         if (!isApiSuccess(st)) continue
         job = parseApiData<FileFetchJob>(st) ?? job
         if (job.status === 'failed') break
-        if (job.status === 'waiting' && i % 5 === 4) {
-          pushLog(`等待代理推送 ${label}… ${job.message || ''}`.trim())
+
+        const pct = jobPercent(job)
+        const phase =
+          job.phase === 'transferring' || (job.bytesReceived || 0) > 0 ? 'transferring' : 'queued'
+        const sizeText =
+          job.bytesTotal && job.bytesTotal > 0
+            ? `${formatBytes(job.bytesReceived || 0)} / ${formatBytes(job.bytesTotal)}`
+            : job.bytesReceived
+              ? formatBytes(job.bytesReceived)
+              : ''
+        const msg =
+          phase === 'queued'
+            ? job.message || (job.mode === 'push' ? '等待代理出站推送…' : '准备拉取…')
+            : `传输中${sizeText ? ` · ${sizeText}` : ''}${pct ? ` · ${pct}%` : ''}`
+        patchDownloadProgress({
+          phase,
+          mode: job.mode,
+          percent: pct,
+          bytesReceived: job.bytesReceived || 0,
+          bytesTotal: job.bytesTotal || 0,
+          message: msg,
+        })
+
+        // 有百分比时按 10% 打点；否则每 10 秒写一条等待日志。
+        if (pct > 0 && pct >= lastLogPct + 10) {
+          lastLogPct = pct - (pct % 10)
+          pushLog(`代下进度 ${label} · ${pct}%${sizeText ? ` · ${sizeText}` : ''}`)
+        } else if (Date.now() - lastWaitLogAt >= 10000) {
+          lastWaitLogAt = Date.now()
+          const elapsed = Math.round((Date.now() - startedAt) / 1000)
+          pushLog(
+            `${phase === 'queued' ? '等待推送' : '传输中'} ${label} · ${elapsed}s${sizeText ? ` · ${sizeText}` : ''}${job.message ? ` · ${job.message}` : ''}`,
+          )
         }
+      }
+      if (signal.aborted || !pageAlive) {
+        pushLog(`代下已停止 ${label}`)
+        return ''
       }
       if (job.status !== 'ready') {
         const msg = job.message || '代下超时或失败'
         toast.error(`${label}：${msg}`)
         pushLog(`代下失败 ${label}：${msg}`)
+        patchDownloadProgress({ phase: 'failed', message: msg })
         return ''
       }
-      const res = await downloadFileFetch(job.jobId)
-      const blob = res.data
-      if (blob.type && blob.type.includes('json')) {
-        const text = await blob.text()
-        let msg = '下载失败'
-        try {
-          const parsed = JSON.parse(text) as { error?: string; message?: string }
-          msg = parsed.error || parsed.message || msg
-        } catch {
-          /* ignore */
-        }
-        toast.error(`${label}：${msg}`)
-        pushLog(`下载失败 ${label}：${msg}`)
-        return ''
-      }
-      const name =
-        fileNameFromDisposition(res.headers?.['content-disposition'] || res.headers?.['Content-Disposition']) ||
-        job.fileName ||
-        label
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
-      pushLog(`已下载 ${name}`)
+
+      const name = job.fileName || label
+      const total = job.bytesTotal || job.bytesReceived || 0
+      patchDownloadProgress({
+        phase: 'saving',
+        percent: 100,
+        bytesReceived: total,
+        bytesTotal: total,
+        message: '已交给浏览器流式保存（不占用页面内存）…',
+      })
+      pushLog(
+        `暂存已就绪，浏览器流式下载 ${name}${total ? ` · ${formatBytes(total)}` : ''}`,
+      )
+      // Cookie 会话鉴权；浏览器直链流式落盘，避免 axios blob 把整文件堆进内存。
+      triggerFileFetchDownload(job.jobId, name)
+      pushLog(`已开始本机保存 ${name}${total ? ` · ${formatBytes(total)}` : ''}`)
+      patchDownloadProgress({
+        phase: 'done',
+        percent: 100,
+        bytesReceived: total,
+        bytesTotal: total,
+        message: '已开始本机保存',
+        fileName: name,
+      })
       return name
     } catch (err) {
-      toast.error(getHttpErrorMessage(err, `下载失败：${label}`))
-      pushLog(`下载失败 ${label}：${getHttpErrorMessage(err, '下载失败')}`)
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        pushLog(`代下已停止 ${label}`)
+        return ''
+      }
+      const msg = getHttpErrorMessage(err, '下载失败')
+      toast.error(`${msg}：${label}`)
+      pushLog(`下载失败 ${label}：${msg}`)
+      patchDownloadProgress({ phase: 'failed', message: msg })
       return ''
     }
   }
@@ -367,10 +479,14 @@ export function useAppWorkbench() {
         return
       }
       const next = parseApiData<AppRelease>(res)
+      if (!next) {
+        toast.error('更新未返回发布信息')
+        return
+      }
       releasing.value = next
-      const left = next?.pendingCount ?? 0
+      const left = next.pendingCount ?? 0
       const msg =
-        left > 0 ? `已下发首批 ${(next?.items ?? []).length} 台，待继续 ${left} 台` : `已下发更新 ${releaseAppCode.value}`
+        left > 0 ? `已下发首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : `已下发更新 ${releaseAppCode.value}`
       toast.success(msg)
       pushLog(msg)
       void poll()
@@ -423,9 +539,13 @@ export function useAppWorkbench() {
         return
       }
       const next = parseApiData<AppRelease>(res)
+      if (!next) {
+        toast.error('回滚未返回发布信息')
+        return
+      }
       releasing.value = next
-      const left = next?.pendingCount ?? 0
-      const msg = left > 0 ? `已回滚首批 ${(next?.items ?? []).length} 台，待继续 ${left} 台` : '已下发回滚'
+      const left = next.pendingCount ?? 0
+      const msg = left > 0 ? `已回滚首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : '已下发回滚'
       toast.success(msg)
       pushLog(msg)
       void poll()
@@ -435,10 +555,11 @@ export function useAppWorkbench() {
   }
 
   async function poll() {
+    if (!pageAlive) return
     const id = releasing.value?.releaseId
     if (!id) return
     const res = await queryRelease(id)
-    if (!isApiSuccess(res)) return
+    if (!pageAlive || !isApiSuccess(res)) return
     const next = parseApiData<AppRelease>(res)
     if (!next) return
     releasing.value = next
@@ -469,6 +590,11 @@ export function useAppWorkbench() {
   }
 
   onMounted(() => void loadSites())
+  onUnmounted(() => {
+    pageAlive = false
+    downloadAbort?.abort()
+    downloadAbort = null
+  })
 
   return {
     sites,
@@ -486,6 +612,7 @@ export function useAppWorkbench() {
     releasing,
     continueBusy,
     downloadBusy,
+    downloadProgress,
     logLines,
     canRelease,
     selectedFiles,

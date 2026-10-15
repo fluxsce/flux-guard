@@ -33,7 +33,7 @@ func List(db *dbx.DB, tenantID string, filter HostFilter, page dbx.Page) ([]mode
 		       h.reportedTime AS reportedTime
 		FROM FG_AGENT_HOST h` + where + `
 		ORDER BY h.hostName`
-	rows, total, err := db.QueryPage(context.Background(), "SELECT COUNT(*) FROM FG_AGENT_HOST h"+where, listSQL, page, args)
+	rows, total, err := db.QueryPage(context.Background(), listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

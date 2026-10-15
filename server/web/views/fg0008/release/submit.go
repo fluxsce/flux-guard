@@ -3,6 +3,7 @@ package release
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,7 +21,14 @@ import (
 	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/views/fg0008/dao"
 	appmodels "fluxguard/server/web/views/fg0008/models"
+
 	dbx "github.com/fluxsce/dbx/db"
+)
+
+const (
+	tableRelease = "FG_APP_RELEASE"
+	tableItem    = "FG_APP_RELEASE_ITEM"
+	oprSeq       = "APP"
 )
 
 // Input 是控制台提交的一次更新。文件由调用方打开。
@@ -78,27 +86,19 @@ func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (a
 	first, pending := splitInstBatch(inst, canary)
 	extBody, _ := json.Marshal(releaseExt{PendingInstIDs: pendingIDs(pending), BatchSize: batchSize})
 	now := store.FormatTime(time.Now().UTC())
-	if _, err := db.Exec(ctx, `
-		INSERT INTO FG_APP_RELEASE (
-		  releaseId, tenantId, appCode, artifactKind, versionText, sha256, fileName, extProperty,
-		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (
-		  @releaseId, @tenantId, @appCode, @artifactKind, @versionText, @sha256, @fileName, @extProperty,
-		  @now, @user, @now, @user, 'APP', 1, 'Y'
-		)`, dbx.Args{
-		"releaseId": releaseID, "tenantId": tenantID, "appCode": inst[0].AppCode,
-		"artifactKind": kind, "versionText": version, "sha256": sum, "fileName": fileName,
-		"extProperty": string(extBody), "now": now, "user": user,
-	}); err != nil {
+	out := appmodels.Release{
+		ReleaseID: releaseID, TenantID: tenantID, AppCode: inst[0].AppCode, ArtifactKind: kind,
+		VersionText: version, SHA256: sum, FileName: fileName, ExtProperty: string(extBody),
+		AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+		OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		PendingCount: len(pending), BatchSize: batchSize,
+	}
+	if err := db.Insert(ctx, tableRelease, &out); err != nil {
 		return appmodels.Release{}, err
 	}
 	action := protocol.ActionAppReplace
 	if kind == "runtime" {
 		action = protocol.ActionAppUpgrade
-	}
-	out := appmodels.Release{
-		ReleaseID: releaseID, AppCode: inst[0].AppCode, ArtifactKind: kind, VersionText: version,
-		FileName: fileName, PendingCount: len(pending), BatchSize: batchSize,
 	}
 	if err := dispatchUpdate(ctx, db, svc, tenantID, user, releaseID, action, kind, version, sum, fileName, first, &out); err != nil {
 		return out, err
@@ -112,20 +112,13 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 	if releaseID == "" {
 		return appmodels.Release{}, errors.New("缺少发布")
 	}
-	var appCode, kind, version, sum, fileName, raw string
-	err := store.Scan(ctx, db, `
-		SELECT appCode, artifactKind, versionText, sha256, COALESCE(fileName, ''), COALESCE(extProperty, '')
-		FROM FG_APP_RELEASE
-		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID},
-		&appCode, &kind, &version, &sum, &fileName, &raw)
+	row, err := loadRelease(ctx, db, tenantID, releaseID)
 	if err != nil {
-		return appmodels.Release{}, dao.ErrMissing
+		return appmodels.Release{}, err
 	}
-	var ext releaseExt
-	_ = json.Unmarshal([]byte(raw), &ext)
+	ext := applyReleaseMeta(&row)
 	if ext.Purpose == "rollback" {
-		return continueRollback(ctx, db, tenantID, user, releaseID, appCode, kind, version, ext)
+		return continueRollback(ctx, db, tenantID, user, releaseID, row.AppCode, row.ArtifactKind, row.VersionText, ext)
 	}
 	if len(ext.PendingInstIDs) == 0 {
 		return Progress(ctx, db, tenantID, releaseID)
@@ -134,17 +127,17 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 	if batchSize <= 0 || batchSize > limits.AppReleaseBatchMax {
 		batchSize = limits.AppReleaseBatchMax
 	}
-	pending, err := selected(ctx, db, tenantID, appCode, kind, ext.PendingInstIDs)
+	pending, err := selected(ctx, db, tenantID, row.AppCode, row.ArtifactKind, ext.PendingInstIDs)
 	if err != nil {
 		return appmodels.Release{}, err
 	}
-	if kind == "runtime" {
+	if row.ArtifactKind == "runtime" {
 		pending = onePerAgent(pending)
 	}
 	first, rest := splitInstBatch(pending, batchSize)
 	ext.PendingInstIDs = pendingIDs(rest)
 	ext.BatchSize = batchSize
-	if err := saveExt(ctx, db, tenantID, user, releaseID, ext); err != nil {
+	if err := saveExt(ctx, db, &row, user, ext); err != nil {
 		return appmodels.Release{}, err
 	}
 	svc := command.Current()
@@ -152,14 +145,14 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 		return appmodels.Release{}, errors.New("命令通道未启用")
 	}
 	action := protocol.ActionAppReplace
-	if kind == "runtime" {
+	if row.ArtifactKind == "runtime" {
 		action = protocol.ActionAppUpgrade
 	}
 	out := appmodels.Release{
-		ReleaseID: releaseID, AppCode: appCode, ArtifactKind: kind, VersionText: version,
-		FileName: fileName, PendingCount: len(rest), BatchSize: batchSize,
+		ReleaseID: releaseID, AppCode: row.AppCode, ArtifactKind: row.ArtifactKind, VersionText: row.VersionText,
+		FileName: row.FileName, PendingCount: len(rest), BatchSize: batchSize,
 	}
-	if err := dispatchUpdate(ctx, db, svc, tenantID, user, releaseID, action, kind, version, sum, fileName, first, &out); err != nil {
+	if err := dispatchUpdate(ctx, db, svc, tenantID, user, releaseID, action, row.ArtifactKind, row.VersionText, row.SHA256, row.FileName, first, &out); err != nil {
 		return out, err
 	}
 	full, err := Progress(ctx, db, tenantID, releaseID)
@@ -202,24 +195,16 @@ func Rollback(ctx context.Context, db *dbx.DB, tenantID, user, sourceReleaseID s
 		Purpose: "rollback", SourceReleaseID: sourceReleaseID,
 	})
 	now := store.FormatTime(time.Now().UTC())
-	if _, err := db.Exec(ctx, `
-		INSERT INTO FG_APP_RELEASE (
-		  releaseId, tenantId, appCode, artifactKind, versionText, sha256, fileName, extProperty,
-		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (
-		  @releaseId, @tenantId, @appCode, @artifactKind, @versionText, @sha256, @fileName, @extProperty,
-		  @now, @user, @now, @user, 'APP', 1, 'Y'
-		)`, dbx.Args{
-		"releaseId": releaseID, "tenantId": tenantID, "appCode": source.AppCode,
-		"artifactKind": source.ArtifactKind, "versionText": version, "sha256": "rollback",
-		"fileName": source.FileName, "extProperty": string(extBody), "now": now, "user": user,
-	}); err != nil {
-		return appmodels.Release{}, err
-	}
 	out := appmodels.Release{
-		ReleaseID: releaseID, AppCode: source.AppCode, ArtifactKind: source.ArtifactKind,
-		VersionText: version, FileName: source.FileName, Purpose: "rollback",
-		SourceReleaseID: sourceReleaseID, PendingCount: len(pending), BatchSize: batchSize,
+		ReleaseID: releaseID, TenantID: tenantID, AppCode: source.AppCode, ArtifactKind: source.ArtifactKind,
+		VersionText: version, SHA256: "rollback", FileName: source.FileName, ExtProperty: string(extBody),
+		AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+		OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		Purpose: "rollback", SourceReleaseID: sourceReleaseID,
+		PendingCount: len(pending), BatchSize: batchSize,
+	}
+	if err := db.Insert(ctx, tableRelease, &out); err != nil {
+		return appmodels.Release{}, err
 	}
 	if err := dispatchRollback(ctx, db, svc, tenantID, user, releaseID, source.ArtifactKind, version, first, &out); err != nil {
 		return out, err
@@ -246,7 +231,11 @@ func continueRollback(ctx context.Context, db *dbx.DB, tenantID, user, releaseID
 	first, rest := splitRollbackBatch(targets, batchSize)
 	ext.PendingInstIDs = pendingRollbackIDs(rest)
 	ext.BatchSize = batchSize
-	if err := saveExt(ctx, db, tenantID, user, releaseID, ext); err != nil {
+	row, err := loadRelease(ctx, db, tenantID, releaseID)
+	if err != nil {
+		return appmodels.Release{}, err
+	}
+	if err := saveExt(ctx, db, &row, user, ext); err != nil {
 		return appmodels.Release{}, err
 	}
 	svc := command.Current()
@@ -270,49 +259,63 @@ func continueRollback(ctx context.Context, db *dbx.DB, tenantID, user, releaseID
 
 // Progress 读一次发布里各条命令的当前状态。
 func Progress(ctx context.Context, db *dbx.DB, tenantID, releaseID string) (appmodels.Release, error) {
-	var out appmodels.Release
-	var raw string
-	err := store.Scan(ctx, db, `
-		SELECT releaseId, appCode, artifactKind, versionText, COALESCE(fileName, ''), COALESCE(extProperty, '')
-		FROM FG_APP_RELEASE
-		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID},
-		&out.ReleaseID, &out.AppCode, &out.ArtifactKind, &out.VersionText, &out.FileName, &raw)
+	out, err := loadRelease(ctx, db, tenantID, releaseID)
 	if err != nil {
-		return appmodels.Release{}, dao.ErrMissing
+		return appmodels.Release{}, err
 	}
-	var ext releaseExt
-	_ = json.Unmarshal([]byte(raw), &ext)
-	out.PendingCount = len(ext.PendingInstIDs)
-	out.BatchSize = ext.BatchSize
-	out.Purpose = ext.Purpose
-	out.SourceReleaseID = ext.SourceReleaseID
-	rows, err := db.Query(ctx, `
-		SELECT item.commandId, item.instId, item.agentId, cmd.statusFlag,
-		       COALESCE(cmd.resultText, ''), COALESCE(cmd.noteText, '')
+	applyReleaseMeta(&out)
+	var items []appmodels.ReleaseItem
+	if err := db.Select(ctx, &items, `
+		SELECT item.commandId AS commandId, item.instId AS instId, item.agentId AS agentId,
+		       cmd.statusFlag AS statusFlag, cmd.resultText AS resultText, cmd.noteText AS noteText
 		FROM FG_APP_RELEASE_ITEM item
 		JOIN FG_COMMAND cmd ON cmd.tenantId = item.tenantId AND cmd.commandId = item.commandId
 		WHERE item.tenantId = @tenantId AND item.releaseId = @releaseId AND item.activeFlag = 'Y'
 		ORDER BY item.addTime, item.commandId`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID})
+		dbx.Args{"tenantId": tenantID, "releaseId": releaseID}); err != nil {
+		return appmodels.Release{}, err
+	}
+	out.Items = make([]appmodels.ReleaseItem, 0, len(items))
+	for i := range items {
+		items[i].Status = models.StatusName(items[i].StatusFlag)
+		items[i].Steps = decodeSteps(items[i].NoteText)
+		out.Items = append(out.Items, items[i])
+	}
+	return out, nil
+}
+
+func loadRelease(ctx context.Context, db *dbx.DB, tenantID, releaseID string) (appmodels.Release, error) {
+	cols, err := dbx.Columns(&appmodels.Release{})
 	if err != nil {
 		return appmodels.Release{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var item appmodels.ReleaseItem
-		var flag, note string
-		if err := rows.Scan(&item.CommandID, &item.InstID, &item.AgentID, &flag, &item.Message, &note); err != nil {
-			return appmodels.Release{}, err
-		}
-		item.Status = models.StatusName(flag)
-		item.Steps = decodeSteps(note)
-		out.Items = append(out.Items, item)
+	var row appmodels.Release
+	err = db.Get(ctx, &row, `
+		SELECT `+cols+`
+		FROM FG_APP_RELEASE
+		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
+		dbx.Args{"tenantId": tenantID, "releaseId": releaseID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return appmodels.Release{}, dao.ErrMissing
 	}
-	if out.Items == nil {
-		out.Items = []appmodels.ReleaseItem{}
+	if err != nil {
+		return appmodels.Release{}, err
 	}
-	return out, rows.Err()
+	row.TenantID = tenantID
+	return row, nil
+}
+
+func applyReleaseMeta(row *appmodels.Release) releaseExt {
+	var ext releaseExt
+	_ = json.Unmarshal([]byte(row.ExtProperty), &ext)
+	row.PendingCount = len(ext.PendingInstIDs)
+	row.BatchSize = ext.BatchSize
+	row.Purpose = ext.Purpose
+	row.SourceReleaseID = ext.SourceReleaseID
+	if row.Items == nil {
+		row.Items = []appmodels.ReleaseItem{}
+	}
+	return ext
 }
 
 type rollbackTarget struct {
@@ -400,22 +403,18 @@ func dispatchUpdate(
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(ctx, `
-			INSERT INTO FG_APP_RELEASE_ITEM (
-			  commandId, tenantId, releaseId, instId, agentId,
-			  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-			) VALUES (
-			  @commandId, @tenantId, @releaseId, @instId, @agentId,
-			  @now, @user, @now, @user, 'APP', 1, 'Y'
-			)`, dbx.Args{
-			"commandId": view.CommandID, "tenantId": tenantID, "releaseId": releaseID,
-			"instId": item.InstID, "agentId": item.AgentID, "now": now, "user": user,
-		}); err != nil {
+		row := appmodels.ReleaseItem{
+			CommandID: view.CommandID, TenantID: tenantID, ReleaseID: releaseID,
+			InstID: item.InstID, AgentID: item.AgentID,
+			AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+			OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		}
+		if err := db.Insert(ctx, tableItem, &row); err != nil {
 			return err
 		}
-		out.Items = append(out.Items, appmodels.ReleaseItem{
-			CommandID: view.CommandID, InstID: item.InstID, AgentID: item.AgentID, Status: view.Status, Message: view.Message,
-		})
+		row.Status = view.Status
+		row.Message = view.Message
+		out.Items = append(out.Items, row)
 	}
 	return nil
 }
@@ -435,35 +434,33 @@ func dispatchRollback(
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(ctx, `
-			INSERT INTO FG_APP_RELEASE_ITEM (
-			  commandId, tenantId, releaseId, instId, agentId,
-			  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-			) VALUES (
-			  @commandId, @tenantId, @releaseId, @instId, @agentId,
-			  @now, @user, @now, @user, 'APP', 1, 'Y'
-			)`, dbx.Args{
-			"commandId": view.CommandID, "tenantId": tenantID, "releaseId": releaseID,
-			"instId": item.InstID, "agentId": item.AgentID, "now": now, "user": user,
-		}); err != nil {
+		row := appmodels.ReleaseItem{
+			CommandID: view.CommandID, TenantID: tenantID, ReleaseID: releaseID,
+			InstID: item.InstID, AgentID: item.AgentID,
+			AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+			OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		}
+		if err := db.Insert(ctx, tableItem, &row); err != nil {
 			return err
 		}
-		out.Items = append(out.Items, appmodels.ReleaseItem{
-			CommandID: view.CommandID, InstID: item.InstID, AgentID: item.AgentID, Status: view.Status, Message: view.Message,
-		})
+		row.Status = view.Status
+		row.Message = view.Message
+		out.Items = append(out.Items, row)
 	}
 	return nil
 }
 
-func saveExt(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string, ext releaseExt) error {
+func saveExt(ctx context.Context, db *dbx.DB, row *appmodels.Release, user string, ext releaseExt) error {
 	extBody, _ := json.Marshal(ext)
-	now := store.FormatTime(time.Now().UTC())
-	_, err := db.Exec(ctx, `
-		UPDATE FG_APP_RELEASE
-		SET extProperty = @extProperty, editTime = @now, editWho = @user, currentVersion = currentVersion + 1
-		WHERE tenantId = @tenantId AND releaseId = @releaseId`,
-		dbx.Args{"extProperty": string(extBody), "now": now, "user": user, "tenantId": tenantID, "releaseId": releaseID})
-	return err
+	row.ExtProperty = string(extBody)
+	row.EditTime = store.FormatTime(time.Now().UTC())
+	row.EditWho = user
+	row.CurrentVersion++
+	pk, err := db.PK(row)
+	if err != nil {
+		return err
+	}
+	return db.Update(ctx, tableRelease, row, pk)
 }
 
 // decodeSteps 从命令 noteText 还原步骤；旧回执没有步骤时返回空。

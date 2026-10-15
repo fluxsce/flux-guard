@@ -108,11 +108,11 @@ func Register(router *gin.Engine, agents *agent.Store, svc *service.Service) {
 			return
 		}
 		defer file.Close()
-		if header.Size > 512<<20 {
-			httpx.WriteErr(c, http.StatusBadRequest, "文件超过 512MB")
+		if header.Size > limits.AppFileMaxBytes {
+			httpx.WriteErr(c, http.StatusBadRequest, "文件超过代下上限（2GiB）")
 			return
 		}
-		if err := appfile.Save(tenantID, commandID, file); err != nil {
+		if err := appfile.SaveWithProgress(tenantID, commandID, file, header.Size); err != nil {
 			httpx.WriteErr(c, http.StatusBadRequest, err.Error())
 			return
 		}

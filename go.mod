@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/fluxsce/dbx v0.0.0
+	github.com/fluxsce/dbx v1.0.3
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-playground/validator/v10 v10.20.0
 	github.com/go-sql-driver/mysql v1.10.0
@@ -16,8 +16,6 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/fluxsce/dbx => ../dbx
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

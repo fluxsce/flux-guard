@@ -19,9 +19,9 @@ const (
 	HTTPReadHeader = 5 * time.Second
 	// HTTPIdle 空闲 keep-alive。
 	HTTPIdle = 60 * time.Second
-	// HTTPRead 读完整请求体时限。须覆盖 MaxBodyBytes 上传，与 API 超时分开。
-	// 按约 3Mbps 传 200MB 约需 9 分钟，取 10 分钟留余量。
-	HTTPRead = 10 * time.Minute
+	// HTTPRead 读完整请求体时限。须覆盖应用代下出站推送（可达 AppFileMaxBytes），与 API 超时分开。
+	// 按约 3Mbps 传 1GiB 约需 45 分钟，取 60 分钟留余量。
+	HTTPRead = 60 * time.Minute
 	// HoldWriteMargin 长轮询须在 WriteTimeout 到期前结束，预留这点余量。
 	HoldWriteMargin = 2 * time.Second
 	// ShutdownWait 优雅退出等待在途请求与后台循环。
@@ -33,6 +33,8 @@ const (
 const (
 	// MaxBodyBytes 管理端请求体绝对上限（安装包等）。
 	MaxBodyBytes int64 = 200 << 20
+	// AppFileMaxBytes 应用制品代下（短拨暂存 / 代理出站推送）单文件上限。
+	AppFileMaxBytes int64 = 2 << 30
 	// MaxJSONBytes JSON / urlencoded 进内存上限。
 	MaxJSONBytes int64 = 2 << 20
 	// MultipartMemory multipart 先留在内存的字节数，超出落临时文件。
@@ -81,8 +83,10 @@ const (
 	AppReleaseBatchMax = 32
 	// AppReleaseCanaryDefault 未指定金丝雀台数时，首批只更新 1 台实例。
 	AppReleaseCanaryDefault = 1
-	// AppFileDownloadTimeout 中央代下应用代理看守文件的总超时（大 WAR 可能较慢）。
-	AppFileDownloadTimeout = 10 * time.Minute
+	// AppFileDownloadTimeout 中央代下应用代理看守文件的总超时（含 1GiB 级制品）。
+	AppFileDownloadTimeout = 60 * time.Minute
+	// AppFileStagingTTL 代下暂存超过此时长未取走则清理。
+	AppFileStagingTTL = 2 * time.Hour
 )
 
 // --- Shell 终端 ---
@@ -165,7 +169,7 @@ const (
 )
 
 // ServerWrite 根据接口超时算出 http.Server.WriteTimeout。
-// 至少盖住命令/终端长轮询 hold + 余量，避免连接被写超时掐断后业务还在等。
+// 至少盖住命令/终端长轮询 hold、以及应用代下把暂存流给浏览器的时间，避免大文件写半截被掐断。
 func ServerWrite(apiTimeoutSec int) time.Duration {
 	api := time.Duration(apiTimeoutSec) * time.Second
 	if apiTimeoutSec <= 0 {
@@ -174,6 +178,9 @@ func ServerWrite(apiTimeoutSec int) time.Duration {
 	minWrite := CommandWaitHold + HoldWriteMargin
 	if shell := ShellInputHold + HoldWriteMargin; shell > minWrite {
 		minWrite = shell
+	}
+	if file := AppFileDownloadTimeout + HoldWriteMargin; file > minWrite {
+		minWrite = file
 	}
 	if api > minWrite {
 		return api

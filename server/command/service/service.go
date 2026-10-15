@@ -75,20 +75,21 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 		return models.View{}, models.ErrBadRelease
 	}
 	agentID := strings.TrimSpace(in.AgentID)
-	var code, status string
-	err := store.Scan(ctx, s.db, `
-		SELECT COALESCE(agentCode, ''), statusFlag FROM FG_AGENT
+	var gate agentGate
+	err := s.db.Get(ctx, &gate, `
+		SELECT agentCode, statusFlag FROM FG_AGENT
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &code, &status)
+		dbx.Args{"tenantId": tenantID, "agentId": agentID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.View{}, models.ErrNotFound
 	}
 	if err != nil {
 		return models.View{}, err
 	}
-	if status != "Y" {
+	if gate.StatusFlag != "Y" {
 		return models.View{}, models.ErrStopped
 	}
+	code := gate.AgentCode
 	if protocol.HostAction(in.Action) && code != "" && code != protocol.AgentHost {
 		return models.View{}, models.ErrNotHost
 	}
@@ -146,21 +147,23 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 
 // Get 读取一条命令。
 func (s *Service) Get(ctx context.Context, tenantID, commandID string) (models.View, error) {
+	cols, err := dbx.Columns(&models.View{})
+	if err != nil {
+		return models.View{}, err
+	}
 	var view models.View
-	var flag string
-	err := store.Scan(ctx, s.db, `
-		SELECT commandId, agentId, actionName, statusFlag, COALESCE(deliverMode, ''), COALESCE(resultText, '')
+	err = s.db.Get(ctx, &view, `
+		SELECT `+cols+`
 		FROM FG_COMMAND
 		WHERE tenantId = @tenantId AND commandId = @commandId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "commandId": commandID},
-		&view.CommandID, &view.AgentID, &view.Action, &flag, &view.DeliverMode, &view.Message)
+		dbx.Args{"tenantId": tenantID, "commandId": commandID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.View{}, models.ErrCommandGone
 	}
 	if err != nil {
 		return models.View{}, err
 	}
-	view.Status = models.StatusName(flag)
+	view.Status = models.StatusName(view.StatusFlag)
 	return view, nil
 }
 
@@ -170,32 +173,27 @@ func (s *Service) ListByAgent(ctx context.Context, tenantID, agentID string, lim
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.db.Query(ctx, fmt.Sprintf(`
-		SELECT commandId, agentId, actionName, statusFlag, COALESCE(deliverMode, ''), COALESCE(resultText, ''),
-		       COALESCE(intervalSec, 0), addTime, addWho
-		FROM FG_COMMAND
-		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-		ORDER BY addTime DESC, commandId DESC
-		LIMIT %d`, limit),
-		dbx.Args{"tenantId": tenantID, "agentId": agentID})
+	cols, err := dbx.Columns(&models.View{})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := make([]models.View, 0)
-	for rows.Next() {
-		var view models.View
-		var flag string
-		if err := rows.Scan(
-			&view.CommandID, &view.AgentID, &view.Action, &flag, &view.DeliverMode, &view.Message,
-			&view.IntervalSec, &view.AddTime, &view.AddWho,
-		); err != nil {
-			return nil, err
-		}
-		view.Status = models.StatusName(flag)
-		out = append(out, view)
+	var out []models.View
+	if err := s.db.Select(ctx, &out, fmt.Sprintf(`
+		SELECT %s
+		FROM FG_COMMAND
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		ORDER BY addTime DESC, commandId DESC
+		LIMIT %d`, cols, limit),
+		dbx.Args{"tenantId": tenantID, "agentId": agentID}); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	for i := range out {
+		out[i].Status = models.StatusName(out[i].StatusFlag)
+	}
+	if out == nil {
+		out = []models.View{}
+	}
+	return out, nil
 }
 
 // OwnsRelease 判断这件制品是否发给了这台应用侧代理。
@@ -203,16 +201,16 @@ func (s *Service) OwnsRelease(ctx context.Context, tenantID, agentID, releaseID 
 	if s == nil || strings.TrimSpace(releaseID) == "" {
 		return false
 	}
-	var count int
-	err := store.Scan(ctx, s.db, `
-		SELECT count(*) FROM FG_COMMAND
+	ok, err := s.db.Exists(ctx, `
+		SELECT 1 FROM FG_COMMAND
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-		  AND extProperty LIKE @marker`,
+		  AND extProperty LIKE @marker
+		LIMIT 1`,
 		dbx.Args{
 			"tenantId": tenantID, "agentId": agentID,
 			"marker": "%\"releaseId\":\"" + releaseID + "\"%",
-		}, &count)
-	return err == nil && count > 0
+		})
+	return err == nil && ok
 }
 
 // Wait 挂起直到该代理有待取命令或超时。
@@ -259,28 +257,42 @@ func (s *Service) targetAddress(ctx context.Context, tenantID, agentID, action s
 	return s.hostAddress(ctx, tenantID, agentID)
 }
 
+type agentGate struct {
+	AgentCode  string `db:"agentCode"`
+	StatusFlag string `db:"statusFlag"`
+}
+
+type dialAddr struct {
+	IPAddress      string `db:"ipAddress"`
+	IPList         string `db:"ipList"`
+	CommandAddress string `db:"commandAddress"`
+}
+
 func (s *Service) appsideAddress(ctx context.Context, tenantID, agentID string) (primary, list, addr string) {
-	err := store.Scan(ctx, s.db, `
-		SELECT COALESCE(ipAddress, ''), COALESCE(commandAddress, '')
+	var row dialAddr
+	err := s.db.Get(ctx, &row, `
+		SELECT ipAddress, commandAddress
 		FROM FG_APP_INST
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
 		  AND commandAddress IS NOT NULL AND commandAddress <> ''`,
-		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &primary, &addr)
+		dbx.Args{"tenantId": tenantID, "agentId": agentID})
 	if err != nil {
 		return "", "", ""
 	}
-	return strings.TrimSpace(primary), strings.TrimSpace(primary), strings.TrimSpace(addr)
+	primary = strings.TrimSpace(row.IPAddress)
+	return primary, primary, strings.TrimSpace(row.CommandAddress)
 }
 
 func (s *Service) hostAddress(ctx context.Context, tenantID, agentID string) (primary, list, addr string) {
-	err := store.Scan(ctx, s.db, `
-		SELECT COALESCE(ipAddress, ''), COALESCE(ipList, ''), COALESCE(commandAddress, '')
+	var row dialAddr
+	err := s.db.Get(ctx, &row, `
+		SELECT ipAddress, ipList, commandAddress
 		FROM FG_AGENT_HOST WHERE tenantId = @tenantId AND agentId = @agentId`,
-		dbx.Args{"tenantId": tenantID, "agentId": agentID}, &primary, &list, &addr)
+		dbx.Args{"tenantId": tenantID, "agentId": agentID})
 	if err != nil {
 		return "", "", ""
 	}
-	return strings.TrimSpace(primary), strings.TrimSpace(list), strings.TrimSpace(addr)
+	return strings.TrimSpace(row.IPAddress), strings.TrimSpace(row.IPList), strings.TrimSpace(row.CommandAddress)
 }
 
 func (s *Service) push(ctx context.Context, tenantID, commandID, addr, key string, in models.DispatchInput) (models.View, bool) {

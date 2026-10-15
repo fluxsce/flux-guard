@@ -40,10 +40,9 @@ func (st *Store) Page(tenantID string, q models.TemplateQuery, page dbx.Page) ([
 	where += store.LikeClause(args, "templateName", "templateName", q.TemplateName)
 	where += store.EqClause(args, "channelKind", "channelKind", q.ChannelKind)
 	where += store.EqClause(args, "statusFlag", "statusFlag", q.StatusFlag)
-	countSQL := "SELECT COUNT(*) FROM FG_ALERT_TEMPLATE" + where
 	listSQL := templateSelect + where + `
 		ORDER BY channelKind, templateName, templateId`
-	rows, total, err := st.db.QueryPage(context.Background(), countSQL, listSQL, page, args)
+	rows, total, err := st.db.QueryPage(context.Background(), listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

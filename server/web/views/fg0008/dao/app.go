@@ -21,23 +21,15 @@ func ListApps(ctx context.Context, db *dbx.DB, tenantID, appName string) ([]mode
 		where += " AND a.appName LIKE @appName"
 		args["appName"] = "%" + name + "%"
 	}
-	rows, err := db.Query(ctx, `
-		SELECT a.appCode, a.appName, a.artifactKind
-		FROM FG_APP a`+where+`
-		ORDER BY a.appName, a.appCode`, args)
+	cols, err := dbx.Columns(&models.App{})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var apps []models.App
-	for rows.Next() {
-		var item models.App
-		if err := rows.Scan(&item.AppCode, &item.AppName, &item.ArtifactKind); err != nil {
-			return nil, err
-		}
-		apps = append(apps, item)
-	}
-	if err := rows.Err(); err != nil {
+	if err := db.Select(ctx, &apps, `
+		SELECT `+qualifyCols("a", cols)+`
+		FROM FG_APP a`+where+`
+		ORDER BY a.appName, a.appCode`, args); err != nil {
 		return nil, err
 	}
 	if apps == nil {
@@ -236,49 +228,38 @@ func listInst(ctx context.Context, db *dbx.DB, tenantID, appCode string) ([]mode
 		where += " AND appCode = @appCode"
 		args["appCode"] = appCode
 	}
-	rows, err := db.Query(ctx, `
-		SELECT instId, agentId, appCode, COALESCE(machineId, ''), COALESCE(hostName, ''), COALESCE(ipAddress, ''),
-		       instanceName, runtimeKind, COALESCE(modeCode, ''), artifactKind, COALESCE(artifactPath, ''),
-		       COALESCE(versionText, ''), COALESCE(tomcatVersion, ''), COALESCE(commandAddress, ''),
-		       runningFlag, reportedTime
-		FROM FG_APP_INST`+where+`
-		ORDER BY instanceName, instId`, args)
+	cols, err := dbx.Columns(&models.Instance{})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []models.Instance
+	if err := db.Select(ctx, &out, `
+		SELECT `+cols+`
+		FROM FG_APP_INST`+where+`
+		ORDER BY instanceName, instId`, args); err != nil {
+		return nil, err
+	}
 	now := time.Now()
-	for rows.Next() {
-		var item models.Instance
-		var reported any
-		if err := rows.Scan(
-			&item.InstID, &item.AgentID, &item.AppCode, &item.MachineID, &item.HostName, &item.IPAddress,
-			&item.InstanceName, &item.RuntimeKind, &item.ModeCode, &item.ArtifactKind, &item.ArtifactPath,
-			&item.VersionText, &item.TomcatVersion, &item.CommandAddress,
-			&item.RunningFlag, &reported,
-		); err != nil {
-			return nil, err
+	for i := range out {
+		out[i].OnlineFlag = "N"
+		if at, ok := store.ParseTime(out[i].ReportedTime); ok && now.Sub(at) <= limits.OnlineWindow {
+			out[i].OnlineFlag = "Y"
+			out[i].ReportedTime = store.FormatTime(at)
 		}
-		item.OnlineFlag = "N"
-		if at, ok := store.TimeValue(reported); ok && now.Sub(at) <= limits.OnlineWindow {
-			item.OnlineFlag = "Y"
-		}
-		item.ReportedTime = store.FormatTime(timeFrom(reported))
-		out = append(out, item)
 	}
 	if out == nil {
 		out = []models.Instance{}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-func timeFrom(value any) time.Time {
-	at, ok := store.TimeValue(value)
-	if !ok {
-		return time.Time{}
+// qualifyCols 给逗号分隔列名加表别名前缀（如 a.appCode）。
+func qualifyCols(alias, cols string) string {
+	parts := strings.Split(cols, ", ")
+	for i, p := range parts {
+		parts[i] = alias + "." + p
 	}
-	return at
+	return strings.Join(parts, ", ")
 }
 
 // Rename 只改显示名。应用编码仍是上报的名字。
@@ -313,40 +294,35 @@ func ListReleases(ctx context.Context, db *dbx.DB, tenantID, appCode string, lim
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := db.Query(ctx, `
-		SELECT releaseId, appCode, artifactKind, versionText, fileName, addTime, addWho, COALESCE(extProperty, '')
-		FROM FG_APP_RELEASE
-		WHERE tenantId = @tenantId AND appCode = @appCode AND activeFlag = 'Y'
-		ORDER BY addTime DESC, releaseId DESC
-		LIMIT `+strconv.Itoa(limit), dbx.Args{"tenantId": tenantID, "appCode": appCode})
+	cols, err := dbx.Columns(&models.Release{})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []models.Release
-	for rows.Next() {
-		var item models.Release
-		var added any
-		var extRaw string
-		if err := rows.Scan(&item.ReleaseID, &item.AppCode, &item.ArtifactKind, &item.VersionText, &item.FileName, &added, &item.AddWho, &extRaw); err != nil {
-			return nil, err
-		}
-		item.AddTime = store.FormatTime(timeFrom(added))
+	var rows []models.Release
+	if err := db.Select(ctx, &rows, `
+		SELECT `+cols+`
+		FROM FG_APP_RELEASE
+		WHERE tenantId = @tenantId AND appCode = @appCode AND activeFlag = 'Y'
+		ORDER BY addTime DESC, releaseId DESC
+		LIMIT `+strconv.Itoa(limit), dbx.Args{"tenantId": tenantID, "appCode": appCode}); err != nil {
+		return nil, err
+	}
+	for i := range rows {
 		var ext struct {
-			Purpose         string `json:"purpose"`
-			SourceReleaseID string `json:"sourceReleaseId"`
+			Purpose         string   `json:"purpose"`
+			SourceReleaseID string   `json:"sourceReleaseId"`
 			PendingInstIDs  []string `json:"pendingInstIds"`
 		}
-		_ = json.Unmarshal([]byte(extRaw), &ext)
-		item.Purpose = ext.Purpose
-		item.SourceReleaseID = ext.SourceReleaseID
-		item.PendingCount = len(ext.PendingInstIDs)
-		out = append(out, item)
+		_ = json.Unmarshal([]byte(rows[i].ExtProperty), &ext)
+		rows[i].Purpose = ext.Purpose
+		rows[i].SourceReleaseID = ext.SourceReleaseID
+		rows[i].PendingCount = len(ext.PendingInstIDs)
+		rows[i].TenantID = tenantID
 	}
-	if out == nil {
-		out = []models.Release{}
+	if rows == nil {
+		rows = []models.Release{}
 	}
-	return out, rows.Err()
+	return rows, nil
 }
 
 // Ignore 让这个应用以后不再出现在列表里。上报不会把它改回来。

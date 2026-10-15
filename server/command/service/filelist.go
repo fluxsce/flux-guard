@@ -12,7 +12,6 @@ import (
 
 	"fluxguard/protocol"
 	"fluxguard/server/setting"
-	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
 )
 
@@ -26,11 +25,15 @@ func (s *Service) PullAppsideFileList(ctx context.Context, tenantID, agentID, in
 	}
 	primary, list, addr := s.appsideAddress(ctx, tenantID, agentID)
 	if addr == "" {
-		_ = store.Scan(ctx, s.db, `
-			SELECT COALESCE(ipAddress, ''), COALESCE(commandAddress, '')
+		var row dialAddr
+		if err := s.db.Get(ctx, &row, `
+			SELECT ipAddress, commandAddress
 			FROM FG_AGENT WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
-			dbx.Args{"tenantId": tenantID, "agentId": agentID}, &primary, &addr)
-		list = primary
+			dbx.Args{"tenantId": tenantID, "agentId": agentID}); err == nil {
+			primary = strings.TrimSpace(row.IPAddress)
+			addr = strings.TrimSpace(row.CommandAddress)
+			list = primary
+		}
 	}
 	addr = strings.TrimSpace(addr)
 	token := setting.IngestPlain(tenantID)

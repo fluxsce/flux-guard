@@ -299,9 +299,13 @@ export function useAppCatalog() {
         return
       }
       const next = parseApiData<AppRelease>(res)
+      if (!next) {
+        toast.error('更新未返回发布信息')
+        return
+      }
       releasing.value = next
-      const left = next?.pendingCount ?? 0
-      toast.success(left > 0 ? `已下发首批 ${(next?.items ?? []).length} 台，待继续 ${left} 台` : '已下发')
+      const left = next.pendingCount ?? 0
+      toast.success(left > 0 ? `已下发首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : '已下发')
       void poll()
       const relRes = await queryReleases(current.value.appCode)
       if (isApiSuccess(relRes)) releases.value = parseApiData<AppRelease[]>(relRes) ?? []
@@ -355,9 +359,13 @@ export function useAppCatalog() {
         return
       }
       const next = parseApiData<AppRelease>(res)
+      if (!next) {
+        toast.error('回滚未返回发布信息')
+        return
+      }
       releasing.value = next
-      const left = next?.pendingCount ?? 0
-      toast.success(left > 0 ? `已回滚首批 ${(next?.items ?? []).length} 台，待继续 ${left} 台` : '已下发回滚')
+      const left = next.pendingCount ?? 0
+      toast.success(left > 0 ? `已回滚首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : '已下发回滚')
       void poll()
       if (current.value) {
         const relRes = await queryReleases(current.value.appCode)

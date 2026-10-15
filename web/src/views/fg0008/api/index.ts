@@ -1,4 +1,4 @@
-import { createApi, http } from '@/api/request'
+import { createApi } from '@/api/request'
 import { moduleApiPrefix, requestPathHelper } from '@/api/requestPath'
 
 const fg0008 = createApi(moduleApiPrefix('fg0008'))
@@ -150,24 +150,57 @@ export interface FileFetchJob {
   status: string
   message?: string
   mode?: string
+  bytesReceived?: number
+  bytesTotal?: number
+  phase?: string
+}
+
+/** 浏览器侧代下进度（拉取暂存 + 本机保存）。 */
+export interface DownloadProgress {
+  fileName: string
+  phase: 'request' | 'queued' | 'transferring' | 'saving' | 'done' | 'failed'
+  mode?: string
+  percent: number
+  bytesReceived: number
+  bytesTotal: number
+  message: string
 }
 
 /** 发起代下（可拨则短拨，否则出站推送）。 */
 export function requestFileFetch(instId: string) {
-  return fg0008.post('/requestFileFetch', { instId })
+  return fg0008.post('/requestFileFetch', { instId }, undefined, { showLoading: false })
 }
 
 /** 查询代下状态。 */
 export function queryFileFetch(jobId: string) {
-  return fg0008.get('/queryFileFetch', { jobId })
+  return fg0008.get('/queryFileFetch', { jobId }, { showLoading: false })
 }
 
-/** 下载已就绪的暂存文件。 */
-export async function downloadFileFetch(jobId: string) {
-  const res = await http.get(requestPathHelper.join(apiBase, '/downloadFileFetch'), {
-    params: { jobId },
-    responseType: 'blob',
-    showLoading: true,
-  })
-  return res as { data: Blob; headers: Record<string, string> }
+/**
+ * 构造代下暂存的浏览器直链（走会话 Cookie，由浏览器流式落盘，避免 1GiB 级进 JS 堆）。
+ * @param jobId - 代下任务号
+ */
+export function downloadFileFetchURL(jobId: string): string {
+  const path = requestPathHelper.join(apiBase, '/downloadFileFetch')
+  const query = new URLSearchParams({ jobId: jobId.trim() }).toString()
+  const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+  return `${base}${path}?${query}`
+}
+
+/**
+ * 触发浏览器原生下载（流式写本机，不经过 axios blob）。
+ * @param jobId - 代下任务号
+ * @param fileName - 建议文件名（最终以 Content-Disposition 为准）
+ */
+export function triggerFileFetchDownload(jobId: string, fileName?: string) {
+  const a = document.createElement('a')
+  a.href = downloadFileFetchURL(jobId)
+  a.rel = 'noopener'
+  if (fileName) {
+    a.download = fileName
+  }
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }

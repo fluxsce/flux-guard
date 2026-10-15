@@ -34,7 +34,7 @@ const ruleSelect = `
 func (st *Store) Page(tenantID string, q models.RuleQuery, page dbx.Page) ([]models.Rule, int64, error) {
 	page.OrderBy = ""
 	where, args := ruleWhere(tenantID, q)
-	rows, total, err := st.db.QueryPage(context.Background(), "SELECT COUNT(*) FROM FG_ALERT_RULE"+where, ruleSelect+where+`
+	rows, total, err := st.db.QueryPage(context.Background(), ruleSelect+where+`
 		ORDER BY ruleName, ruleId`, page, args)
 	if err != nil {
 		return nil, 0, err

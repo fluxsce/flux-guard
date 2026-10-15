@@ -50,9 +50,8 @@ func (st *Store) Page(tenantID string, q models.LogQuery, page dbx.Page) ([]mode
 	where += store.EqClause(args, "alertLevel", "alertLevel", q.AlertLevel)
 	where += store.EqClause(args, "alertType", "alertType", q.AlertType)
 	where += store.EqClause(args, "sendStatus", "sendStatus", q.SendStatus)
-	countSQL := "SELECT COUNT(*) FROM FG_ALERT_LOG" + where
 	listSQL := logSelect + where + ` ORDER BY alertTimestamp DESC, alertLogId DESC`
-	rows, total, err := st.db.QueryPage(context.Background(), countSQL, listSQL, page, args)
+	rows, total, err := st.db.QueryPage(context.Background(), listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

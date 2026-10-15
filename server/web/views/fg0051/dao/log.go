@@ -76,10 +76,9 @@ func (d *LogDAO) PageLogs(tenantID string, q LogQuery, page dbx.Page) ([]LogView
 	where += resultClause(args, q.ResultFlag)
 	where += timeClause(args, "fromTime", ">=", q.FromTime)
 	where += timeClause(args, "toTime", "<=", q.ToTime)
-	countSQL := "SELECT COUNT(*) FROM FG_AUTH_AUDIT_LOG" + where
 	listSQL := logSelect + where + `
 		ORDER BY addTime DESC, auditId DESC`
-	rows, total, err := d.db.QueryPage(ctx, countSQL, listSQL, page, args)
+	rows, total, err := d.db.QueryPage(ctx, listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

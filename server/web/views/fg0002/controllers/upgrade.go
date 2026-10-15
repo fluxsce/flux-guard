@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"fluxguard/server/web/httpx"
@@ -23,6 +24,35 @@ type upgradeAgentsBody struct {
 	GoArch      string   `json:"goarch"`
 	AgentIDs    []string `json:"agentIds"`
 	CanaryCount int      `json:"canaryCount"`
+}
+
+// QueryAgentReleases 列出本租户最近的代理升级（不含各台明细）。
+func (c *AgentController) QueryAgentReleases(g *gin.Context) {
+	p := middleware.Principal(g)
+	code := strings.TrimSpace(request.Param(g, "agentCode"))
+	limit := 0
+	if raw := strings.TrimSpace(request.Param(g, "limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+	out, err := upgrade.List(g.Request.Context(), c.db, p.TenantID, code, limit)
+	if err != nil {
+		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteOK(g, out)
+}
+
+// QueryAgentUpgradeStatuses 返回各代理最近一次仍需关注的升级状态，供列表展示。
+func (c *AgentController) QueryAgentUpgradeStatuses(g *gin.Context) {
+	p := middleware.Principal(g)
+	out, err := upgrade.Statuses(g.Request.Context(), c.db, p.TenantID)
+	if err != nil {
+		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteOK(g, out)
 }
 
 // UpgradeAgents 使用中央 agents/ 包装，并向选中的代理分批下发自更新。

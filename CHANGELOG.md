@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-10-15
+
+### 新增
+- 代理升级进度对本租户共享：打开「升级代理」可看到进行中/最近记录并继续下一批；代理列表增加「升级」列（待继续 / 执行中 / 失败 / 未对齐等）。
+
+### 变更
+- `fg0002` 代理升级读写改为 dbx `Insert` / `Update` / `Get` / `Select`（模型同时挂 `json`+`db` 标签），减少手写 SQL 与引擎差异。
+- `fg0008` 应用发布（`release` / `ListReleases` / `ListApps` / `listInst`）与 `helper/agent`、`command/service` 读写改为 dbx `Insert`/`Get`/`Select`/`Count`/`Exists`；去掉列表上的 `COALESCE`，NULL 由 dbx 赋零值。
+- 分页调用对齐 dbx：列表只传 listSQL，`QueryPage` 自动瘦 COUNT（`CountSQL`，对齐 gateway）。
+- `fg0008` 代下：短拨改为异步拉流并回报字节进度；出站推送写入暂存时同样可轮询进度；文件仓展示进度条与更细日志；Base 目录单独成行，面包屑以 base 为根，路径列改相对路径。
+- `fg0008` 代下支持约 1GiB 制品：单文件上限 2GiB；读写/写超时盖住大文件；浏览器 Cookie 直链流式落盘（不再 axios blob）；下载完成后清暂存，并按 TTL 清过期残留。
+- 依赖 `github.com/fluxsce/dbx` 改为正式模块版本 `v1.0.3`（去掉本地 `replace`）。
+
 ## [1.1.5] - 2026-10-15
 
 ### 变更

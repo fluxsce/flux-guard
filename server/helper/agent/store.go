@@ -35,21 +35,21 @@ var (
 // onlineWindow 内没有心跳则视为离线。
 const onlineWindow = limits.OnlineWindow
 
-// AgentView 采集代理列表。令牌摘要不出现在这里。
+// AgentView 采集代理列表。令牌摘要不出现在这里；json 给 API，db 给 Select/Get。
 type AgentView struct {
-	AgentID        string     `json:"agentId"`
-	AgentName      string     `json:"agentName"`
-	AgentCode      string     `json:"agentCode,omitempty"`
-	MachineID      string     `json:"machineId,omitempty"`
-	AgentVersion   string     `json:"agentVersion,omitempty"`
-	GoOS           string     `json:"goos,omitempty"`
-	GoArch         string     `json:"goarch,omitempty"`
-	HostName       string     `json:"hostName"`
-	IPAddress      string     `json:"ipAddress"`
-	CommandAddress string     `json:"commandAddress,omitempty"`
-	OnlineFlag     string     `json:"onlineFlag"`
-	StatusFlag     string     `json:"statusFlag"`
-	LastSeenTime   *time.Time `json:"lastSeenTime,omitempty"`
+	AgentID        string     `json:"agentId" db:"agentId"`
+	AgentName      string     `json:"agentName" db:"agentName"`
+	AgentCode      string     `json:"agentCode,omitempty" db:"agentCode"`
+	MachineID      string     `json:"machineId,omitempty" db:"machineId"`
+	AgentVersion   string     `json:"agentVersion,omitempty" db:"agentVersion"`
+	GoOS           string     `json:"goos,omitempty" db:"goos"`
+	GoArch         string     `json:"goarch,omitempty" db:"goarch"`
+	HostName       string     `json:"hostName" db:"hostName"`
+	IPAddress      string     `json:"ipAddress" db:"ipAddress"`
+	CommandAddress string     `json:"commandAddress,omitempty" db:"commandAddress"`
+	OnlineFlag     string     `json:"onlineFlag" db:"-"`
+	StatusFlag     string     `json:"statusFlag" db:"statusFlag"`
+	LastSeenTime   *time.Time `json:"lastSeenTime,omitempty" db:"lastSeenTime"`
 }
 
 // RegisterInput 登记一台采集代理。
@@ -60,21 +60,39 @@ type RegisterInput struct {
 }
 
 type agent struct {
-	AgentID        string
-	TenantID       string
-	AgentName      string
-	AgentCode      string
-	MachineID      string
-	AgentVersion   string
-	GoOS           string
-	GoArch         string
-	HostName       string
-	IPAddress      string
-	CommandAddress string
-	TokenHash      string
-	StatusFlag     string
-	ActiveFlag     string
-	LastSeen       *time.Time
+	AgentID        string     `db:"agentId,pk"`
+	TenantID       string     `db:"tenantId,pk"`
+	AgentName      string     `db:"agentName"`
+	AgentCode      string     `db:"agentCode,omitempty"`
+	MachineID      string     `db:"machineId,omitempty"`
+	AgentVersion   string     `db:"agentVersion,omitempty"`
+	GoOS           string     `db:"goos,omitempty"`
+	GoArch         string     `db:"goarch,omitempty"`
+	HostName       string     `db:"hostName,omitempty"`
+	IPAddress      string     `db:"ipAddress,omitempty"`
+	CommandAddress string     `db:"commandAddress,omitempty"`
+	TokenHash      string     `db:"agentTokenHash"`
+	StatusFlag     string     `db:"statusFlag"`
+	ActiveFlag     string     `db:"activeFlag"`
+	LastSeen       *time.Time `db:"lastSeenTime,omitempty"`
+	AddTime        string     `db:"addTime,noupdate,omitempty"`
+	AddWho         string     `db:"addWho,noupdate,omitempty"`
+	EditTime       string     `db:"editTime,omitempty"`
+	EditWho        string     `db:"editWho,omitempty"`
+	OprSeqFlag     string     `db:"oprSeqFlag,omitempty"`
+	CurrentVersion int        `db:"currentVersion,omitempty"`
+}
+
+// agentIDStatus 是按身份查找时的主键与停用标记。
+type agentIDStatus struct {
+	AgentID    string `db:"agentId"`
+	StatusFlag string `db:"statusFlag"`
+}
+
+// agentTokenRow 是令牌换租户与代理编号。
+type agentTokenRow struct {
+	TenantID string `db:"tenantId"`
+	AgentID  string `db:"agentId"`
 }
 
 // Store 读写 FG_AGENT。上报和命令通道用它认出代理，管理页用它登记。
@@ -90,27 +108,25 @@ func Open(conn *dbx.DB) *Store {
 // ListAgents 返回采集代理。在线状态按最近心跳推导。
 // 列表只读 FG_AGENT；主机名、地址、命令端口由各类代理上报时写回本表。
 func (a *Store) ListAgents(tenantID string) []AgentView {
-	rows, err := a.db.Query(context.Background(), `
-		SELECT agentId, agentName, COALESCE(agentCode, ''), COALESCE(machineId, ''),
-		       COALESCE(agentVersion, ''), COALESCE(goos, ''), COALESCE(goarch, ''),
-		       COALESCE(hostName, ''), COALESCE(ipAddress, ''), COALESCE(commandAddress, ''),
-		       statusFlag, lastSeenTime
-		FROM FG_AGENT
-		WHERE tenantId = @tenantId AND activeFlag = 'Y'`, dbx.Args{"tenantId": tenantID})
+	cols, err := dbx.Columns(&AgentView{})
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-	now := time.Now()
-	var out []AgentView
-	for rows.Next() {
-		item, err := scanAgent(rows, now)
-		if err != nil {
-			return out
-		}
-		out = append(out, item)
+	var rows []AgentView
+	if err := a.db.Select(context.Background(), &rows, `
+		SELECT `+cols+`
+		FROM FG_AGENT
+		WHERE tenantId = @tenantId AND activeFlag = 'Y'`, dbx.Args{"tenantId": tenantID}); err != nil {
+		return nil
 	}
-	return out
+	now := time.Now()
+	for i := range rows {
+		rows[i].OnlineFlag = onlineOf(rows[i].StatusFlag, rows[i].LastSeenTime, now)
+	}
+	if rows == nil {
+		rows = []AgentView{}
+	}
+	return rows
 }
 
 // RegisterAgent 登记代理并返回只显示一次的明文令牌。
@@ -125,11 +141,10 @@ func (a *Store) RegisterAgent(ctx context.Context, in RegisterInput) (AgentView,
 	if name == "" {
 		return AgentView{}, "", ErrAgentNameEmpty
 	}
-	var taken int
-	err = store.Scan(ctx, a.db, `
+	taken, err := a.db.Count(ctx, `
 		SELECT count(*) FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentName = @agentName`,
-		dbx.Args{"tenantId": tenantID, "agentName": name}, &taken)
+		dbx.Args{"tenantId": tenantID, "agentName": name})
 	if err != nil {
 		return AgentView{}, "", err
 	}
@@ -137,24 +152,15 @@ func (a *Store) RegisterAgent(ctx context.Context, in RegisterInput) (AgentView,
 		return AgentView{}, "", ErrAgentNameTaken
 	}
 	plain := "agt_" + id.New()
+	now := sess.When()
 	item := agent{
 		AgentID: id.New(), TenantID: tenantID, AgentName: name,
 		HostName: strings.TrimSpace(in.HostName), IPAddress: strings.TrimSpace(in.IPAddress),
 		TokenHash: secret.HashToken(plain), StatusFlag: "Y", ActiveFlag: "Y",
+		AddTime: now, AddWho: actor, EditTime: now, EditWho: actor,
+		OprSeqFlag: "REG", CurrentVersion: 1,
 	}
-	now := sess.When()
-	_, err = a.db.Exec(ctx, `
-		INSERT INTO FG_AGENT (
-		  agentId, tenantId, agentName, hostName, ipAddress, agentTokenHash, statusFlag,
-		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (@agentId, @tenantId, @agentName, @hostName, @ipAddress, @agentTokenHash, 'Y', @now, @actor, @now, @actor, 'REG', 1, 'Y')`,
-		dbx.Args{
-			"agentId": item.AgentID, "tenantId": item.TenantID, "agentName": item.AgentName,
-			"hostName": nullIfEmpty(item.HostName), "ipAddress": nullIfEmpty(item.IPAddress), "agentTokenHash": item.TokenHash,
-			"now": now, "actor": actor,
-		},
-	)
-	if err != nil {
+	if err := a.db.Insert(ctx, "FG_AGENT", &item); err != nil {
 		return AgentView{}, "", err
 	}
 	return toAgentView(item, time.Now()), plain, nil
@@ -169,38 +175,32 @@ func (a *Store) EnsureMachineAgent(tenantID, agentCode, machineID string) (strin
 	if !protocol.KnownAgent(agentCode) || machineID == "" || len(machineID) > 64 {
 		return "", ErrAgentIdentity
 	}
-	var agentID, status string
-	err := store.Scan(context.Background(), a.db, `
+	ctx := context.Background()
+	var found agentIDStatus
+	err := a.db.Get(ctx, &found, `
 		SELECT agentId, statusFlag FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentCode = @agentCode AND machineId = @machineId`,
-		dbx.Args{"tenantId": tenantID, "agentCode": agentCode, "machineId": machineID}, &agentID, &status)
+		dbx.Args{"tenantId": tenantID, "agentCode": agentCode, "machineId": machineID})
 	if err == nil {
-		if status != "Y" {
+		if found.StatusFlag != "Y" {
 			return "", ErrAgentStopped
 		}
-		return agentID, nil
+		return found.AgentID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	agentID = id.New()
-	name := agentCode + "-" + shortMachine(machineID)
-	_, err = a.db.Exec(context.Background(), `
-		INSERT INTO FG_AGENT (
-		  agentId, tenantId, agentName, agentCode, machineId, agentTokenHash, statusFlag,
-		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (
-		  @agentId, @tenantId, @agentName, @agentCode, @machineId, @agentTokenHash, 'Y',
-		  'system', 'system', 'INGEST', 1, 'Y'
-		)`, dbx.Args{
-		"agentId": agentID, "tenantId": tenantID, "agentName": name,
-		"agentCode": agentCode, "machineId": machineID,
-		"agentTokenHash": secret.HashToken("machine:" + tenantID + ":" + agentCode + ":" + machineID),
-	})
-	if err != nil {
+	row := agent{
+		AgentID: id.New(), TenantID: tenantID, AgentName: agentCode + "-" + shortMachine(machineID),
+		AgentCode: agentCode, MachineID: machineID,
+		TokenHash: secret.HashToken("machine:" + tenantID + ":" + agentCode + ":" + machineID),
+		StatusFlag: "Y", ActiveFlag: "Y", AddWho: "system", EditWho: "system",
+		OprSeqFlag: "INGEST", CurrentVersion: 1,
+	}
+	if err := a.db.Insert(ctx, "FG_AGENT", &row); err != nil {
 		return "", err
 	}
-	return agentID, nil
+	return row.AgentID, nil
 }
 
 // RenameAgent 只改显示名。身份仍按 agentId / machineId，上报不会冲掉这里改过的名字。
@@ -218,11 +218,10 @@ func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (Age
 		return AgentView{}, ErrAgentNameEmpty
 	}
 	name = clipName(name, 100)
-	var taken int
-	err = store.Scan(ctx, a.db, `
+	taken, err := a.db.Count(ctx, `
 		SELECT count(*) FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentName = @agentName AND agentId <> @agentId`,
-		dbx.Args{"tenantId": sess.TenantID, "agentName": name, "agentId": agentID}, &taken)
+		dbx.Args{"tenantId": sess.TenantID, "agentName": name, "agentId": agentID})
 	if err != nil {
 		return AgentView{}, err
 	}
@@ -258,24 +257,23 @@ func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (Age
 
 // agentView 读一台代理的当前展示行。
 func (a *Store) agentView(ctx context.Context, tenantID, agentID string) (AgentView, error) {
-	row, err := a.db.QueryRow(ctx, `
-		SELECT agentId, agentName, COALESCE(agentCode, ''), COALESCE(machineId, ''),
-		       COALESCE(agentVersion, ''), COALESCE(goos, ''), COALESCE(goarch, ''),
-		       COALESCE(hostName, ''), COALESCE(ipAddress, ''), COALESCE(commandAddress, ''),
-		       statusFlag, lastSeenTime
+	cols, err := dbx.Columns(&AgentView{})
+	if err != nil {
+		return AgentView{}, err
+	}
+	var view AgentView
+	err = a.db.Get(ctx, &view, `
+		SELECT `+cols+`
 		FROM FG_AGENT
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
 		dbx.Args{"tenantId": tenantID, "agentId": agentID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentView{}, ErrAgentMissing
+	}
 	if err != nil {
 		return AgentView{}, err
 	}
-	view, err := scanAgent(row, time.Now())
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return AgentView{}, ErrAgentMissing
-		}
-		return AgentView{}, err
-	}
+	view.OnlineFlag = onlineOf(view.StatusFlag, view.LastSeenTime, time.Now())
 	return view, nil
 }
 
@@ -286,36 +284,31 @@ func (a *Store) EnsureReportingAgent(tenantID, agentCode string) (string, error)
 	if !protocol.KnownAgent(name) {
 		return "", ErrAgentIdentity
 	}
-	var agentID, status string
-	err := store.Scan(context.Background(), a.db, `
+	ctx := context.Background()
+	var found agentIDStatus
+	err := a.db.Get(ctx, &found, `
 		SELECT agentId, statusFlag FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentName = @agentName`,
-		dbx.Args{"tenantId": tenantID, "agentName": name}, &agentID, &status)
+		dbx.Args{"tenantId": tenantID, "agentName": name})
 	if err == nil {
-		if status != "Y" {
+		if found.StatusFlag != "Y" {
 			return "", ErrAgentStopped
 		}
-		return agentID, nil
+		return found.AgentID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	agentID = id.New()
-	_, err = a.db.Exec(context.Background(), `
-		INSERT INTO FG_AGENT (
-		  agentId, tenantId, agentName, agentTokenHash, statusFlag,
-		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (
-		  @agentId, @tenantId, @agentName, @agentTokenHash, 'Y',
-		  'system', 'system', 'INGEST', 1, 'Y'
-		)`, dbx.Args{
-		"agentId": agentID, "tenantId": tenantID, "agentName": name,
-		"agentTokenHash": secret.HashToken("shared:" + tenantID + ":" + name),
-	})
-	if err != nil {
+	row := agent{
+		AgentID: id.New(), TenantID: tenantID, AgentName: name,
+		TokenHash: secret.HashToken("shared:" + tenantID + ":" + name),
+		StatusFlag: "Y", ActiveFlag: "Y", AddWho: "system", EditWho: "system",
+		OprSeqFlag: "INGEST", CurrentVersion: 1,
+	}
+	if err := a.db.Insert(ctx, "FG_AGENT", &row); err != nil {
 		return "", err
 	}
-	return agentID, nil
+	return row.AgentID, nil
 }
 
 // TouchInfo 是心跳时顺带更新的产品版本与平台。
@@ -413,51 +406,34 @@ func (a *Store) AgentByToken(token string) (string, string, bool) {
 	if token == "" {
 		return "", "", false
 	}
-	var tenantID, agentID string
-	err := store.Scan(context.Background(), a.db, `
+	var row agentTokenRow
+	err := a.db.Get(context.Background(), &row, `
 		SELECT tenantId, agentId FROM FG_AGENT
 		WHERE agentTokenHash = @agentTokenHash AND activeFlag = 'Y' AND statusFlag = 'Y'`,
-		dbx.Args{"agentTokenHash": secret.HashToken(token)}, &tenantID, &agentID)
+		dbx.Args{"agentTokenHash": secret.HashToken(token)})
 	if err != nil {
 		return "", "", false
 	}
-	return tenantID, agentID, true
+	return row.TenantID, row.AgentID, true
 }
 
-type agentRows interface {
-	Scan(dest ...any) error
-}
-
-// scanAgent 读一行代理，并把最近心跳换算成在线标记。
-func scanAgent(rows agentRows, now time.Time) (AgentView, error) {
-	var item agent
-	var seen any
-	if err := rows.Scan(
-		&item.AgentID, &item.AgentName, &item.AgentCode, &item.MachineID, &item.AgentVersion,
-		&item.GoOS, &item.GoArch, &item.HostName, &item.IPAddress, &item.CommandAddress, &item.StatusFlag, &seen,
-	); err != nil {
-		return AgentView{}, err
-	}
-	if t, ok := store.TimeValue(seen); ok {
-		item.LastSeen = &t
-	}
-	item.ActiveFlag = "Y"
-	return toAgentView(item, now), nil
-}
-
-// toAgentView 两分钟内有心跳且状态为 Y 时记为在线。
+// toAgentView 登记后立刻返回展示行。
 func toAgentView(item agent, now time.Time) AgentView {
-	online := "N"
-	if item.StatusFlag == "Y" && item.LastSeen != nil && now.Sub(*item.LastSeen) <= onlineWindow {
-		online = "Y"
-	}
 	return AgentView{
 		AgentID: item.AgentID, AgentName: item.AgentName, AgentCode: item.AgentCode, MachineID: item.MachineID,
 		AgentVersion: item.AgentVersion, GoOS: item.GoOS, GoArch: item.GoArch,
 		HostName: item.HostName, IPAddress: item.IPAddress, CommandAddress: item.CommandAddress,
-		OnlineFlag: online, StatusFlag: item.StatusFlag,
+		OnlineFlag: onlineOf(item.StatusFlag, item.LastSeen, now), StatusFlag: item.StatusFlag,
 		LastSeenTime: item.LastSeen,
 	}
+}
+
+// onlineOf 两分钟内有心跳且状态为 Y 时记为在线。
+func onlineOf(statusFlag string, lastSeen *time.Time, now time.Time) string {
+	if statusFlag == "Y" && lastSeen != nil && now.Sub(*lastSeen) <= onlineWindow {
+		return "Y"
+	}
+	return "N"
 }
 
 func shortMachine(machineID string) string {
@@ -466,14 +442,6 @@ func shortMachine(machineID string) string {
 		return machineID[:8]
 	}
 	return machineID
-}
-
-// nullIfEmpty 把空字符串写成 SQL NULL。
-func nullIfEmpty(value string) any {
-	if value == "" {
-		return nil
-	}
-	return value
 }
 
 // uniqueIDs 去掉空白与重复的代理编号。

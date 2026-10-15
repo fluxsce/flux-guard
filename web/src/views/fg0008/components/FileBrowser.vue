@@ -5,8 +5,8 @@ import type { FgGridColumn, FgGridMenuItem } from '@/components/grid/types'
 import FgToolbar from '@/components/toolbar/FgToolbar.vue'
 import type { FgToolbarButton } from '@/components/toolbar/types'
 import { RsBreadcrumb, RsTag, useRsToast } from '@/ui'
-import type { AppInstance, AppSite } from '../api'
-import { breadcrumbOf, entriesInDir, type FileEntry } from '../composables/fileTree'
+import type { AppInstance, AppSite, DownloadProgress } from '../api'
+import { breadcrumbOf, entriesInDir, relativeToBase, type FileEntry } from '../composables/fileTree'
 import { fileTypePreview, kindLabel, modeLabel, moduleId } from '../composables/useAppWorkbench'
 import UploadDialog from './UploadDialog.vue'
 
@@ -16,6 +16,7 @@ const props = defineProps<{
   picked: string[]
   loading?: boolean
   downloadBusy?: boolean
+  downloadProgress?: DownloadProgress | null
   canRelease: boolean
   version: string
   canaryCount: number
@@ -49,12 +50,28 @@ watch(
 
 const title = computed(() => props.site.instanceName)
 const crumbs = computed(() =>
-  breadcrumbOf(cwd.value).map((c) => ({
+  breadcrumbOf(cwd.value, props.site.basePath).map((c) => ({
     key: c.path || 'root',
     label: c.label,
     to: c.path === '' ? '#' : `#${c.path}`,
   })),
 )
+const progressPercent = computed(() => {
+  const p = props.downloadProgress
+  if (!p) return 0
+  if (p.percent > 0) return Math.min(100, p.percent)
+  if (p.phase === 'done') return 100
+  if (p.phase === 'saving') return 90
+  if (p.phase === 'transferring') return 35
+  if (p.phase === 'queued') return 15
+  if (p.phase === 'request') return 5
+  return 0
+})
+const progressIndeterminate = computed(() => {
+  const p = props.downloadProgress
+  if (!p || p.phase === 'done' || p.phase === 'failed') return false
+  return !(p.bytesTotal > 0 && p.percent > 0)
+})
 const entries = computed(() => entriesInDir(props.files, props.site.basePath, cwd.value))
 /** 勾选列用行 key；业务侧仍用 instId。 */
 const selectedKeys = computed(() =>
@@ -190,20 +207,45 @@ function typePreview(entry: FileEntry) {
   const preview = fileTypePreview(entry.row)
   return { ...preview, kind: entry.row.artifactKind }
 }
+
+function displayPath(entry: FileEntry) {
+  if (entry.kind === 'dir') return entry.relDir || '—'
+  if (!entry.row) return entry.relDir || '—'
+  return relativeToBase(entry.row.artifactPath, props.site.basePath) || entry.name
+}
 </script>
 
 <template>
   <section class="fg-file-browser">
     <FgToolbar plain wrap :title="title" :buttons="toolbarButtons" :module-id="moduleId">
       <template #after>
-        <span class="fg-file-sub">
-          {{ modeLabel(site.modeCode) }}
-          <template v-if="site.basePath"> · {{ site.basePath }}</template>
-        </span>
+        <span class="fg-file-sub">{{ modeLabel(site.modeCode) }}</span>
       </template>
     </FgToolbar>
 
+    <div class="fg-base-row" :title="site.basePath || '未上报 base 目录'">
+      <span class="fg-base-label">Base</span>
+      <code class="fg-base-path">{{ site.basePath || '—' }}</code>
+    </div>
+
     <RsBreadcrumb class="fg-crumbs" :items="crumbs" @click="onCrumb" />
+
+    <div v-if="downloadProgress" class="fg-dl-progress" :data-phase="downloadProgress.phase">
+      <div class="fg-dl-head">
+        <strong>{{ downloadProgress.fileName }}</strong>
+        <span>{{ downloadProgress.message }}</span>
+      </div>
+      <div
+        class="fg-dl-track"
+        :class="{ indeterminate: progressIndeterminate }"
+        role="progressbar"
+        :aria-valuenow="progressPercent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div class="fg-dl-bar" :style="{ width: `${progressPercent}%` }" />
+      </div>
+    </div>
 
     <FgGrid
       class="fg-file-grid"
@@ -235,7 +277,9 @@ function typePreview(entry: FileEntry) {
       <template #appCode="{ row }">{{ entryOf(row).row?.appCode || '—' }}</template>
       <template #versionText="{ row }">{{ entryOf(row).row?.versionText || '—' }}</template>
       <template #path="{ row }">
-        {{ entryOf(row).row?.artifactPath || entryOf(row).relDir || '—' }}
+        <span :title="entryOf(row).row?.artifactPath || displayPath(entryOf(row))">
+          {{ displayPath(entryOf(row)) }}
+        </span>
       </template>
       <template #online="{ row }">
         <RsTag
@@ -291,9 +335,113 @@ function typePreview(entry: FileEntry) {
   white-space: nowrap;
 }
 
-.fg-crumbs {
+.fg-base-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   padding: 8px 12px 0;
+}
+
+.fg-base-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rs-text-secondary);
+}
+
+.fg-base-path {
+  min-width: 0;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  line-height: 1.4;
+  color: var(--rs-text);
+  background: color-mix(in srgb, var(--rs-text-secondary) 10%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fg-crumbs {
+  padding: 6px 12px 0;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.fg-crumbs :deep(a),
+.fg-crumbs :deep(span) {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fg-dl-progress {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--fg-panel-border, var(--rs-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--rs-primary, #2563eb) 6%, transparent);
+}
+
+.fg-dl-progress[data-phase='failed'] {
+  background: color-mix(in srgb, var(--rs-danger, #b91c1c) 8%, transparent);
+}
+
+.fg-dl-progress[data-phase='done'] {
+  background: color-mix(in srgb, var(--rs-success, #15803d) 8%, transparent);
+}
+
+.fg-dl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.fg-dl-head strong {
+  font-weight: 600;
+}
+
+.fg-dl-head span {
+  color: var(--rs-text-secondary);
+}
+
+.fg-dl-track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rs-text-secondary) 18%, transparent);
+}
+
+.fg-dl-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rs-primary, #2563eb);
+  transition: width 0.25s ease;
+}
+
+.fg-dl-track.indeterminate .fg-dl-bar {
+  width: 36% !important;
+  animation: fg-dl-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes fg-dl-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 .fg-file-grid {

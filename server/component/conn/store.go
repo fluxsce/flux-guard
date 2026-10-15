@@ -260,7 +260,6 @@ func List(ctx context.Context, db *dbx.DB, tenantID string, filter Filter, page 
 	if filter.UpFlag == "Y" || filter.UpFlag == "N" {
 		where += store.EqClause(args, "c.upFlag", "upFlag", filter.UpFlag)
 	}
-	countSQL := "SELECT COUNT(*) FROM FG_COMPONENT_CONN c" + where
 	listSQL := `
 		SELECT c.componentId, c.kindCode, COALESCE(k.kindName, ''), c.componentName, c.address, COALESCE(c.userName, ''),
 		       CASE WHEN c.secretEnc IS NULL OR c.secretEnc = '' THEN 'N' ELSE 'Y' END,
@@ -270,7 +269,7 @@ func List(ctx context.Context, db *dbx.DB, tenantID string, filter Filter, page 
 		FROM FG_COMPONENT_CONN c
 		LEFT JOIN FG_COMPONENT_KIND k ON k.tenantId = c.tenantId AND k.kindCode = c.kindCode AND k.activeFlag = 'Y'` + where + `
 		ORDER BY c.componentName`
-	rows, total, err := db.QueryPage(ctx, countSQL, listSQL, page, args)
+	rows, total, err := db.QueryPage(ctx, listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

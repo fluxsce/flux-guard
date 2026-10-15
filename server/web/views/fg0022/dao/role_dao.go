@@ -106,13 +106,12 @@ func (d *RoleDAO) PageRoles(tenantID string, q RoleQuery, page dbx.Page) ([]Role
 	where += store.LikeClause(args, "roleName", "roleName", q.RoleName)
 	where += store.EqClause(args, "roleStatus", "roleStatus", q.RoleStatus)
 	where += store.EqClause(args, "builtInFlag", "builtInFlag", q.BuiltInFlag)
-	countSQL := "SELECT COUNT(*) FROM FG_AUTH_ROLE" + where
 	listSQL := `
 		SELECT roleId, roleName, COALESCE(roleDescription, ''), roleStatus, builtInFlag, COALESCE(dataScope, ''),
 		       activeFlag, COALESCE(noteText, ''), addTime, addWho, editTime, editWho
 		FROM FG_AUTH_ROLE` + where + `
 		ORDER BY roleName`
-	rows, total, err := d.db.QueryPage(context.Background(), countSQL, listSQL, page, args)
+	rows, total, err := d.db.QueryPage(context.Background(), listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

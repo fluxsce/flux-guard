@@ -5,6 +5,7 @@ package fetch
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,15 +21,18 @@ import (
 
 // Job 是一次代下任务。
 type Job struct {
-	JobID    string `json:"jobId"`
-	InstID   string `json:"instId"`
-	FileName string `json:"fileName"`
-	Status   string `json:"status"` // waiting | ready | failed
-	Message  string `json:"message,omitempty"`
-	Mode     string `json:"mode,omitempty"` // dial | push
+	JobID         string `json:"jobId"`
+	InstID        string `json:"instId"`
+	FileName      string `json:"fileName"`
+	Status        string `json:"status"` // waiting | ready | failed
+	Message       string `json:"message,omitempty"`
+	Mode          string `json:"mode,omitempty"` // dial | push
+	BytesReceived int64  `json:"bytesReceived,omitempty"`
+	BytesTotal    int64  `json:"bytesTotal,omitempty"`
+	Phase         string `json:"phase,omitempty"` // queued | transferring | ready | failed
 }
 
-// Request 发起代下：优先短拨；失败则出站推送。
+// Request 发起代下：优先短拨（异步拉流）；失败则出站推送。
 func Request(ctx context.Context, db *dbx.DB, tenantID, user, instID string) (Job, error) {
 	instID = strings.TrimSpace(instID)
 	if instID == "" {
@@ -51,21 +55,42 @@ func Request(ctx context.Context, db *dbx.DB, tenantID, user, instID string) (Jo
 		return Job{}, errors.New("命令通道未启用")
 	}
 
-	// 短拨整段传输用 AppFileDownloadTimeout；8s 只适合探活，会在读 body 时被 cancel 截断大文件。
-	pullCtx, cancel := context.WithTimeout(ctx, limits.AppFileDownloadTimeout)
-	defer cancel()
-	if fileName, body, _, dialErr := svc.PullAppsideFile(pullCtx, tenantID, inst.AgentID, path); dialErr == nil {
-		defer body.Close()
+	// 短拨探活+开流用独立超时；成功后后台拷贝，避免阻塞控制台请求超过客户端超时。
+	appfile.PurgeStale()
+	pullCtx, cancel := context.WithTimeout(context.Background(), limits.AppFileDownloadTimeout)
+	fileName, body, size, dialErr := svc.PullAppsideFile(pullCtx, tenantID, inst.AgentID, path)
+	if dialErr == nil {
 		if fileName != "" {
 			name = fileName
 		}
+		if size < 0 {
+			size = 0
+		}
+		if size > limits.AppFileMaxBytes {
+			cancel()
+			body.Close()
+			return Job{}, appfile.ErrTooLarge
+		}
 		jobID := id.New()
-		if err := appfile.Save(tenantID, jobID, body); err != nil {
+		if err := writeMeta(tenantID, jobID, name); err != nil {
+			cancel()
+			body.Close()
 			return Job{}, err
 		}
-		_ = writeMeta(tenantID, jobID, name)
-		return Job{JobID: jobID, InstID: instID, FileName: name, Status: "ready", Mode: "dial"}, nil
+		_ = appfile.WriteProgress(tenantID, jobID, appfile.Progress{
+			BytesReceived: 0,
+			BytesTotal:    size,
+			Status:        "transferring",
+			Message:       "短拨拉取中",
+		})
+		go runDialSave(cancel, body, tenantID, jobID, size)
+		return Job{
+			JobID: jobID, InstID: instID, FileName: name,
+			Status: "waiting", Mode: "dial", Phase: "transferring",
+			BytesTotal: size,
+		}, nil
 	}
+	cancel()
 
 	view, err := svc.Dispatch(ctx, tenantID, user, command.DispatchInput{
 		AgentID: inst.AgentID, Action: protocol.ActionAppFilePush,
@@ -77,47 +102,108 @@ func Request(ctx context.Context, db *dbx.DB, tenantID, user, instID string) (Jo
 		return Job{}, err
 	}
 	_ = writeMeta(tenantID, view.CommandID, name)
+	_ = appfile.WriteProgress(tenantID, view.CommandID, appfile.Progress{
+		Status:  "transferring",
+		Message: "等待代理出站推送",
+	})
 	return Job{
 		JobID: view.CommandID, InstID: instID, FileName: name,
 		Status: mapCmd(view.Status), Message: view.Message, Mode: "push",
+		Phase: "queued",
 	}, nil
 }
 
-// Status 查任务是否已落盘。
+func runDialSave(cancel context.CancelFunc, body io.ReadCloser, tenantID, jobID string, size int64) {
+	defer cancel()
+	defer body.Close()
+	if err := appfile.SaveWithProgress(tenantID, jobID, body, size); err != nil {
+		_ = appfile.WriteProgress(tenantID, jobID, appfile.Progress{
+			Status: "failed", Message: err.Error(), BytesTotal: size,
+		})
+	}
+}
+
+// Status 查任务是否已落盘，并附带字节进度。
 func Status(ctx context.Context, db *dbx.DB, tenantID, jobID string) (Job, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
 		return Job{}, errors.New("缺少任务")
 	}
 	out := Job{JobID: jobID, FileName: readMeta(tenantID, jobID)}
-	if appfile.Ready(tenantID, jobID) {
+	prog := appfile.ReadProgress(tenantID, jobID)
+	out.BytesReceived = prog.BytesReceived
+	out.BytesTotal = prog.BytesTotal
+	out.Phase = prog.Status
+	if prog.Message != "" {
+		out.Message = prog.Message
+	}
+
+	if appfile.Ready(tenantID, jobID) || prog.Status == "ready" {
 		out.Status = "ready"
+		out.Phase = "ready"
+		if out.BytesReceived == 0 {
+			out.BytesReceived = appfile.Size(tenantID, jobID)
+		}
+		if out.BytesTotal == 0 {
+			out.BytesTotal = out.BytesReceived
+		}
 		return out, nil
 	}
+	if prog.Status == "failed" {
+		out.Status = "failed"
+		out.Phase = "failed"
+		if out.Message == "" {
+			out.Message = "代下失败"
+		}
+		return out, nil
+	}
+
 	svc := command.Current()
 	if svc == nil {
 		return Job{}, errors.New("命令通道未启用")
 	}
 	view, err := svc.Get(ctx, tenantID, jobID)
 	if err != nil {
-		// 拨号任务无命令行，暂存又没有 → 失败。
+		// 短拨任务无命令行：仍在传输则 waiting，否则失败。
+		if prog.Status == "transferring" {
+			out.Status = "waiting"
+			out.Phase = "transferring"
+			if out.Message == "" {
+				out.Message = "短拨拉取中"
+			}
+			return out, nil
+		}
 		out.Status = "failed"
+		out.Phase = "failed"
 		out.Message = "文件尚未就绪"
 		return out, nil
 	}
-	out.Message = view.Message
+	if out.Message == "" {
+		out.Message = view.Message
+	}
 	out.Status = mapCmd(view.Status)
 	if view.Status == "done" && appfile.Ready(tenantID, jobID) {
 		out.Status = "ready"
+		out.Phase = "ready"
 	} else if view.Status == "done" {
 		out.Status = "failed"
+		out.Phase = "failed"
 		if out.Message == "" {
 			out.Message = "代理已回执但文件未到达"
 		}
 	} else if view.Status == "failed" {
 		out.Status = "failed"
+		out.Phase = "failed"
 	} else {
 		out.Status = "waiting"
+		if prog.BytesReceived > 0 {
+			out.Phase = "transferring"
+		} else {
+			out.Phase = "queued"
+			if out.Message == "" {
+				out.Message = "等待代理出站推送"
+			}
+		}
 	}
 	return out, nil
 }
@@ -152,6 +238,9 @@ func mapCmd(status string) string {
 func writeMeta(tenantID, jobID, name string) error {
 	path, err := appfile.Path(tenantID, jobID)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(path+".name", []byte(strings.TrimSpace(name)), 0o644)

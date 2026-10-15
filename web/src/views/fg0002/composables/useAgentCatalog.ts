@@ -9,10 +9,12 @@ import {
   deleteAgents,
   dispatchCommand,
   queryAgents,
+  queryAgentUpgradeStatuses,
   queryCommand,
   registerAgent,
   renameAgent,
   type Agent,
+  type AgentUpgradeStatus,
   type CommandView,
 } from '../api'
 
@@ -35,6 +37,7 @@ export const agentColumns = [
   { key: 'agentName', title: '名称', minWidth: 140 },
   { key: 'agentCode', title: '种类', width: 88 },
   { key: 'agentVersion', title: '版本', width: 100 },
+  { key: 'upgradeStatus', title: '升级', width: 100 },
   { key: 'goos', title: '系统', width: 80 },
   { key: 'goarch', title: '架构', width: 80 },
   { key: 'machineId', title: '机器编号', minWidth: 160 },
@@ -44,6 +47,31 @@ export const agentColumns = [
   { key: 'onlineFlag', title: '在线', width: 88 },
   { key: 'lastSeenTime', title: '最近心跳', width: 180 },
 ]
+
+/** 升级命令/队列状态文案。 */
+export function upgradeStatusText(status: string, matched?: string) {
+  if (status === 'pending') return '待继续'
+  if (status === 'done') {
+    if (matched === 'Y') return '已对齐'
+    if (matched === 'N') return '未对齐'
+    return '待上报'
+  }
+  if (status === 'failed') return '失败'
+  if (status === 'waiting') return '待取'
+  if (status === 'running') return '执行中'
+  if (status === 'dialing') return '拨号'
+  return status || '—'
+}
+
+/** 升级状态标签色。 */
+export function upgradeStatusVariant(status: string, matched?: string): 'success' | 'danger' | 'warning' | 'default' {
+  if (status === 'failed' || (status === 'done' && matched === 'N')) return 'danger'
+  if (status === 'done' && matched === 'Y') return 'success'
+  if (status === 'pending' || status === 'waiting' || status === 'dialing' || status === 'running' || status === 'done') {
+    return 'warning'
+  }
+  return 'default'
+}
 
 /** 代理种类展示名。同机可同时跑主机 / Go / 应用代理，列表用种类区分。 */
 export function agentCodeLabel(value: string) {
@@ -191,7 +219,9 @@ export function useAgentCatalog() {
   const renameOpen = ref(false)
   const renameCurrent = ref<Record<string, unknown>>({})
   const commandBusy = ref(false)
+  const upgradeByAgent = ref<Record<string, AgentUpgradeStatus>>({})
   let commandToken = 0
+  let upgradePollTimer = 0
 
   const filtered = computed(() =>
     rows.value.filter((row) => {
@@ -235,6 +265,38 @@ export function useAgentCatalog() {
     selectedKeys.value = selectedKeys.value.filter((id) => alive.has(id))
   }
 
+  function scheduleUpgradePoll() {
+    if (upgradePollTimer) {
+      window.clearTimeout(upgradePollTimer)
+      upgradePollTimer = 0
+    }
+    const active = Object.values(upgradeByAgent.value).some(
+      (item) =>
+        item.status === 'pending' ||
+        item.status === 'waiting' ||
+        item.status === 'dialing' ||
+        item.status === 'running' ||
+        (item.status === 'done' && item.versionMatched !== 'Y'),
+    )
+    if (!active) return
+    upgradePollTimer = window.setTimeout(() => {
+      void reloadUpgradeStatuses()
+    }, 4000)
+  }
+
+  async function reloadUpgradeStatuses() {
+    if (!allow('fg0002:search')) return
+    const result = await queryAgentUpgradeStatuses()
+    if (!isApiSuccess(result)) return
+    const list = parseApiData<AgentUpgradeStatus[]>(result) ?? []
+    const next: Record<string, AgentUpgradeStatus> = {}
+    for (const item of list) {
+      next[item.agentId] = item
+    }
+    upgradeByAgent.value = next
+    scheduleUpgradePoll()
+  }
+
   async function reload() {
     if (!allow('fg0002:search')) return
     const result = await queryAgents()
@@ -246,6 +308,7 @@ export function useAgentCatalog() {
     rows.value = parseApiData<Agent[]>(result) ?? []
     syncActive()
     syncSelected()
+    void reloadUpgradeStatuses()
   }
 
   function openView(row: Agent) {
@@ -513,6 +576,10 @@ export function useAgentCatalog() {
 
   onScopeDispose(() => {
     commandToken += 1
+    if (upgradePollTimer) {
+      window.clearTimeout(upgradePollTimer)
+      upgradePollTimer = 0
+    }
   })
 
   return {
@@ -532,6 +599,7 @@ export function useAgentCatalog() {
     renameOpen,
     renameCurrent,
     commandBusy,
+    upgradeByAgent,
     openView,
     openCreate,
     openInterval,
@@ -545,5 +613,6 @@ export function useAgentCatalog() {
     onSearch,
     onReset,
     reload,
+    reloadUpgradeStatuses,
   }
 }

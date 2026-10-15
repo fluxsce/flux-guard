@@ -29,6 +29,9 @@ export interface AgentRelease {
   goarch?: string
   pendingCount?: number
   batchSize?: number
+  addTime?: string
+  addWho?: string
+  openFlag?: string
   items: AgentReleaseItem[]
 }
 
@@ -41,6 +44,16 @@ export interface AgentReleaseItem {
   message?: string
   agentVersion?: string
   versionMatched?: string
+}
+
+/** 代理列表上展示的最近升级状态。 */
+export interface AgentUpgradeStatus {
+  agentId: string
+  releaseId: string
+  versionText: string
+  status: string
+  versionMatched?: string
+  message?: string
 }
 
 export function queryAgents() {
@@ -100,11 +113,29 @@ export function upgradeAgents(body: UpgradeAgentsInput) {
 }
 
 /**
+ * 列出本租户最近的代理升级（不含各台明细）。
+ * @param agentCode - 可选种类过滤
+ * @param limit - 条数，默认 20
+ */
+export function queryAgentReleases(agentCode?: string, limit = 20) {
+  const params: Record<string, string | number> = { limit }
+  if (agentCode) params.agentCode = agentCode
+  return fg0002.get<AgentRelease[]>('/queryAgentReleases', params, { showLoading: false })
+}
+
+/**
  * 查询一次代理升级的命令进度。
  * @param releaseId - 发布号
  */
 export function queryAgentRelease(releaseId: string) {
   return fg0002.get<AgentRelease>('/queryAgentRelease', { releaseId }, { showLoading: false })
+}
+
+/**
+ * 查询各代理最近一次仍需关注的升级状态。
+ */
+export function queryAgentUpgradeStatuses() {
+  return fg0002.get<AgentUpgradeStatus[]>('/queryAgentUpgradeStatuses', undefined, { showLoading: false })
 }
 
 /**

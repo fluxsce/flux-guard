@@ -9,11 +9,13 @@ func TestServerWriteCoversLongPoll(t *testing.T) {
 	if got := ServerWrite(10); got < CommandWaitHold+HoldWriteMargin {
 		t.Fatalf("write %v too short for command hold", got)
 	}
-	if got := ServerWrite(APIRequestDefaultSec); got != time.Duration(APIRequestDefaultSec)*time.Second {
-		t.Fatalf("default write %v", got)
+	// 须盖住应用代下把大文件流给浏览器的时间。
+	want := AppFileDownloadTimeout + HoldWriteMargin
+	if got := ServerWrite(APIRequestDefaultSec); got != want {
+		t.Fatalf("default write %v want %v", got, want)
 	}
-	if got := ServerWrite(0); got != time.Duration(APIRequestDefaultSec)*time.Second {
-		t.Fatalf("zero write %v", got)
+	if got := ServerWrite(0); got != want {
+		t.Fatalf("zero write %v want %v", got, want)
 	}
 }
 
@@ -32,5 +34,11 @@ func TestBodyLayers(t *testing.T) {
 	}
 	if MultipartMemory > MaxBodyBytes {
 		t.Fatal("multipart memory must fit under body cap")
+	}
+	if AppFileMaxBytes < 1<<30 {
+		t.Fatalf("app file cap %d must cover 1GiB", AppFileMaxBytes)
+	}
+	if AppFileMaxBytes <= MaxBodyBytes {
+		t.Fatal("app file push must exceed management body cap")
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"fluxguard/server/helper/appfile"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/middleware"
 	"fluxguard/server/web/middleware/audit"
@@ -270,9 +271,9 @@ func (c *AppController) DownloadFileFetch(g *gin.Context) {
 		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
+		_ = file.Close()
 		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -283,7 +284,12 @@ func (c *AppController) DownloadFileFetch(g *gin.Context) {
 	g.Header("Content-Disposition", contentDisposition(name))
 	g.Header("Content-Length", strconv.FormatInt(info.Size(), 10))
 	g.Status(http.StatusOK)
-	_, _ = io.Copy(g.Writer, file)
+	// 流式写出，不把整文件载入内存；写完后删暂存，避免 1GiB 级堆积。
+	_, copyErr := io.Copy(g.Writer, file)
+	_ = file.Close()
+	if copyErr == nil {
+		appfile.Remove(p.TenantID, jobID)
+	}
 }
 
 // contentDisposition 同时给 ASCII fallback 与 UTF-8 文件名，避免中文日志名乱码。

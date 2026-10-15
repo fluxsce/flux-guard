@@ -3,6 +3,7 @@ package upgrade
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"fluxguard/common/id"
 	"fluxguard/protocol"
 	"fluxguard/server/command"
-	"fluxguard/server/command/models"
 	"fluxguard/server/helper/agentpack"
 	"fluxguard/server/helper/agentrelease"
 	"fluxguard/server/store"
@@ -40,6 +40,12 @@ type releaseExt struct {
 	PendingAgentIDs []string `json:"pendingAgentIds"`
 	BatchSize       int      `json:"batchSize"`
 }
+
+const (
+	tableRelease = "FG_AGENT_RELEASE"
+	tableItem    = "FG_AGENT_RELEASE_ITEM"
+	oprSeq       = "AGT"
+)
 
 // Submit 校验平台与在线状态，从中央 agents/ 复制制品，并按金丝雀/批次下发首批命令。
 func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (fgmodels.AgentRelease, error) {
@@ -96,28 +102,20 @@ func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (f
 	first, pending := splitBatch(targets, canary)
 	extBody, _ := json.Marshal(releaseExt{PendingAgentIDs: pending, BatchSize: batchSize})
 	now := store.FormatTime(time.Now().UTC())
-	if _, err := db.Exec(ctx, `
-		INSERT INTO FG_AGENT_RELEASE (
-		  releaseId, tenantId, agentCode, versionText, sha256, fileName, goos, goarch, extProperty,
-		  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-		) VALUES (
-		  @releaseId, @tenantId, @agentCode, @versionText, @sha256, @fileName, @goos, @goarch, @extProperty,
-		  @now, @user, @now, @user, 'AGT', 1, 'Y'
-		)`, dbx.Args{
-		"releaseId": releaseID, "tenantId": tenantID, "agentCode": code,
-		"versionText": version, "sha256": sum, "fileName": fileName, "goos": goos, "goarch": goarch,
-		"extProperty": string(extBody), "now": now, "user": user,
-	}); err != nil {
+	row := fgmodels.AgentRelease{
+		ReleaseID: releaseID, TenantID: tenantID, AgentCode: code, VersionText: version,
+		SHA256: sum, FileName: fileName, GoOS: goos, GoArch: goarch, ExtProperty: string(extBody),
+		AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+		OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		PendingCount: len(pending), BatchSize: batchSize,
+	}
+	if err := db.Insert(ctx, tableRelease, &row); err != nil {
 		return fgmodels.AgentRelease{}, err
 	}
-	out := fgmodels.AgentRelease{
-		ReleaseID: releaseID, AgentCode: code, VersionText: version, FileName: fileName,
-		GoOS: goos, GoArch: goarch, PendingCount: len(pending), BatchSize: batchSize,
+	if err := dispatchBatch(ctx, db, svc, tenantID, user, releaseID, code, version, sum, fileName, goos, goarch, first, &row); err != nil {
+		return row, err
 	}
-	if err := dispatchBatch(ctx, db, svc, tenantID, user, releaseID, code, version, sum, fileName, goos, goarch, first, &out); err != nil {
-		return out, err
-	}
-	return out, nil
+	return row, nil
 }
 
 // Continue 把同一发布里尚未下发的代理按批次继续下发。
@@ -126,18 +124,11 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 	if releaseID == "" {
 		return fgmodels.AgentRelease{}, errors.New("缺少发布")
 	}
-	var code, version, sum, fileName, goos, goarch, raw string
-	err := store.Scan(ctx, db, `
-		SELECT agentCode, versionText, sha256, COALESCE(fileName, ''), COALESCE(goos, ''), COALESCE(goarch, ''), COALESCE(extProperty, '')
-		FROM FG_AGENT_RELEASE
-		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID},
-		&code, &version, &sum, &fileName, &goos, &goarch, &raw)
+	row, err := loadRelease(ctx, db, tenantID, releaseID)
 	if err != nil {
-		return fgmodels.AgentRelease{}, errors.New("找不到这次升级")
+		return fgmodels.AgentRelease{}, err
 	}
-	var ext releaseExt
-	_ = json.Unmarshal([]byte(raw), &ext)
+	ext := applyReleaseMeta(&row)
 	if len(ext.PendingAgentIDs) == 0 {
 		return Progress(ctx, db, tenantID, releaseID)
 	}
@@ -146,7 +137,7 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 		batchSize = limits.AgentUpgradeBatchMax
 	}
 	// 继续前再校验仍在线且平台匹配。
-	pending, err := selected(ctx, db, tenantID, code, goos, goarch, ext.PendingAgentIDs)
+	pending, err := selected(ctx, db, tenantID, row.AgentCode, row.GoOS, row.GoArch, ext.PendingAgentIDs)
 	if err != nil {
 		return fgmodels.AgentRelease{}, err
 	}
@@ -155,11 +146,15 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 	ext.BatchSize = batchSize
 	extBody, _ := json.Marshal(ext)
 	now := store.FormatTime(time.Now().UTC())
-	if _, err := db.Exec(ctx, `
-		UPDATE FG_AGENT_RELEASE
-		SET extProperty = @extProperty, editTime = @now, editWho = @user, currentVersion = currentVersion + 1
-		WHERE tenantId = @tenantId AND releaseId = @releaseId`,
-		dbx.Args{"extProperty": string(extBody), "now": now, "user": user, "tenantId": tenantID, "releaseId": releaseID}); err != nil {
+	row.ExtProperty = string(extBody)
+	row.EditTime = now
+	row.EditWho = user
+	row.CurrentVersion++
+	pk, err := db.PK(&row)
+	if err != nil {
+		return fgmodels.AgentRelease{}, err
+	}
+	if err := db.Update(ctx, tableRelease, &row, pk); err != nil {
 		return fgmodels.AgentRelease{}, err
 	}
 	svc := command.Current()
@@ -167,13 +162,12 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 		return fgmodels.AgentRelease{}, errors.New("命令通道未启用")
 	}
 	out := fgmodels.AgentRelease{
-		ReleaseID: releaseID, AgentCode: code, VersionText: version, FileName: fileName,
-		GoOS: goos, GoArch: goarch, PendingCount: len(rest), BatchSize: batchSize,
+		ReleaseID: releaseID, AgentCode: row.AgentCode, VersionText: row.VersionText, FileName: row.FileName,
+		GoOS: row.GoOS, GoArch: row.GoArch, PendingCount: len(rest), BatchSize: batchSize,
 	}
-	if err := dispatchBatch(ctx, db, svc, tenantID, user, releaseID, code, version, sum, fileName, goos, goarch, first, &out); err != nil {
+	if err := dispatchBatch(ctx, db, svc, tenantID, user, releaseID, row.AgentCode, row.VersionText, row.SHA256, row.FileName, row.GoOS, row.GoArch, first, &out); err != nil {
 		return out, err
 	}
-	// 补上已有条目，便于页面一次看到全部。
 	full, err := Progress(ctx, db, tenantID, releaseID)
 	if err != nil {
 		return out, nil
@@ -183,54 +177,59 @@ func Continue(ctx context.Context, db *dbx.DB, tenantID, user, releaseID string)
 
 // Progress 读一次发布里各条命令的当前状态，并对照代理上报版本。
 func Progress(ctx context.Context, db *dbx.DB, tenantID, releaseID string) (fgmodels.AgentRelease, error) {
-	var out fgmodels.AgentRelease
-	var raw string
-	err := store.Scan(ctx, db, `
-		SELECT releaseId, agentCode, versionText, COALESCE(fileName, ''), COALESCE(goos, ''), COALESCE(goarch, ''), COALESCE(extProperty, '')
-		FROM FG_AGENT_RELEASE
-		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID},
-		&out.ReleaseID, &out.AgentCode, &out.VersionText, &out.FileName, &out.GoOS, &out.GoArch, &raw)
+	out, err := loadRelease(ctx, db, tenantID, releaseID)
 	if err != nil {
-		return fgmodels.AgentRelease{}, errors.New("找不到这次升级")
+		return fgmodels.AgentRelease{}, err
 	}
-	var ext releaseExt
-	_ = json.Unmarshal([]byte(raw), &ext)
-	out.PendingCount = len(ext.PendingAgentIDs)
-	out.BatchSize = ext.BatchSize
-	rows, err := db.Query(ctx, `
-		SELECT item.commandId, item.agentId, COALESCE(a.agentName, ''), cmd.statusFlag, COALESCE(cmd.resultText, ''),
-		       COALESCE(a.agentVersion, '')
+	applyReleaseMeta(&out)
+	var items []fgmodels.AgentReleaseItem
+	if err := db.Select(ctx, &items, `
+		SELECT item.commandId AS commandId, item.agentId AS agentId, a.agentName AS agentName,
+		       cmd.statusFlag AS statusFlag, cmd.resultText AS resultText, a.agentVersion AS agentVersion
 		FROM FG_AGENT_RELEASE_ITEM item
 		JOIN FG_COMMAND cmd ON cmd.tenantId = item.tenantId AND cmd.commandId = item.commandId
 		LEFT JOIN FG_AGENT a ON a.tenantId = item.tenantId AND a.agentId = item.agentId
 		WHERE item.tenantId = @tenantId AND item.releaseId = @releaseId AND item.activeFlag = 'Y'
 		ORDER BY item.addTime, item.commandId`,
-		dbx.Args{"tenantId": tenantID, "releaseId": releaseID})
+		dbx.Args{"tenantId": tenantID, "releaseId": releaseID}); err != nil {
+		return fgmodels.AgentRelease{}, err
+	}
+	open := out.PendingCount > 0
+	out.Items = make([]fgmodels.AgentReleaseItem, 0, len(items))
+	for i := range items {
+		finalizeItem(&items[i], out.VersionText)
+		if items[i].Status == "waiting" || items[i].Status == "dialing" || items[i].Status == "running" {
+			open = true
+		}
+		out.Items = append(out.Items, items[i])
+	}
+	if open {
+		out.OpenFlag = "Y"
+	} else {
+		out.OpenFlag = "N"
+	}
+	return out, nil
+}
+
+func loadRelease(ctx context.Context, db *dbx.DB, tenantID, releaseID string) (fgmodels.AgentRelease, error) {
+	cols, err := dbx.Columns(&fgmodels.AgentRelease{})
 	if err != nil {
 		return fgmodels.AgentRelease{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var item fgmodels.AgentReleaseItem
-		var flag string
-		if err := rows.Scan(&item.CommandID, &item.AgentID, &item.AgentName, &flag, &item.Message, &item.AgentVersion); err != nil {
-			return fgmodels.AgentRelease{}, err
-		}
-		item.Status = models.StatusName(flag)
-		if item.AgentVersion != "" {
-			if item.AgentVersion == out.VersionText {
-				item.VersionMatched = "Y"
-			} else {
-				item.VersionMatched = "N"
-			}
-		}
-		out.Items = append(out.Items, item)
+	var row fgmodels.AgentRelease
+	err = db.Get(ctx, &row, `
+		SELECT `+cols+`
+		FROM FG_AGENT_RELEASE
+		WHERE tenantId = @tenantId AND releaseId = @releaseId AND activeFlag = 'Y'`,
+		dbx.Args{"tenantId": tenantID, "releaseId": releaseID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fgmodels.AgentRelease{}, errors.New("找不到这次升级")
 	}
-	if out.Items == nil {
-		out.Items = []fgmodels.AgentReleaseItem{}
+	if err != nil {
+		return fgmodels.AgentRelease{}, err
 	}
-	return out, rows.Err()
+	row.TenantID = tenantID
+	return row, nil
 }
 
 func dispatchBatch(
@@ -247,22 +246,17 @@ func dispatchBatch(
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(ctx, `
-			INSERT INTO FG_AGENT_RELEASE_ITEM (
-			  commandId, tenantId, releaseId, agentId,
-			  addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
-			) VALUES (
-			  @commandId, @tenantId, @releaseId, @agentId,
-			  @now, @user, @now, @user, 'AGT', 1, 'Y'
-			)`, dbx.Args{
-			"commandId": view.CommandID, "tenantId": tenantID, "releaseId": releaseID,
-			"agentId": agentID, "now": now, "user": user,
-		}); err != nil {
+		item := fgmodels.AgentReleaseItem{
+			CommandID: view.CommandID, TenantID: tenantID, ReleaseID: releaseID, AgentID: agentID,
+			AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+			OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		}
+		if err := db.Insert(ctx, tableItem, &item); err != nil {
 			return err
 		}
-		out.Items = append(out.Items, fgmodels.AgentReleaseItem{
-			CommandID: view.CommandID, AgentID: agentID, Status: view.Status, Message: view.Message,
-		})
+		item.Status = view.Status
+		item.Message = view.Message
+		out.Items = append(out.Items, item)
 	}
 	return nil
 }
@@ -284,48 +278,39 @@ func selected(ctx context.Context, db *dbx.DB, tenantID, code, goos, goarch stri
 	if len(want) == 0 {
 		return nil, errors.New("请选择要升级的代理")
 	}
-	rows, err := db.Query(ctx, `
-		SELECT agentId, COALESCE(agentCode, ''), statusFlag, lastSeenTime, COALESCE(goos, ''), COALESCE(goarch, '')
+	var rows []agentPickRow
+	if err := db.Select(ctx, &rows, `
+		SELECT agentId, agentCode, statusFlag, lastSeenTime, goos, goarch
 		FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y'`,
-		dbx.Args{"tenantId": tenantID})
-	if err != nil {
+		dbx.Args{"tenantId": tenantID}); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	now := time.Now()
 	found := map[string]bool{}
-	for rows.Next() {
-		var agentID, agentCode, status, agentOS, agentArch string
-		var seen any
-		if err := rows.Scan(&agentID, &agentCode, &status, &seen, &agentOS, &agentArch); err != nil {
-			return nil, err
-		}
-		if !want[agentID] {
+	for _, row := range rows {
+		if !want[row.AgentID] {
 			continue
 		}
-		if agentCode != code {
+		if row.AgentCode != code {
 			return nil, errors.New("请选择同一种类的代理")
 		}
-		if status != "Y" {
+		if row.StatusFlag != "Y" {
 			return nil, errors.New("已停用的代理不能升级")
 		}
-		at, ok := store.TimeValue(seen)
+		at, ok := parseSeen(row.LastSeenTime)
 		if !ok || now.Sub(at) > limits.OnlineWindow {
 			return nil, errors.New("离线代理不能升级")
 		}
-		agentOS = strings.ToLower(strings.TrimSpace(agentOS))
-		agentArch = strings.ToLower(strings.TrimSpace(agentArch))
+		agentOS := strings.ToLower(strings.TrimSpace(row.GoOS))
+		agentArch := strings.ToLower(strings.TrimSpace(row.GoArch))
 		if agentOS == "" || agentArch == "" {
-			return nil, fmt.Errorf("代理 %s 尚未上报平台，请等一次心跳后再升级", agentID)
+			return nil, fmt.Errorf("代理 %s 尚未上报平台，请等一次心跳后再升级", row.AgentID)
 		}
 		if agentOS != goos || agentArch != goarch {
-			return nil, fmt.Errorf("代理 %s 平台为 %s/%s，与安装包 %s/%s 不一致", agentID, agentOS, agentArch, goos, goarch)
+			return nil, fmt.Errorf("代理 %s 平台为 %s/%s，与安装包 %s/%s 不一致", row.AgentID, agentOS, agentArch, goos, goarch)
 		}
-		found[agentID] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+		found[row.AgentID] = true
 	}
 	var out []string
 	for _, id := range order {

@@ -99,10 +99,12 @@ function parentDir(rel: string) {
   return n.slice(0, i)
 }
 
-/** 面包屑：从根到 cwd。 */
-export function breadcrumbOf(cwd: string): { label: string; path: string }[] {
+/** 面包屑：首段为 base 末级目录名（完整路径见页面 Base 行），其后为相对 cwd 各段。 */
+export function breadcrumbOf(cwd: string, basePath?: string): { label: string; path: string }[] {
+  const base = normSlash(basePath || '').replace(/\/$/, '')
+  const rootLabel = base ? baseName(base) : '根目录'
+  const out: { label: string; path: string }[] = [{ label: rootLabel, path: '' }]
   const parts = normSlash(cwd).split('/').filter(Boolean)
-  const out = [{ label: '根目录', path: '' }]
   let acc = ''
   for (const part of parts) {
     acc = acc ? `${acc}/${part}` : part

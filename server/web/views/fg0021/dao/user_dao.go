@@ -141,7 +141,6 @@ func (d *UserDAO) PageUsers(tenantID string, q UserQuery, page dbx.Page) ([]User
 	where += store.LikeClause(args, "userName", "userName", q.UserName)
 	where += store.LikeClause(args, "realName", "realName", q.RealName)
 	where += store.EqClause(args, "statusFlag", "statusFlag", q.StatusFlag)
-	countSQL := "SELECT COUNT(*) FROM FG_USER" + where
 	listSQL := `
 		SELECT userId, userName, realName, COALESCE(email, ''), COALESCE(mobile, ''), gender,
 		       statusFlag, tenantAdminFlag, userExpireDate,
@@ -149,7 +148,7 @@ func (d *UserDAO) PageUsers(tenantID string, q UserQuery, page dbx.Page) ([]User
 		       activeFlag, COALESCE(noteText, ''), addTime, addWho, editTime, editWho
 		FROM FG_USER` + where + `
 		ORDER BY userName`
-	rows, total, err := d.db.QueryPage(ctx, countSQL, listSQL, page, args)
+	rows, total, err := d.db.QueryPage(ctx, listSQL, page, args)
 	if err != nil {
 		return nil, 0, err
 	}

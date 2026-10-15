@@ -34,6 +34,7 @@ const {
   downloadSelected,
   downloadOne,
   downloadBusy,
+  downloadProgress,
   onPickFile,
   submitRelease,
   continueBatch,
@@ -91,6 +92,7 @@ useModuleAi(() => ({
             :picked="picked"
             :loading="filesLoading"
             :download-busy="downloadBusy"
+            :download-progress="downloadProgress"
             :can-release="canRelease"
             :version="version"
             :canary-count="canaryCount"

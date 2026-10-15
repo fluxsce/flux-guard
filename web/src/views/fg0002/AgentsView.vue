@@ -24,6 +24,8 @@ import {
   intervalFields,
   isHostAgent,
   onlineOptions,
+  upgradeStatusText,
+  upgradeStatusVariant,
   useAgentCatalog,
 } from './composables/useAgentCatalog'
 
@@ -58,6 +60,8 @@ const {
   onSearch,
   onReset,
   reload,
+  upgradeByAgent,
+  reloadUpgradeStatuses,
 } = useAgentCatalog()
 
 const formFields = computed(() => (formMode.value === 'view' ? agentFormFields : agentCreateFields))
@@ -234,6 +238,27 @@ function onMenu(payload: { key: string; row: Agent | null }) {
         <template #agentCode="{ row }">
           {{ agentCodeLabel(String((row as Agent).agentCode ?? '')) }}
         </template>
+        <template #upgradeStatus="{ row }">
+          <template v-if="upgradeByAgent[(row as Agent).agentId]">
+            <RsTag
+              size="sm"
+              :variant="
+                upgradeStatusVariant(
+                  upgradeByAgent[(row as Agent).agentId].status,
+                  upgradeByAgent[(row as Agent).agentId].versionMatched,
+                )
+              "
+            >
+              {{
+                upgradeStatusText(
+                  upgradeByAgent[(row as Agent).agentId].status,
+                  upgradeByAgent[(row as Agent).agentId].versionMatched,
+                )
+              }}
+            </RsTag>
+          </template>
+          <span v-else class="upgrade-empty">—</span>
+        </template>
         <template #onlineFlag="{ row }">
           <RsTag size="sm" :variant="(row as Agent).onlineFlag === 'Y' ? 'success' : 'default'">
             {{ flagLabel(onlineOptions, String((row as Agent).onlineFlag ?? '')) }}
@@ -255,7 +280,12 @@ function onMenu(payload: { key: string; row: Agent | null }) {
     </div>
     <ShellDock v-if="shellOpen && shellAgent" ref="shellDock" :agent="shellAgent" @close="shellOpen = false" />
     <AgentHistoryDialog v-model:open="historyOpen" :agent="historyAgent" :module-id="moduleId" />
-    <AgentUpgradeDialog v-model:open="upgradeOpen" :agents="rows" :module-id="moduleId" />
+    <AgentUpgradeDialog
+      v-model:open="upgradeOpen"
+      :agents="rows"
+      :module-id="moduleId"
+      @changed="reloadUpgradeStatuses"
+    />
     <FgDataFormModal
       v-model:open="formOpen"
       :mode="formMode"
@@ -324,5 +354,8 @@ function onMenu(payload: { key: string; row: Agent | null }) {
 }
 .fg-layer:deep(> *) {
   pointer-events: auto;
+}
+.upgrade-empty {
+  color: var(--rs-text-muted, #99a);
 }
 </style>

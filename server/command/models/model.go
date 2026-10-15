@@ -54,17 +54,18 @@ type DispatchInput struct {
 	BackupPath  string `json:"backupPath,omitempty"`
 }
 
-// View 是控制台看到的一行命令。
+// View 是控制台看到的一行命令；json 给 API，db 给 Get/Select。
 type View struct {
-	CommandID   string `json:"commandId"`
-	AgentID     string `json:"agentId"`
-	Action      string `json:"action"`
-	Status      string `json:"status"`
-	DeliverMode string `json:"deliverMode,omitempty"`
-	Message     string `json:"message,omitempty"`
-	IntervalSec int    `json:"intervalSec,omitempty"`
-	AddTime     string `json:"addTime,omitempty"`
-	AddWho      string `json:"addWho,omitempty"`
+	CommandID   string `json:"commandId" db:"commandId"`
+	AgentID     string `json:"agentId" db:"agentId"`
+	Action      string `json:"action" db:"actionName"`
+	Status      string `json:"status" db:"-"`
+	StatusFlag  string `json:"-" db:"statusFlag"`
+	DeliverMode string `json:"deliverMode,omitempty" db:"deliverMode"`
+	Message     string `json:"message,omitempty" db:"resultText"`
+	IntervalSec int    `json:"intervalSec,omitempty" db:"intervalSec"`
+	AddTime     string `json:"addTime,omitempty" db:"addTime"`
+	AddWho      string `json:"addWho,omitempty" db:"addWho"`
 }
 
 // StatusName 把库里的状态码转成控制台用的英文名。
