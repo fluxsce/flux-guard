@@ -212,16 +212,17 @@ function instOf(row: unknown) {
             </div>
             <ol v-if="item.steps?.length" class="fg-prog-steps">
               <li v-for="(step, index) in item.steps" :key="`${item.commandId}-${index}`">
-                <RsTag size="sm" :variant="statusVariant(step.status)">{{ stepLabel(step.name) }}</RsTag>
-                <span class="fg-step-paths">
-                  <template v-if="step.targetPath">目标 {{ step.targetPath }}</template>
-                  <template v-if="step.backupPath">
-                    <template v-if="step.targetPath"> · </template>
-                    备份 {{ step.backupPath }}
-                  </template>
-                  <template v-if="step.detail && !step.targetPath && !step.backupPath">{{ step.detail }}</template>
-                  <template v-else-if="step.detail"> · {{ step.detail }}</template>
-                </span>
+                <div class="fg-step-line">
+                  <RsTag size="sm" :variant="statusVariant(step.status)">{{ stepLabel(step.name) }}</RsTag>
+                  <span class="fg-step-paths">
+                    <template v-if="step.targetPath">目标 {{ step.targetPath }}</template>
+                    <template v-if="step.backupPath">
+                      <template v-if="step.targetPath"> · </template>
+                      备份 {{ step.backupPath }}
+                    </template>
+                  </span>
+                </div>
+                <pre v-if="step.detail" class="fg-step-detail">{{ step.detail }}</pre>
               </li>
             </ol>
           </li>
@@ -408,10 +409,16 @@ function instOf(row: unknown) {
 
 .fg-prog-steps li {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
   border: 0;
   padding: 0;
+}
+
+.fg-step-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .fg-step-paths {
@@ -421,6 +428,21 @@ function instOf(row: unknown) {
   font-size: 12px;
   word-break: break-all;
   line-height: 1.45;
+}
+
+.fg-step-detail {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--rs-bg-muted, rgba(0, 0, 0, 0.04));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--rs-text-secondary);
 }
 
 .fg-app-history-link {

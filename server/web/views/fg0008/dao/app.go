@@ -3,12 +3,13 @@ package dao
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/views/fg0008/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
@@ -175,6 +176,12 @@ func siteBase(row models.Instance) string {
 	if row.ModeCode == "files" && row.ArtifactKind == "runtime" {
 		return path
 	}
+	// Tomcat 展示 CATALINA_HOME（webapps / logs / conf 的上一级），便于进 logs 看启动日志。
+	if row.ModeCode == "tomcat" {
+		if home := tomcatHomeOf(path); home != "" {
+			return home
+		}
+	}
 	return baseOf(path, row.ModeCode)
 }
 
@@ -196,6 +203,26 @@ func baseOf(path, mode string) string {
 		return path[:i]
 	}
 	return path[:i]
+}
+
+// tomcatHomeOf 从 webapps/WAR 或 logs 下的文件路径还原 CATALINA_HOME。
+func tomcatHomeOf(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	slash := filepath.ToSlash(path)
+	lower := strings.ToLower(slash)
+	for _, marker := range []string{"/webapps/", "/logs/", "/conf/", "/bin/"} {
+		if i := strings.Index(lower, marker); i > 0 {
+			home := slash[:i]
+			if strings.Contains(path, `\`) {
+				return filepath.FromSlash(home)
+			}
+			return home
+		}
+	}
+	return ""
 }
 
 // GetInstance 按实例号取一行。

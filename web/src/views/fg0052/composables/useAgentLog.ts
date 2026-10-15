@@ -22,6 +22,12 @@ export const sourceOptions: FlagOption[] = [
 export const eventOptions: FlagOption[] = [
   { label: '立即采集', value: 'host.collect.now' },
   { label: '修改间隔', value: 'host.interval.set' },
+  { label: '替换应用文件', value: 'app.file.replace' },
+  { label: '升级运行时', value: 'app.runtime.upgrade' },
+  { label: '回滚应用文件', value: 'app.file.rollback' },
+  { label: '推送文件到中央', value: 'app.file.push' },
+  { label: '列出目录清单', value: 'app.file.list' },
+  { label: '代理自更新', value: 'agent.self.update' },
   { label: '打开终端', value: 'OPEN' },
   { label: '关闭终端', value: 'CLOSE' },
   { label: '终端输入', value: 'INPUT' },

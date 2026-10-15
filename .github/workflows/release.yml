@@ -228,6 +228,8 @@ jobs:
           darwin arm64
           EOF
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
+          # apply 仅在 Unreleased→版本节有实质迁移或补日期时改写 CHANGELOG，
+          # 避免只删空行也 push [release notes]，与本地开发提交抢 master。
           python3 .github/scripts/cut_changelog.py apply --version "${VERSION}" --date "${DATE}" --notes release-notes.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

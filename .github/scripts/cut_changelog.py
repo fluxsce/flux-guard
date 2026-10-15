@@ -4,6 +4,9 @@
 auto-pack writes Version.txt from UpdateNotes when a release is cut.
 This script does the same job for Keep a Changelog: ## [Unreleased] is the
 note bucket, and the release step records ## [x.y.z] - YYYY-MM-DD.
+
+apply 只在版本说明有实质迁移/补日期时改写 CHANGELOG，避免仅规范化空行就推送
+[release notes] 提交，减少与本地开发分支的无谓冲突。
 """
 
 from __future__ import annotations
@@ -84,15 +87,18 @@ def plan_release(sections: list[dict], published: set[str], version: str) -> str
     return ""
 
 
-def promote(sections: list[dict], version: str, release_date: str) -> list[dict]:
+def promote(sections: list[dict], version: str, release_date: str) -> tuple[list[dict], bool]:
+    """迁移 Unreleased 说明并补日期。第二个返回值表示是否有实质变更。"""
     sections = [
         {"title": s["title"], "suffix": s["suffix"], "lines": list(s["lines"])}
         for s in sections
     ]
+    changed = False
     unreleased = next((s for s in sections if s["title"] == "Unreleased"), None)
     if unreleased is None:
         unreleased = {"title": "Unreleased", "suffix": "", "lines": []}
         sections.insert(0, unreleased)
+        changed = True
     target = next((s for s in sections if s["title"] == version), None)
     notes = list(unreleased["lines"]) if has_notes(unreleased["lines"]) else []
     dated = f"- {release_date}"
@@ -104,13 +110,15 @@ def promote(sections: list[dict], version: str, release_date: str) -> list[dict]
         )
         if notes:
             unreleased["lines"] = []
-        return sections
+        return sections, True
     if not has_notes(target["lines"]) and notes:
         target["lines"] = notes
         unreleased["lines"] = []
+        changed = True
     if not target["suffix"]:
         target["suffix"] = dated
-    return sections
+        changed = True
+    return sections, changed
 
 
 def notes_for(sections: list[dict], version: str) -> str:
@@ -163,10 +171,14 @@ def main() -> int:
         print("version must be x.y.z", file=sys.stderr)
         return 1
 
-    updated = promote(sections, version, args.date.strip())
+    updated, changed = promote(sections, version, args.date.strip())
     Path(args.notes).write_text(notes_for(updated, version), encoding="utf-8", newline="\n")
     if args.command == "apply":
-        path.write_text(render(preamble, updated), encoding="utf-8", newline="\n")
+        # 版本节已写好、仅 Unreleased 多空行时不改写文件，避免 bot 空提交抢 master。
+        if changed:
+            path.write_text(render(preamble, updated), encoding="utf-8", newline="\n")
+        else:
+            print(f"changelog already records v{version}; leave file unchanged", file=sys.stderr)
     print(version)
     return 0
 

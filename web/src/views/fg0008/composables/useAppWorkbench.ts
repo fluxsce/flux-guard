@@ -206,8 +206,19 @@ export function useAppWorkbench() {
         return
       }
       files.value = parseApiData<AppInstance[]>(res) ?? []
-      const codes = [...new Set(files.value.map((row) => row.appCode))]
-      if (codes.length === 1) {
+      // 日志 / 目录不参与发版；Tomcat 同时上报 logs 时仍按 WAR 等制品查最近发布。
+      const codes = [
+        ...new Set(
+          files.value
+            .filter((row) => {
+              const kind = row.artifactKind
+              return kind !== 'dir' && kind !== 'log' && kind !== 'runtime'
+            })
+            .map((row) => row.appCode)
+            .filter(Boolean),
+        ),
+      ]
+      if (codes.length >= 1) {
         const relRes = await queryReleases(codes[0])
         releases.value = isApiSuccess(relRes) ? (parseApiData<AppRelease[]>(relRes) ?? []) : []
       } else {
@@ -554,6 +565,8 @@ export function useAppWorkbench() {
     }
   }
 
+  const loggedCommands = new Set<string>()
+
   async function poll() {
     if (!pageAlive) return
     const id = releasing.value?.releaseId
@@ -564,9 +577,15 @@ export function useAppWorkbench() {
     if (!next) return
     releasing.value = next
     for (const item of next.items ?? []) {
-      if (item.status === 'done' || item.status === 'failed') {
+      if ((item.status === 'done' || item.status === 'failed') && !loggedCommands.has(item.commandId)) {
+        loggedCommands.add(item.commandId)
         const label = files.value.find((f) => f.instId === item.instId)?.appCode || item.instId
         pushLog(`${label} · ${statusText(item.status)}${item.message ? ` · ${item.message}` : ''}`)
+        const startup = (item.steps ?? []).find((step) => step.name === 'startup')
+        if (startup?.detail) {
+          const line = startup.detail.split('\n')[0]?.trim()
+          if (line) pushLog(`${label} · 启动探测 · ${line}`)
+        }
       }
     }
     const pending = (next.items ?? []).some(

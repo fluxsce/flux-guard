@@ -82,7 +82,7 @@ useModuleAi(() => ({
           v-if="!current"
           class="fg-app-placeholder"
           title="选择左侧运行时"
-          description="应用代理按「实例」看守一套目录或 Tomcat。例如 mode: files 的 war-v10-p05 会作为左侧一项；右侧列出该目录下的 war/jar/zip，可勾选后上传更新。"
+          description="应用代理按「实例」看守一套目录或 Tomcat。Tomcat 右侧可进 webapps 换包，也可进 logs 下载启动日志；下方操作日志含部署步骤与启动探测结果。"
         />
         <template v-else>
           <FileBrowser

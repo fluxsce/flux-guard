@@ -9,6 +9,8 @@ const (
 	FilePath = "/api/command/v1/file"
 	// FilesPath 是应用代理按实例实时列制品目录（files 模式打开文件仓时短拨，不靠心跳登记）。
 	FilesPath = "/api/command/v1/files"
+	// AppFilesListMax 一套运行时文件仓最多列出的条目数（含目录与日志）。超出则拒绝列出。
+	AppFilesListMax = 1000
 	// WaitPath 是代理向 server 长轮询待取命令。
 	WaitPath = WebRoot + "/api/command/v1/wait"
 	// ResultPath 是代理把拉取执行的结果写回 server。

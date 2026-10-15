@@ -1,4 +1,4 @@
-package appside
+package core
 
 import (
 	"context"

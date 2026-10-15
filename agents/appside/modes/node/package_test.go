@@ -1,6 +1,7 @@
-package appside
+package node
 
 import (
+	"fluxguard/agents/appside/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestReadNodePackage(t *testing.T) {
 	if pkg.Name != "order-api" || pkg.Version != "2.1.0" {
 		t.Fatalf("%+v", pkg)
 	}
-	rt := Runtime{Base: base, Instance: "fallback"}
+	rt := core.Runtime{Base: base, Instance: "fallback"}
 	if NodeAppName(rt) != "order-api" {
 		t.Fatal(NodeAppName(rt))
 	}

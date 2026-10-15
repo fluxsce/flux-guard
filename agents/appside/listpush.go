@@ -24,9 +24,9 @@ func PushFileList(ctx context.Context, serverURL, agentToken, machineID string, 
 		items = []protocol.AppArtifact{}
 	}
 	body, err := json.Marshal(map[string]any{
-		"commandId":  commandID,
-		"instance":   strings.TrimSpace(call.Instance),
-		"artifacts":  items,
+		"commandId": commandID,
+		"instance":  strings.TrimSpace(call.Instance),
+		"artifacts": items,
 	})
 	if err != nil {
 		return err

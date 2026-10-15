@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
@@ -141,14 +142,15 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		steps = append(steps, protocol.CommandStep{
 			Name: "rollback", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
 		})
-		if call.Kind == "static" || rt.Mode == "files" {
+		if !appside.NeedsRestart(rt, call.Kind) {
 			return protocol.CommandOutcome{Message: "已回滚文件", Steps: steps}, nil
 		}
+		mark := appside.MarkStartupLog(rt)
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
 		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
-		return protocol.CommandOutcome{Message: "已回滚并重启 " + rt.Instance, Steps: steps}, nil
+		return finishWithStartup(ctx, rt, mark, steps, "已回滚并重启 "+rt.Instance)
 	}
 
 	file, err := appside.Download(ctx, cfg.ServerURL, cfg.AgentToken, machineID, call.ReleaseID, call.SHA256)
@@ -160,64 +162,67 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 
 	switch call.Action {
 	case protocol.ActionAppReplace:
-		report, err := replace(rt, call, file)
+		report, err := appside.Replace(rt, call, file)
 		if err != nil {
 			return fail("replace", report.TargetPath, report.BackupPath, err)
 		}
 		steps = append(steps, protocol.CommandStep{
 			Name: "replace", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
 		})
-		if call.Kind == "static" || rt.Mode == "files" {
+		if !appside.NeedsRestart(rt, call.Kind) {
 			msg := "文件已替换"
 			if call.Kind == "static" && rt.Mode != "files" {
 				msg = "静态资源已替换"
 			}
 			return protocol.CommandOutcome{Message: msg, Steps: steps}, nil
 		}
+		mark := appside.MarkStartupLog(rt)
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
 		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
-		return protocol.CommandOutcome{
-			Message: "已替换并重启 " + rt.Instance,
-			Steps:   steps,
-		}, nil
+		return finishWithStartup(ctx, rt, mark, steps, "已替换并重启 "+rt.Instance)
 	default:
-		if rt.Mode != "tomcat" {
-			return fail("replace", rt.Base, "", fmt.Errorf("版本升级只支持 Tomcat"))
-		}
-		report, err := appside.UpgradeBase(rt.Base, file, rt.BackupDir, rt.Instance)
+		report, err := appside.UpgradeRuntime(rt, file)
 		if err != nil {
 			return fail("replace", report.TargetPath, report.BackupPath, err)
 		}
 		steps = append(steps, protocol.CommandStep{
 			Name: "replace", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
 		})
+		mark := appside.MarkStartupLog(rt)
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
 		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
-		return protocol.CommandOutcome{
-			Message: "运行时已升级并重启 " + rt.Instance,
-			Steps:   steps,
-		}, nil
+		return finishWithStartup(ctx, rt, mark, steps, "运行时已升级并重启 "+rt.Instance)
 	}
 }
 
-func replace(rt appside.Runtime, call protocol.CommandCall, file string) (appside.ApplyReport, error) {
-	if rt.Mode == "files" {
-		return appside.ReplaceFile(rt.Base, call.AppName, file, call.FileName, rt.BackupDir, rt.Instance)
+// finishWithStartup 在重启成功后再探一次启动结果（进程 + 自重启偏移后的日志）。
+func finishWithStartup(ctx context.Context, rt appside.Runtime, mark appside.LogMark, steps []protocol.CommandStep, msg string) (protocol.CommandOutcome, error) {
+	probe := appside.ProbeStartup(ctx, rt, mark)
+	steps = append(steps, probe)
+	if probe.Status == "failed" {
+		line := firstLine(probe.Detail)
+		if line == "" {
+			line = "启动探测失败"
+		}
+		return protocol.CommandOutcome{Message: line, Steps: steps}, fmt.Errorf("%s", line)
 	}
-	switch call.Kind {
-	case "war":
-		return appside.ReplaceWar(rt.Base, call.AppName, file, rt.BackupDir, rt.Instance)
-	case "jar":
-		return appside.ReplaceJar(rt.Jar, file, rt.BackupDir, rt.Instance)
-	case "node", "script":
-		return appside.ReplaceStatic(rt.Base, file, call.FileName, rt.BackupDir, rt.Instance)
-	case "static":
-		return appside.ReplaceStatic(rt.StaticDir, file, call.FileName, rt.BackupDir, rt.Instance)
-	default:
-		return appside.ApplyReport{}, fmt.Errorf("制品种类无效")
+	if line := firstLine(probe.Detail); line != "" {
+		msg = msg + "；" + line
 	}
+	return protocol.CommandOutcome{Message: msg, Steps: steps}, nil
+}
+
+func firstLine(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		return strings.TrimSpace(text[:i])
+	}
+	return text
 }

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"fluxguard/protocol"
 	"fluxguard/server/helper/appfile"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/middleware"
@@ -56,7 +58,8 @@ func (c *AppController) QuerySites(g *gin.Context) {
 }
 
 // QuerySiteFiles 返回一套运行时下的制品文件。
-// mode=files：能拨则短拨列目录；隔离网拨不通则出站推清单。刷新失败时仍回退库内上次结果。
+// mode=files：能拨则短拨列目录；隔离网拨不通则出站推清单。
+// 条数超限必须提示用户；其它刷新失败仍回退库内上次结果。
 func (c *AppController) QuerySiteFiles(g *gin.Context) {
 	p := middleware.Principal(g)
 	agentID := strings.TrimSpace(request.Param(g, "agentId"))
@@ -65,7 +68,11 @@ func (c *AppController) QuerySiteFiles(g *gin.Context) {
 		httpx.WriteErr(g, http.StatusBadRequest, "缺少运行时")
 		return
 	}
-	_, _ = inventory.Refresh(g.Request.Context(), c.db, p.TenantID, p.UserID, agentID, instanceName)
+	_, refreshErr := inventory.Refresh(g.Request.Context(), c.db, p.TenantID, p.UserID, agentID, instanceName)
+	if filesListLimitMessage(refreshErr) != "" {
+		httpx.WriteErr(g, http.StatusBadRequest, filesListLimitMessage(refreshErr))
+		return
+	}
 	rows, err := dao.ListSiteFiles(g.Request.Context(), c.db, p.TenantID, agentID, instanceName)
 	if err != nil {
 		writeMissing(g, err, "加载文件失败")
@@ -357,4 +364,16 @@ func writeMissing(g *gin.Context, err error, fallback string) {
 		return
 	}
 	httpx.WriteErr(g, http.StatusInternalServerError, fallback)
+}
+
+// filesListLimitMessage 从刷新错误里抽出「文件数量超过 N，无法列出」给人看的文案。
+func filesListLimitMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "文件数量超过") && strings.Contains(msg, "无法列出") {
+		return fmt.Sprintf("文件数量超过 %d，无法列出", protocol.AppFilesListMax)
+	}
+	return ""
 }

@@ -1,4 +1,4 @@
-package appside
+package core
 
 import (
 	"archive/zip"
@@ -12,41 +12,6 @@ import (
 	"time"
 )
 
-// ApplyReport 是一次换包/升级落盘结果，供命令回执审计目标与备份路径。
-type ApplyReport struct {
-	TargetPath string
-	BackupPath string
-}
-
-// ReplaceWar 用新包替换 webapps 里的同名 WAR，并清掉已展开的目录。
-// 旧包先移到 backupDir 下该实例的目录，原路径不留 .bak。
-func ReplaceWar(base, app, src, backupDir, instance string) (ApplyReport, error) {
-	app = strings.TrimSpace(app)
-	if app == "" || strings.Contains(app, "..") || strings.ContainsAny(app, `/\`) {
-		return ApplyReport{}, fmt.Errorf("应用名无效")
-	}
-	webapps := filepath.Join(base, "webapps")
-	if err := os.MkdirAll(webapps, 0o755); err != nil {
-		return ApplyReport{}, err
-	}
-	dest := filepath.Join(webapps, app+".war")
-	report := ApplyReport{TargetPath: dest}
-	parked, err := parkBackup(backupDir, instance, app+".war", dest)
-	if err != nil {
-		return report, err
-	}
-	report.BackupPath = parked
-	if err := copyFile(src, dest); err != nil {
-		_ = restoreBackup(parked, dest)
-		return report, err
-	}
-	exploded := filepath.Join(webapps, app)
-	if err := os.RemoveAll(exploded); err != nil {
-		return report, err
-	}
-	return report, nil
-}
-
 // ReplaceJar 替换配置里的那个 JAR。旧文件先移到备份目录。
 func ReplaceJar(dest, src, backupDir, instance string) (ApplyReport, error) {
 	if strings.TrimSpace(dest) == "" {
@@ -56,13 +21,13 @@ func ReplaceJar(dest, src, backupDir, instance string) (ApplyReport, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return report, err
 	}
-	parked, err := parkBackup(backupDir, instance, filepath.Base(dest), dest)
+	parked, err := ParkBackup(backupDir, instance, filepath.Base(dest), dest)
 	if err != nil {
 		return report, err
 	}
 	report.BackupPath = parked
-	if err := copyFile(src, dest); err != nil {
-		_ = restoreBackup(parked, dest)
+	if err := CopyFile(src, dest); err != nil {
+		_ = RestoreBackup(parked, dest)
 		return report, err
 	}
 	return report, nil
@@ -84,13 +49,13 @@ func ReplaceFile(dir, appName, src, fileName, backupDir, instance string) (Apply
 	}
 	target := filepath.Join(dir, name)
 	report := ApplyReport{TargetPath: target}
-	parked, err := parkBackup(backupDir, instance, name, target)
+	parked, err := ParkBackup(backupDir, instance, name, target)
 	if err != nil {
 		return report, err
 	}
 	report.BackupPath = parked
-	if err := copyFile(src, target); err != nil {
-		_ = restoreBackup(parked, target)
+	if err := CopyFile(src, target); err != nil {
+		_ = RestoreBackup(parked, target)
 		return report, err
 	}
 	return report, nil
@@ -156,13 +121,13 @@ func ReplaceStatic(dir, src, fileName, backupDir, instance string) (ApplyReport,
 	}
 	if strings.EqualFold(filepath.Ext(fileName), ".zip") {
 		report := ApplyReport{TargetPath: dir}
-		parked, err := parkBackup(backupDir, instance, filepath.Base(dir), dir)
+		parked, err := ParkBackup(backupDir, instance, filepath.Base(dir), dir)
 		if err != nil {
 			return report, err
 		}
 		report.BackupPath = parked
 		if err := unzip(src, dir); err != nil {
-			_ = restoreBackup(parked, dir)
+			_ = RestoreBackup(parked, dir)
 			return report, err
 		}
 		return report, nil
@@ -176,21 +141,21 @@ func ReplaceStatic(dir, src, fileName, backupDir, instance string) (ApplyReport,
 	}
 	target := filepath.Join(dir, name)
 	report := ApplyReport{TargetPath: target}
-	parked, err := parkBackup(backupDir, instance, name, target)
+	parked, err := ParkBackup(backupDir, instance, name, target)
 	if err != nil {
 		return report, err
 	}
 	report.BackupPath = parked
-	if err := copyFile(src, target); err != nil {
-		_ = restoreBackup(parked, target)
+	if err := CopyFile(src, target); err != nil {
+		_ = RestoreBackup(parked, target)
 		return report, err
 	}
 	return report, nil
 }
 
-// parkBackup 把已有文件或目录移进备份目录。源不存在时不产生备份。
+// ParkBackup 把已有文件或目录移进备份目录。源不存在时不产生备份。
 // 同一磁盘直接改名。跨磁盘时先复制再删掉源。
-func parkBackup(backupDir, instance, label, src string) (string, error) {
+func ParkBackup(backupDir, instance, label, src string) (string, error) {
 	backupDir = strings.TrimSpace(backupDir)
 	if backupDir == "" {
 		return "", fmt.Errorf("未配置备份目录")
@@ -241,7 +206,7 @@ func parkBackup(backupDir, instance, label, src string) (string, error) {
 			_ = os.RemoveAll(dest)
 			return "", err
 		}
-	} else if err := copyFile(src, dest); err != nil {
+	} else if err := CopyFile(src, dest); err != nil {
 		_ = os.Remove(dest)
 		return "", err
 	}
@@ -251,7 +216,7 @@ func parkBackup(backupDir, instance, label, src string) (string, error) {
 	return dest, nil
 }
 
-func restoreBackup(parked, dest string) error {
+func RestoreBackup(parked, dest string) error {
 	if parked == "" {
 		return os.RemoveAll(dest)
 	}
@@ -269,7 +234,7 @@ func restoreBackup(parked, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	return copyFile(parked, dest)
+	return CopyFile(parked, dest)
 }
 
 // Rollback 把 backupDir 下的备份移回目标路径。备份必须落在 backupDir 内。
@@ -290,7 +255,7 @@ func Rollback(backupDir, target, backup, kind, appName string) (ApplyReport, err
 		}
 		return report, err
 	}
-	if err := restoreBackup(backup, target); err != nil {
+	if err := RestoreBackup(backup, target); err != nil {
 		return report, err
 	}
 	if kind == "war" {
@@ -347,7 +312,7 @@ func copyTree(src, dest string) error {
 		if entry.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		return copyFile(path, target)
+		return CopyFile(path, target)
 	})
 }
 
@@ -362,13 +327,13 @@ func UpgradeBase(base, zipPath, backupDir, instance string) (ApplyReport, error)
 		return ApplyReport{}, fmt.Errorf("未配置运行时目录")
 	}
 	report := ApplyReport{TargetPath: base}
-	parked, err := parkBackup(backupDir, instance, "runtime", base)
+	parked, err := ParkBackup(backupDir, instance, "runtime", base)
 	if err != nil {
 		return report, err
 	}
 	report.BackupPath = parked
 	if err := unzip(zipPath, base); err != nil {
-		_ = restoreBackup(parked, base)
+		_ = RestoreBackup(parked, base)
 		return report, err
 	}
 	if parked == "" {
@@ -382,19 +347,19 @@ func UpgradeBase(base, zipPath, backupDir, instance string) (ApplyReport, error)
 		dest := filepath.Join(base, name)
 		if err := os.RemoveAll(dest); err != nil {
 			_ = os.RemoveAll(base)
-			_ = restoreBackup(parked, base)
+			_ = RestoreBackup(parked, base)
 			return report, err
 		}
 		if err := copyTree(src, dest); err != nil {
 			_ = os.RemoveAll(base)
-			_ = restoreBackup(parked, base)
+			_ = RestoreBackup(parked, base)
 			return report, err
 		}
 	}
 	return report, nil
 }
 
-func copyFile(src, dest string) error {
+func CopyFile(src, dest string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err

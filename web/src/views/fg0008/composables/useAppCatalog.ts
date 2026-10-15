@@ -100,6 +100,9 @@ export function stepLabel(name: string) {
     replace: '写入目标',
     rollback: '恢复备份',
     restart: '重启实例',
+    startup: '启动探测',
+    list: '列出目录',
+    push: '推送文件',
   }
   return map[name] || name
 }

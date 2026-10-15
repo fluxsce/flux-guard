@@ -60,7 +60,7 @@ const showRollback = computed(() => canRollbackRelease(props.releasing))
           v-if="!logLines.length"
           class="fg-op-empty"
           title="暂无操作日志"
-          description="选择运行时后，上传与换包步骤会显示在这里。"
+          description="选择运行时后，上传、换包、重启与启动探测结果会显示在这里。"
         />
         <pre v-else>{{ logLines.join('\n') }}</pre>
       </div>
@@ -80,15 +80,17 @@ const showRollback = computed(() => canRollbackRelease(props.releasing))
             </div>
             <ol v-if="item.steps?.length">
               <li v-for="(step, index) in item.steps" :key="`${item.commandId}-${index}`">
-                <RsTag size="sm" :variant="statusVariant(step.status)">{{ stepLabel(step.name) }}</RsTag>
-                <span class="paths">
-                  <template v-if="step.targetPath">目标 {{ step.targetPath }}</template>
-                  <template v-if="step.backupPath">
-                    <template v-if="step.targetPath"> · </template>
-                    备份 {{ step.backupPath }}
-                  </template>
-                  <template v-if="step.detail"> · {{ step.detail }}</template>
-                </span>
+                <div class="fg-step-line">
+                  <RsTag size="sm" :variant="statusVariant(step.status)">{{ stepLabel(step.name) }}</RsTag>
+                  <span class="paths">
+                    <template v-if="step.targetPath">目标 {{ step.targetPath }}</template>
+                    <template v-if="step.backupPath">
+                      <template v-if="step.targetPath"> · </template>
+                      备份 {{ step.backupPath }}
+                    </template>
+                  </span>
+                </div>
+                <pre v-if="step.detail" class="fg-step-detail">{{ step.detail }}</pre>
               </li>
             </ol>
           </li>
@@ -219,15 +221,37 @@ const showRollback = computed(() => canRollbackRelease(props.releasing))
 
 .fg-op-progress ol li {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
   border: 0;
   padding: 0;
+}
+
+.fg-step-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
 }
 
 .paths {
   color: var(--rs-text-secondary);
   word-break: break-all;
+}
+
+.fg-step-detail {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--rs-bg-muted, rgba(0, 0, 0, 0.04));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--rs-text-secondary);
 }
 
 .fg-op-history button {

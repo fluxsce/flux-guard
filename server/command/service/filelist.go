@@ -15,6 +15,9 @@ import (
 	dbx "github.com/fluxsce/dbx/db"
 )
 
+// ErrAppsideFilesListLimit 代理返回的清单条数超过 protocol.AppFilesListMax。
+var ErrAppsideFilesListLimit = fmt.Errorf("文件数量超过 %d，无法列出", protocol.AppFilesListMax)
+
 // PullAppsideFileList 短拨应用代理，按实例实时列制品目录。
 // 响应体在本函数内读完并关闭，不交给调用方。
 func (s *Service) PullAppsideFileList(ctx context.Context, tenantID, agentID, instance string) ([]protocol.AppArtifact, error) {
@@ -78,6 +81,9 @@ func (s *Service) PullAppsideFileList(ctx context.Context, tenantID, agentID, in
 	}
 	if out == nil {
 		out = []protocol.AppArtifact{}
+	}
+	if len(out) > protocol.AppFilesListMax {
+		return nil, ErrAppsideFilesListLimit
 	}
 	return out, nil
 }

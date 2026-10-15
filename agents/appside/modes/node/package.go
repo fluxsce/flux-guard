@@ -1,7 +1,8 @@
-package appside
+package node
 
 import (
 	"encoding/json"
+	"fluxguard/agents/appside/core"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func ReadNodePackage(base string) NodePackage {
 }
 
 // NodeAppName 优先用 package.json 的 name，否则用实例名。
-func NodeAppName(rt Runtime) string {
+func NodeAppName(rt core.Runtime) string {
 	pkg := ReadNodePackage(rt.Base)
 	if pkg.Name != "" {
 		return pkg.Name

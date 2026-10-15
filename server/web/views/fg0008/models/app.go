@@ -2,7 +2,7 @@
 package models
 
 // Site 是一套运行时（appside 配置里的 instance），左侧主列表按它导航。
-// mode=files 时一套对应一个制品目录；Tomcat 一套对应一台 webapps。
+// mode=files 时一套对应一个制品目录；Tomcat 一套对应 CATALINA_HOME（含 webapps 与 logs）。
 type Site struct {
 	AgentID        string `json:"agentId"`
 	InstanceName   string `json:"instanceName"`

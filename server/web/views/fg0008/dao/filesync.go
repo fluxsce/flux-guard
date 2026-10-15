@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ func SyncFilesInventory(ctx context.Context, db *dbx.DB, tenantID, agentID, inst
 	tpl, err := siteTemplate(ctx, db, tenantID, agentID, instance)
 	if err != nil {
 		return err
+	}
+	if len(items) > protocol.AppFilesListMax {
+		return fmt.Errorf("文件数量超过 %d，无法列出", protocol.AppFilesListMax)
 	}
 	edited := store.FormatTime(time.Now().UTC())
 	reported := edited
