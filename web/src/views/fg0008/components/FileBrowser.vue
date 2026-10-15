@@ -8,7 +8,8 @@ import { RsBreadcrumb, RsTag, useRsToast } from '@/ui'
 import type { AppInstance, AppSite, DownloadProgress } from '../api'
 import { breadcrumbOf, entriesInDir, relativeToBase, type FileEntry } from '../composables/fileTree'
 import { fileTypePreview, kindLabel, modeLabel, moduleId } from '../composables/useAppWorkbench'
-import UploadDialog from './UploadDialog.vue'
+import LogViewDialog from './LogViewDialog.vue'
+import UploadDialog, { type UploadMode } from './UploadDialog.vue'
 
 const props = defineProps<{
   site: AppSite
@@ -18,6 +19,7 @@ const props = defineProps<{
   downloadBusy?: boolean
   downloadProgress?: DownloadProgress | null
   canRelease: boolean
+  canLifecycle?: boolean
   version: string
   canaryCount: number
   releaseKind: string
@@ -35,11 +37,17 @@ const emit = defineEmits<{
   'update:canaryCount': [value: number]
   'pick-file': [file: File | null]
   release: []
+  create: [payload: { appCode: string; kind: string }]
+  lifecycle: [op: 'start' | 'stop' | 'restart']
 }>()
 
 const toast = useRsToast()
 const cwd = ref('')
 const uploadOpen = ref(false)
+const uploadMode = ref<UploadMode>('update')
+const logOpen = ref(false)
+const logInstId = ref('')
+const logFileName = ref('')
 
 watch(
   () => props.site.agentId + props.site.instanceName,
@@ -94,12 +102,27 @@ const columns: FgGridColumn[] = [
   { key: 'online', title: '代理', width: 80 },
 ]
 
+function canPreviewLog(row: FileEntry) {
+  if (row.kind !== 'file' || !row.row || row.row.onlineFlag !== 'Y') return false
+  const kind = String(row.row.artifactKind || '').toLowerCase()
+  if (kind === 'log') return true
+  const name = (row.name || row.row.artifactPath || '').toLowerCase()
+  return name.endsWith('.log') || name.endsWith('.txt') || name.endsWith('.out')
+}
+
 const menuItems = computed<FgGridMenuItem[]>(() => [
   {
     key: 'open',
     label: '打开',
     icon: 'folder',
     disabled: (row: FileEntry) => row.kind !== 'dir',
+  },
+  {
+    key: 'view-log',
+    label: '查看',
+    icon: 'eye',
+    code: 'fg0008:view',
+    disabled: (row: FileEntry) => !canPreviewLog(row),
   },
   {
     key: 'download',
@@ -111,6 +134,40 @@ const menuItems = computed<FgGridMenuItem[]>(() => [
   },
 ])
 
+/** 优先 catalina.out，否则 logs 下常见启动日志。 */
+const startupLogRow = computed(() => {
+  const logs = props.files.filter((row) => {
+    if (row.onlineFlag !== 'Y') return false
+    const kind = String(row.artifactKind || '').toLowerCase()
+    const path = (row.artifactPath || '').replace(/\\/g, '/').toLowerCase()
+    const name = (row.appCode || path.split('/').pop() || '').toLowerCase()
+    if (kind === 'log') return path.includes('/logs/') || name.endsWith('.log') || name.endsWith('.out')
+    return name.endsWith('.log') || name.endsWith('.out') || name.endsWith('.txt')
+  })
+  if (!logs.length) return null
+  const catalina = logs.find((row) => {
+    const path = (row.artifactPath || '').replace(/\\/g, '/').toLowerCase()
+    return path.endsWith('/catalina.out') || path.includes('/catalina.')
+  })
+  return catalina || logs[0]
+})
+
+function openStartupLog() {
+  const row = startupLogRow.value
+  if (!row) {
+    toast.error('未找到启动日志，请先刷新或进入 logs 目录')
+    return
+  }
+  logInstId.value = row.instId
+  logFileName.value = fileNameFromRow(row)
+  logOpen.value = true
+}
+
+function fileNameFromRow(row: AppInstance) {
+  const path = (row.artifactPath || '').replace(/\\/g, '/')
+  return path.split('/').filter(Boolean).pop() || row.appCode || '日志'
+}
+
 const toolbarButtons = computed<FgToolbarButton[]>(() => [
   {
     key: 'upload',
@@ -120,6 +177,51 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
     aiRisk: 'write',
     show: props.canRelease,
     onClick: () => openUpload(),
+  },
+  {
+    key: 'upload-create',
+    label: '上传新增',
+    icon: 'plus',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: props.canRelease,
+    onClick: () => openCreate(),
+  },
+  {
+    key: 'start',
+    label: '启动',
+    icon: 'play',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: !!props.canRelease && !!props.canLifecycle,
+    onClick: () => emit('lifecycle', 'start'),
+  },
+  {
+    key: 'stop',
+    label: '停止',
+    icon: 'square',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: !!props.canRelease && !!props.canLifecycle,
+    onClick: () => emit('lifecycle', 'stop'),
+  },
+  {
+    key: 'restart',
+    label: '重启',
+    icon: 'refresh-cw',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: !!props.canRelease && !!props.canLifecycle,
+    onClick: () => emit('lifecycle', 'restart'),
+  },
+  {
+    key: 'startup-log',
+    label: '启动日志',
+    icon: 'scroll-text',
+    code: 'fg0008:view',
+    aiRisk: 'read',
+    show: !!startupLogRow.value,
+    onClick: () => openStartupLog(),
   },
   {
     key: 'download',
@@ -150,6 +252,12 @@ function openUpload() {
     toast.error('请勾选同一应用的可更新制品（目录与日志请用下载）')
     return
   }
+  uploadMode.value = 'update'
+  uploadOpen.value = true
+}
+
+function openCreate() {
+  uploadMode.value = 'create'
   uploadOpen.value = true
 }
 
@@ -180,11 +288,30 @@ function onRowClick(row: FileEntry) {
   if (row.kind === 'dir') enterDir(row.relDir)
 }
 
+function onRowDblclick(row: FileEntry) {
+  if (row.kind === 'dir') {
+    enterDir(row.relDir)
+    return
+  }
+  if (canPreviewLog(row) && row.row) openLog(row)
+}
+
+function openLog(row: FileEntry) {
+  if (!row.row) return
+  logInstId.value = row.row.instId
+  logFileName.value = row.name || row.row.artifactPath || '日志'
+  logOpen.value = true
+}
+
 function onMenuClick(payload: { key: string; row: FileEntry }) {
   const row = payload.row
   if (!row) return
   if (payload.key === 'open' && row.kind === 'dir') {
     enterDir(row.relDir)
+    return
+  }
+  if (payload.key === 'view-log' && row.row) {
+    openLog(row)
     return
   }
   if (payload.key === 'download' && row.row) {
@@ -194,6 +321,11 @@ function onMenuClick(payload: { key: string; row: FileEntry }) {
 
 function onSubmitUpload() {
   emit('release')
+  uploadOpen.value = false
+}
+
+function onSubmitCreate(payload: { appCode: string; kind: string }) {
+  emit('create', payload)
   uploadOpen.value = false
 }
 
@@ -260,6 +392,7 @@ function displayPath(entry: FileEntry) {
       :menu-items="menuItems"
       @update:selected-row-keys="onSelectedKeys"
       @row-click="onRowClick"
+      @row-dblclick="onRowDblclick"
       @menu-click="onMenuClick"
     >
       <template #type="{ row }">
@@ -294,7 +427,7 @@ function displayPath(entry: FileEntry) {
     </FgGrid>
 
     <p class="fg-dir-hint">
-      右键复制 / 打开 / 下载。已选 {{ picked.length }} 个
+      右键打开 / 查看日志 / 下载。已选 {{ picked.length }} 个
       <template v-if="releaseAppCode"> · {{ releaseAppCode }}</template>
       <template v-if="releaseKind"> · {{ kindLabel(releaseKind) }}</template>
       。
@@ -303,16 +436,25 @@ function displayPath(entry: FileEntry) {
     <UploadDialog
       v-if="canRelease"
       v-model:open="uploadOpen"
+      :mode="uploadMode"
+      :cwd="cwd"
       :picked-count="picked.length"
       :release-app-code="releaseAppCode"
       :release-kind="releaseKind"
       :version="version"
       :canary-count="canaryCount"
-      :can-submit="canUpload && !!version.trim()"
+      :can-submit="uploadMode === 'create' ? true : canUpload && !!version.trim()"
       @update:version="emit('update:version', $event)"
       @update:canary-count="emit('update:canaryCount', $event)"
       @pick-file="emit('pick-file', $event)"
       @submit="onSubmitUpload"
+      @create="onSubmitCreate"
+    />
+    <LogViewDialog
+      v-model:open="logOpen"
+      :inst-id="logInstId"
+      :file-name="logFileName"
+      :module-id="moduleId"
     />
   </section>
 </template>

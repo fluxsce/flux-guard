@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"fluxguard/common/id"
 	"fluxguard/common/logger"
+	"fluxguard/server/agenttunnel"
 	"fluxguard/server/utils/const/errcode"
 	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
@@ -45,11 +47,34 @@ type View struct {
 
 // Store 读写 FG_SHELL。
 type Store struct {
-	db *dbx.DB
+	db  *dbx.DB
+	hub *agenttunnel.Hub
 }
 
-// OpenStore 使用已经灌好脚本的库。
+var (
+	globalStore *Store
+	globalOnce  sync.Once
+)
+
+// InitGlobal 初始化进程内终端库并接到会话隧道（只执行一次）。
+func InitGlobal(conn *dbx.DB, hub *agenttunnel.Hub) *Store {
+	globalOnce.Do(func() {
+		globalStore = &Store{db: conn}
+		if hub != nil {
+			globalStore.BindTunnel(hub)
+		}
+	})
+	return globalStore
+}
+
+// Global 返回 InitGlobal 后的终端库；未初始化时为 nil。
+func Global() *Store { return globalStore }
+
+// OpenStore 使用已经灌好脚本的库。测试可直接用；生产请 InitGlobal。
 func OpenStore(conn *dbx.DB) *Store {
+	if globalStore != nil {
+		return globalStore
+	}
 	return &Store{db: conn}
 }
 
@@ -119,6 +144,7 @@ func (s *Store) Open(ctx context.Context, tenantID, userID, userName, agentID st
 	pipes.lane(view.ShellID)
 	pipes.touch(view.ShellID)
 	s.recordAudit(ctx, tenantID, view.ShellID, agentID, userID, name, eventOpen, view.ShellTitle)
+	s.pushOpen(tenantID, agentID, view.ShellID)
 	return view, nil
 }
 
@@ -297,6 +323,7 @@ func (s *Store) remove(ctx context.Context, tenantID, shellID string) error {
 	if agentID != "" && userID != "" {
 		s.recordAudit(ctx, tenantID, shellID, agentID, userID, userName, eventClose, "")
 	}
+	s.pushClose(tenantID, agentID, shellID)
 	pipes.shutdown(shellID)
 	return nil
 }

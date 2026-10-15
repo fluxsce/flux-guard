@@ -108,6 +108,40 @@ const (
 	ShellMaxPerAgent = 32
 )
 
+// --- 代理会话隧道 / 应用日志跟读 ---
+
+const (
+	// TunnelWriteWait 写一帧到代理的超时。
+	TunnelWriteWait = 10 * time.Second
+	// TunnelPongWait 等待 pong；超时认为连接死掉并回收。
+	TunnelPongWait = 60 * time.Second
+	// TunnelPingEvery 中央主动 ping 周期（须小于 PongWait）。
+	TunnelPingEvery = 20 * time.Second
+	// TunnelMaxFrameBytes 单帧上限，防止恶意撑爆内存。
+	TunnelMaxFrameBytes = 64 * 1024
+	// TunnelSendQueue 每条连接待发队列；满则丢最旧控制外的 data（由实现决定）。
+	TunnelSendQueue = 64
+	// TunnelReconnectMin / TunnelReconnectMax 代理断线后重连退避区间。
+	TunnelReconnectMin = 1 * time.Second
+	TunnelReconnectMax = 30 * time.Second
+
+	// AppTailInitialBytes 打开跟读时先推文件末尾这么多字节。
+	AppTailInitialBytes = 256 * 1024
+	// AppTailMaxOut 中央进程内每路跟读输出 ring 上限。
+	AppTailMaxOut = 512 * 1024
+	// AppTailMaxPush 代理单次推送上限。
+	AppTailMaxPush = 32 * 1024
+	// AppTailIdle 无控制台心跳后回收会话。
+	AppTailIdle = 90 * time.Second
+	// AppTailReapEvery 空闲扫描周期。
+	AppTailReapEvery = 30 * time.Second
+	// AppTailMaxPerUser / AppTailMaxPerAgent 并发路数。
+	AppTailMaxPerUser  = 8
+	AppTailMaxPerAgent = 16
+	// AppTailPollEvery 代理轮询文件增长间隔。
+	AppTailPollEvery = time.Second
+)
+
 // --- 告警 ---
 
 const (

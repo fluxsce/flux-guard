@@ -24,6 +24,12 @@ const (
 	ActionAppReplace = "app.file.replace"
 	// ActionAppUpgrade 让应用侧代理升级它看守的运行时，并重启该服务。
 	ActionAppUpgrade = "app.runtime.upgrade"
+	// ActionAppStart 让应用侧代理按本机配置启动一套运行时。
+	ActionAppStart = "app.runtime.start"
+	// ActionAppStop 让应用侧代理按本机配置停止一套运行时。
+	ActionAppStop = "app.runtime.stop"
+	// ActionAppRestart 让应用侧代理按本机配置重启一套运行时（含启动探测）。
+	ActionAppRestart = "app.runtime.restart"
 	// ActionAppRollback 让应用侧代理把备份目录里的上一份移回目标路径，并按需重启。
 	ActionAppRollback = "app.file.rollback"
 	// ActionAppFilePush 让应用侧代理把看守目录内的文件出站推到中央（隔离网代下用）。
@@ -48,7 +54,9 @@ const (
 // KnownAction 判断动作是否在允许名单里。名单之外一律拒绝，不接受任意命令行。
 func KnownAction(action string) bool {
 	switch action {
-	case ActionCollectNow, ActionIntervalSet, ActionAppReplace, ActionAppUpgrade, ActionAppRollback, ActionAppFilePush, ActionAppFileList, ActionAgentUpdate:
+	case ActionCollectNow, ActionIntervalSet, ActionAppReplace, ActionAppUpgrade,
+		ActionAppStart, ActionAppStop, ActionAppRestart,
+		ActionAppRollback, ActionAppFilePush, ActionAppFileList, ActionAgentUpdate:
 		return true
 	default:
 		return false
@@ -83,8 +91,9 @@ func HostAction(action string) bool {
 
 // AppAction 判断动作是否发给应用侧代理。
 func AppAction(action string) bool {
-	return action == ActionAppReplace || action == ActionAppUpgrade || action == ActionAppRollback ||
-		action == ActionAppFilePush || action == ActionAppFileList
+	return action == ActionAppReplace || action == ActionAppUpgrade ||
+		action == ActionAppStart || action == ActionAppStop || action == ActionAppRestart ||
+		action == ActionAppRollback || action == ActionAppFilePush || action == ActionAppFileList
 }
 
 // FilePushAction 须代理出站执行，中央不拨号（隔离网：代下文件或推目录清单）。

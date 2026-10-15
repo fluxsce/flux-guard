@@ -15,9 +15,9 @@ flowchart TB
   subgraph center ["中央 · 只部署一份 server"]
     console[控制台]
     mgmt["管理接口 /fluxguard"]
-    ingest["接收上报"]
-    records[主机记录与事件]
-    commands["命令队列与审计"]
+    ingest["接收上报 Telemetry"]
+    tunnel["会话隧道 Session WS"]
+    commands["命令队列 Control"]
     builtin["内置组件：菜单、转发"]
     db[(MySQL)]
   end
@@ -35,21 +35,25 @@ flowchart TB
   operator --> console
   console --> mgmt
   mgmt --> db
-  ingest --> records
-  records --> db
+  ingest --> db
+  tunnel --> db
+  commands --> db
   ingest --> builtin
   builtin --> tsdb
-  hostAgent -->|"指标短连接"| ingest
-  goAgent -->|"指标短连接"| ingest
-  sideAgent -->|"清单短连接"| ingest
-  otherAgent -->|"指标短连接"| ingest
+  hostAgent -->|"HTTPS 短连接上报"| ingest
+  goAgent -->|"HTTPS 短连接上报"| ingest
+  sideAgent -->|"HTTPS 短连接上报"| ingest
+  otherAgent -->|"HTTPS 短连接上报"| ingest
+  hostAgent -->|"出站 WS shell"| tunnel
+  sideAgent -->|"出站 WS apptail"| tunnel
   mgmt --> commands
   commands -->|"优先：拨命令端口"| cmdPort
   cmdPort --> hostAgent
   hostAgent -->|"拨不通：长轮询取令并回执"| commands
+  sideAgent -->|"拨不通：长轮询取令并回执"| commands
 ```
 
-同一台机器上的代理互不通信。指标都进中央这一个接收接口，命令不夹进上报批次，也不写在指标应答里。控制台只走 `/fluxguard`。代理不登录控制台。主机指标留在主机代理里。Go 进程自己的协程和堆由 Go 运行时代理上报。JVM 的堆和 GC 由 Java 代理采集。应用换包由应用代理执行。命令队列见「操控采集机」。
+同一台机器上的代理互不通信。指标走 Telemetry 短连接；终端 / 日志跟读等**连续交互**走 Session 出站 WebSocket；换包等名单动作走 Control。控制台只连中央 `/fluxguard`，不直连代理。
 
 开发时可以在同一台电脑上起 server、host、goruntime 进程，配置里的 `server_url` 指向本机。正式环境中央只跑 server，把需要的代理装到被监控的机器上。
 
@@ -80,6 +84,53 @@ flowchart TB
 - Go 运行时代理带 `go`：显示名、Go 版本、进程号、启动时间、主机名、CPU 个数、协程数、堆分配、堆申请、堆对象、GC 次数和累计停顿。身份和最近一次数值写入 `FG_AGENT_GO`，同一进程每次更新这一行，并同步 `FG_AGENT` 的名称。显示名来自 `configs/goruntime.yaml` 的 `report_name`，留空时用程序文件名。同一台机器上的多份进程靠这个名字分开。指标名用 `go.runtime.*`。旧进程若只上报 `app.runtime.goroutine.count` 和 `app.runtime.heap.alloc.bytes`，中央仍把这两个数写入同一张表
 - Java 代理带 `java`：应用名、主类、进程号、Java 版本、启动时间、主机名和地址。身份写入 `FG_AGENT_JAVA`，同一代理每次更新一行，并同步 `FG_AGENT` 的名称。JVM 启动时间变化时收口 `FG_JAVA_RUN` 的上一行并另开一代，列表上的 GC 次数是当前这一代启动以来的累计。停顿开销、区间分位、堆前后和晋升未知时记 -1，死锁采集失败时也不写成 0。判断与曲线共用堆 85%、停顿 200ms/500ms、开销 10%。应用名优先取 `java.appName`，没有时仍接受 `host.reportName`。堆、非堆、元空间写入 `FG_JAVA_HEAP`，分代、代码缓存和堆外写入 `FG_JAVA_POOL`，进程 CPU 与类加载写入 `FG_JAVA_RUNTIME`，各回收器累计次数和耗时写入 `FG_JAVA_GC`，两次上报之间的停顿写入 `FG_JAVA_GC_PAUSE`，线程数写入 `FG_JAVA_THREAD`，运行、阻塞和等待写入 `FG_JAVA_THREAD_STATE`，直接内存上限写入 `FG_JAVA_POOL_MAX`，这些表只插入。指标名用 `jvm.*`。列表和详情用最近几个点给出一句判断，曲线在 fg0006
 - 主机曲线按类别只插入：`FG_HOST_CPU`、`FG_HOST_CPU_CORE`、`FG_HOST_MEM`、`FG_HOST_DISK`、`FG_HOST_DISK_IO`、`FG_HOST_NET`、`FG_HOST_TCP`、`FG_HOST_FD`、`FG_HOST_PROC`、`FG_HOST_PROC_TOP`。列表和明细读最新一批，点开后按时间画曲线。主机规则在 fg0005，按主机最新指标判断后交给预警发送。
+
+## 代理与中央：三面协议
+
+扩展多少种 agent，对外表面保持三面，避免路径爆炸：
+
+| 面 | 运输 | 路径 | 扩展方式 | 放什么 |
+|----|------|------|----------|--------|
+| Telemetry | HTTPS POST 短连接 | `/fluxguard/api/ingest/v1/batches` | 正文字段 / `agentCode` | 指标、清单 |
+| Control | HTTPS（拨入或长轮询）+ 大文件 HTTPS | `command/v1/*`、制品与代下 | **动作枚举** | 换包、重启、改间隔、自更新 |
+| Session | **一条代理出站 WebSocket** | `/fluxguard/api/agent/v1/tunnel` | **通道 kind** | 终端、日志跟读、以后 SSH 等连续流 |
+
+```mermaid
+flowchart LR
+  subgraph agents [任意种类代理]
+    A[host / appside / future]
+  end
+  subgraph planes [永远三面]
+    T[Telemetry HTTPS]
+    C[Control HTTPS]
+    S["Session 一条出站 WS"]
+  end
+  A --> T
+  A --> C
+  A --> S
+  S --> shellCh[channel shell]
+  S --> tailCh[channel apptail]
+  S --> moreCh[channel ssh…]
+```
+
+**后续凡「长连接、连续交互」一律走 Session WS**（同一条隧道多路 `channel`）。不上第二条平行长连接，不新开 REST 长轮询会话。Telemetry / Control / 大文件仍用 HTTPS。
+
+列目录、换包、新增制品、运行时启停仍走 **Control**（短拨或 `app.file.list` / `app.runtime.start|stop|restart`），不进 Session。控制台点刷新时中央向代理拉实时清单并写库（含注销已删文件）；Session 解决不了「磁盘删了还不知道」，除非再加代理侧目录监听推送。启动日志跟读仍走 Session `apptail`。
+
+浏览器只连中央。令牌、口令、环境变量值不进隧道帧与跟读正文审计。
+
+### 并发与断线
+
+| 点 | 约定 |
+|----|------|
+| 连接模型 | **每台代理一条**出站隧道；多路会话用 `sessionId` 复用，不按终端数建连 |
+| 并发上限 | 终端 / 跟读各有每用户、每代理路数硬顶；ring 与单帧有字节上限，队列满丢最旧 data |
+| 心跳 | 中央定期 ping；写失败或 ping 失败立刻关连接并 Detach |
+| 断线 | 代理侧取消本连接上全部通道 goroutine；中央 Detach，不再向旧连接写 |
+| 重连 | 代理指数退避重连；接入后中央 **OnAttach 重推**仍打开的 shell / apptail |
+| 替换 | 同代理新连接接入时关掉旧连接，避免双写 |
+
+旧 `/api/shell/v1/*` 已移除。SSH 等新终端形态：agent 侧实现后挂新 `channel`，**不开新 REST 会话路径**。
 
 ## 操控采集机
 
@@ -139,7 +190,7 @@ sequenceDiagram
 
 ## 交互终端
 
-交互终端不进命令名单，也不走 `FG_COMMAND`。采集上报保持原样。中央不拨代理：代理在 NAT 后面时中央往往连不上去，所以由代理连中央。开关在主机配置 `shell_enabled`，默认关闭；控制台按钮码是 `fg0002:shell`。只有打开的那个人能看和输入，租户管理员可以关掉别人的终端。
+交互终端不进命令名单，也不走 `FG_COMMAND`。走 Session 面：代理出站 WebSocket（`TunnelChannelShell`）。开关在主机配置 `shell_enabled`，默认关闭；控制台按钮码是 `fg0002:shell`。只有打开的那个人能看和输入，租户管理员可以关掉别人的终端。
 
 终端会话账本在 `FG_SHELL_AUDIT`：打开、关闭各记一条；回车确认的一行命令记为 `INPUT`（最长约 200 字）。方向键、窗口缩放和屏幕输出不落库。控制台「操作记录」与 fg0052 代理操作日志都可回看；谁打开过终端仍可在 fg0051 系统操作日志里查到控制面摘要。
 
@@ -150,22 +201,20 @@ sequenceDiagram
   participant ag as 主机代理
   participant pty as 本机伪控制台
 
+  ag->>srv: 出站接入会话隧道
   page->>srv: 打开终端，写入 FG_SHELL
-  loop 每 2 秒
-    ag->>srv: 这台机器还有哪些打开的终端
-  end
-  ag->>pty: 拉起 ConPTY 或 pty，并启动命令行
+  srv->>ag: 隧道 open shell
+  ag->>pty: 拉起 ConPTY 或 pty
   page->>srv: 按键、行列
-  ag->>srv: 长轮询按键，无人打字最多空等 12 秒
-  srv-->>ag: 有按键或尺寸变化时立刻返回
-  ag->>pty: 写入原始按键，需要时调整行列
+  srv->>ag: 隧道 data/control
+  ag->>pty: 写入按键或调整行列
   pty-->>ag: 屏幕字节
-  ag->>srv: 推送输出
-  page->>srv: 约每 100 毫秒拉取输出
-  srv-->>page: 新字节交给 RsTerminal 绘制
+  ag->>srv: 隧道 data
+  page->>srv: 短轮询输出
+  srv-->>page: 新字节交给 RsTerminal
 ```
 
-`FG_SHELL` 只记会话：谁、哪台代理、开着还是关了。按键和屏幕字节在中央进程的内存管道里，不落库。中央重启后会话行还在，字节流会丢，代理再拉起一块新的伪控制台。Windows 用 ConPTY，Linux 用 `/dev/ptmx`。页面用 `RsTerminal`，按键原样送出，所以 `top`、`vim`、`less` 能画整屏。回车确认的命令行另写入 `FG_SHELL_AUDIT`，便于事后按代理审计。
+`FG_SHELL` 只记会话：谁、哪台代理、开着还是关了。按键和屏幕字节在中央进程的内存管道里，不落库。中央重启后会话行还在，字节流会丢；代理重连隧道时中央重推仍打开的会话。Windows 用 ConPTY，Linux 用 `/dev/ptmx`。页面用 `RsTerminal`。若以后要 SSH 或其它终端形态：agent 侧实现后挂隧道新 `channel`（或扩展 shell meta），控制台仍只连中央。
 
 资源有上限，避免一路终端把进程撑大：
 
@@ -258,7 +307,7 @@ server/web/views/fg0042     通知渠道（邮件、企业微信、钉钉、QQ�
 server/web/views/fg0043     预警事件（确认、恢复，页内带投递记录）
 server/web/views/fg0051     系统操作日志（0051–0070 日志管理，只读查询 FG_AUTH_AUDIT_LOG）
 server/web/views/fg0052     代理操作日志（只读 UNION FG_COMMAND 与 FG_SHELL_AUDIT）
-server/web/views/fg0008     应用管理（运行观测）。清单来自应用侧代理上报，换 WAR、JAR、Node、脚本、静态资源和运行时升级都在这一页
+server/web/views/fg0008     应用管理（运行观测）。左侧运行时由代理配置上报；右侧可刷新清单、上传更新或上传新增制品，换 WAR、JAR、Node、脚本、静态资源和运行时升级都在这一页
 ```
 
 控制台按同一编号拆开，目录保持扁平。号段只用来占位，避免不同功能挤在同一段号里：0001–0020 运行观测，0021–0040 系统管理，0041–0050 预警管理，0051–0070 日志管理，其后每 20 号一段。侧栏和面包屑显示授权接口里的分组名，不显示号段。共用请求在 `web/src/api`：axios 实例、拦截器、`createApi`。一个模块一个 `web/src/views/fg00xx`，里面用 `createApi(moduleApiPrefix('fg00xx'))`。`web/src/router` 只负责把视图挂到路径。登录在 `web/src/views/auth`，对应后端 `views/auth`。

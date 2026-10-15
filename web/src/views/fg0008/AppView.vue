@@ -37,6 +37,9 @@ const {
   downloadProgress,
   onPickFile,
   submitRelease,
+  submitCreate,
+  submitLifecycle,
+  canLifecycle,
   continueBatch,
   submitRollback,
   openRelease,
@@ -82,7 +85,7 @@ useModuleAi(() => ({
           v-if="!current"
           class="fg-app-placeholder"
           title="选择左侧运行时"
-          description="应用代理按「实例」看守一套目录或 Tomcat。Tomcat 右侧可进 webapps 换包，也可进 logs 下载启动日志；下方操作日志含部署步骤与启动探测结果。"
+          description="应用代理按「实例」看守一套目录或 Tomcat。Tomcat 右侧可进 webapps 换包，也可进 logs 在线查看或下载启动日志；下方操作日志含部署步骤与启动探测结果。"
         />
         <template v-else>
           <FileBrowser
@@ -94,6 +97,7 @@ useModuleAi(() => ({
             :download-busy="downloadBusy"
             :download-progress="downloadProgress"
             :can-release="canRelease"
+            :can-lifecycle="canLifecycle"
             :version="version"
             :canary-count="canaryCount"
             :release-kind="releaseKind"
@@ -108,6 +112,8 @@ useModuleAi(() => ({
             @update:canary-count="canaryCount = $event"
             @pick-file="onPickFile"
             @release="submitRelease"
+            @create="(p) => submitCreate(p.appCode, p.kind)"
+            @lifecycle="submitLifecycle"
           />
           <OpConsole
             class="fg-app-console"

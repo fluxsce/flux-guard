@@ -58,7 +58,7 @@ func (c *AppController) QuerySites(g *gin.Context) {
 }
 
 // QuerySiteFiles 返回一套运行时下的制品文件。
-// mode=files：能拨则短拨列目录；隔离网拨不通则出站推清单。
+// 能拨则短拨列目录；隔离网拨不通则出站推清单（Control，不走 Session）。
 // 条数超限必须提示用户；其它刷新失败仍回退库内上次结果。
 func (c *AppController) QuerySiteFiles(g *gin.Context) {
 	p := middleware.Principal(g)
@@ -147,7 +147,7 @@ func (c *AppController) Ignore(g *gin.Context) {
 	httpx.WriteOK(g, map[string]string{"appCode": appCode})
 }
 
-// Release 上传制品，并向选中的实例下发更新。
+// Release 上传制品：purpose=create 时在指定运行时新增；否则向勾选的实例下发更新。
 func (c *AppController) Release(g *gin.Context) {
 	p := middleware.Principal(g)
 	file, header, err := g.Request.FormFile("file")
@@ -163,6 +163,22 @@ func (c *AppController) Release(g *gin.Context) {
 	appCode := strings.TrimSpace(g.PostForm("appCode"))
 	kind := strings.TrimSpace(g.PostForm("kind"))
 	version := strings.TrimSpace(g.PostForm("version"))
+	purpose := strings.TrimSpace(g.PostForm("purpose"))
+	if purpose == "create" {
+		agentID := strings.TrimSpace(g.PostForm("agentId"))
+		instanceName := strings.TrimSpace(g.PostForm("instanceName"))
+		audit.Note(g, "", "APP", appCode, appCode, "新增应用制品 "+kind+" "+version)
+		out, err := release.SubmitCreate(g.Request.Context(), c.db, p.TenantID, p.UserID, release.CreateInput{
+			AgentID: agentID, InstanceName: instanceName,
+			AppCode: appCode, Kind: kind, Version: version, File: header.Filename, Body: file,
+		})
+		if err != nil {
+			httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+			return
+		}
+		httpx.WriteOK(g, out)
+		return
+	}
 	instIDs := splitIDs(g.PostForm("instIds"))
 	canary := release.ParseCanary(g.PostForm("canaryCount"))
 	audit.Note(g, "", "APP", appCode, appCode, "更新应用 "+kind+" "+version)

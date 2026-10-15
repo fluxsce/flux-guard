@@ -34,7 +34,7 @@ func (scriptMode) CollectArtifacts(ctx context.Context, rt core.Runtime) ([]core
 }
 
 func (scriptMode) ListInventory(rt core.Runtime) ([]core.Artifact, error) {
-	return nil, fmt.Errorf("实例 %s 是 script 模式，不支持列目录", rt.Instance)
+	return scriptMode{}.CollectArtifacts(context.Background(), rt)
 }
 
 func (scriptMode) Replace(rt core.Runtime, call protocol.CommandCall, file string) (core.ApplyReport, error) {

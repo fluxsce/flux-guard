@@ -1,6 +1,7 @@
 package init
 
 import (
+	_ "fluxguard/server/agenttunnel/routes"
 	_ "fluxguard/server/command/routes"
 	_ "fluxguard/server/shell/routes"
 	_ "fluxguard/server/web/ingest/routes"

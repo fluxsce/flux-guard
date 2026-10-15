@@ -142,7 +142,11 @@ func run() error {
 	shellDone := make(chan struct{})
 	go func() {
 		defer close(shellDone)
-		shell.OpenStore(db).Reap(ctx)
+		if s := shell.Global(); s != nil {
+			s.Reap(ctx)
+		} else {
+			shell.OpenStore(db).Reap(ctx)
+		}
 	}()
 	retentionDone := make(chan struct{})
 	go func() {

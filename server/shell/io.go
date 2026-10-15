@@ -58,8 +58,11 @@ func (s *Store) WriteInput(ctx context.Context, tenantID, userID, shellID, text 
 	if text != "" && !pipes.lane(shellID).pushIn([]byte(text)) {
 		return errBuffer
 	}
+	agentID, userName, metaErr := s.shellMeta(ctx, tenantID, shellID)
+	if text != "" && metaErr == nil {
+		s.pushData(tenantID, agentID, shellID, text)
+	}
 	if line := pipes.lane(shellID).auditLine(text); line != "" {
-		agentID, userName, metaErr := s.shellMeta(ctx, tenantID, shellID)
 		if metaErr != nil {
 			logger.Warn(ctx, "终端审计查会话失败 shell=%s err=%v", shellID, metaErr)
 		} else {
@@ -86,6 +89,9 @@ func (s *Store) WriteSize(ctx context.Context, tenantID, userID, shellID string,
 	pipes.touch(shellID)
 	if !pipes.lane(shellID).setSize(cols, rows) {
 		return errBadSize
+	}
+	if agentID, _, err := s.shellMeta(ctx, tenantID, shellID); err == nil {
+		s.pushControl(tenantID, agentID, shellID, cols, rows)
 	}
 	return nil
 }

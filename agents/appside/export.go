@@ -25,6 +25,8 @@ var (
 	MarkStartupLog    = core.MarkStartupLog
 	NeedsRestart      = core.NeedsRestart
 	Running           = core.Running
+	Start             = core.Start
+	Stop              = core.Stop
 	Restart           = core.Restart
 	Rollback          = core.Rollback
 )

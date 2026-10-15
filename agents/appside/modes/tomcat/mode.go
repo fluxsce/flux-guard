@@ -56,7 +56,8 @@ func (tomcatMode) CollectArtifacts(ctx context.Context, rt core.Runtime) ([]core
 }
 
 func (tomcatMode) ListInventory(rt core.Runtime) ([]core.Artifact, error) {
-	return nil, fmt.Errorf("实例 %s 是 tomcat 模式，清单由心跳上报（含 webapps 与 logs）", rt.Instance)
+	// 与心跳采集同一套 webapps + logs，供控制台刷新同步并注销已删文件。
+	return tomcatMode{}.CollectArtifacts(context.Background(), rt)
 }
 
 func (m tomcatMode) Replace(rt core.Runtime, call protocol.CommandCall, file string) (core.ApplyReport, error) {

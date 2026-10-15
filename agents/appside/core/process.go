@@ -60,8 +60,97 @@ func Running(ctx context.Context, rt Runtime) bool {
 	}
 }
 
+// Start 按本机配置的运行方式启动。files / 未配置启停的静态目录不要调用。
+func Start(ctx context.Context, rt Runtime) error {
+	if strings.TrimSpace(rt.Mode) == "files" {
+		return fmt.Errorf("files 模式无进程启停")
+	}
+	switch strings.TrimSpace(rt.Kind) {
+	case "systemd":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "systemctl", "start", service); err != nil {
+			return fmt.Errorf("启动 %s 失败", service)
+		}
+		return nil
+	case "windows":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "sc", "start", service); err != nil {
+			return fmt.Errorf("启动 %s 失败", service)
+		}
+		return nil
+	case "docker":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "docker", "start", service); err != nil {
+			return fmt.Errorf("启动 %s 失败", service)
+		}
+		return nil
+	case "command":
+		if err := shellRunner(ctx, rt.Start); err != nil {
+			return fmt.Errorf("启动失败")
+		}
+		return nil
+	default:
+		return fmt.Errorf("不认识的运行方式")
+	}
+}
+
+// Stop 按本机配置的运行方式停止。
+func Stop(ctx context.Context, rt Runtime) error {
+	if strings.TrimSpace(rt.Mode) == "files" {
+		return fmt.Errorf("files 模式无进程启停")
+	}
+	switch strings.TrimSpace(rt.Kind) {
+	case "systemd":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "systemctl", "stop", service); err != nil {
+			return fmt.Errorf("停止 %s 失败", service)
+		}
+		return nil
+	case "windows":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "sc", "stop", service); err != nil {
+			return fmt.Errorf("停止 %s 失败", service)
+		}
+		return nil
+	case "docker":
+		service := strings.TrimSpace(rt.Service)
+		if service == "" {
+			return fmt.Errorf("未配置服务名")
+		}
+		if _, err := commandRunner(ctx, "docker", "stop", service); err != nil {
+			return fmt.Errorf("停止 %s 失败", service)
+		}
+		return nil
+	case "command":
+		if err := shellRunner(ctx, rt.Stop); err != nil {
+			return fmt.Errorf("停止失败")
+		}
+		return nil
+	default:
+		return fmt.Errorf("不认识的运行方式")
+	}
+}
+
 // Restart 按本机配置的运行方式重启。静态资源不调用这里。
 func Restart(ctx context.Context, rt Runtime) error {
+	if strings.TrimSpace(rt.Mode) == "files" {
+		return fmt.Errorf("files 模式无进程启停")
+	}
 	switch strings.TrimSpace(rt.Kind) {
 	case "systemd":
 		service := strings.TrimSpace(rt.Service)

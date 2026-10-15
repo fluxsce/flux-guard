@@ -43,6 +43,17 @@ type Input struct {
 	BatchSize   int // 每批最多台数；0 表示用 AppReleaseBatchMax
 }
 
+// CreateInput 是在一套运行时下新增制品（不勾选已有实例）。
+type CreateInput struct {
+	AgentID      string
+	InstanceName string
+	AppCode      string
+	Kind         string
+	Version      string
+	File         string
+	Body         io.Reader
+}
+
 type releaseExt struct {
 	PendingInstIDs  []string `json:"pendingInstIds"`
 	BatchSize       int      `json:"batchSize"`
@@ -101,6 +112,68 @@ func Submit(ctx context.Context, db *dbx.DB, tenantID, user string, in Input) (a
 		action = protocol.ActionAppUpgrade
 	}
 	if err := dispatchUpdate(ctx, db, svc, tenantID, user, releaseID, action, kind, version, sum, fileName, first, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// SubmitCreate 在指定运行时下新增制品：不要求已有制品 instId，挂站点锚点下发 Replace。
+func SubmitCreate(ctx context.Context, db *dbx.DB, tenantID, user string, in CreateInput) (appmodels.Release, error) {
+	kind := strings.TrimSpace(in.Kind)
+	switch kind {
+	case "war", "jar", "static", "node", "script":
+	default:
+		return appmodels.Release{}, errors.New("新增种类无效")
+	}
+	appCode := strings.TrimSpace(in.AppCode)
+	if appCode == "" || len(appCode) > 100 || strings.Contains(appCode, "..") {
+		return appmodels.Release{}, errors.New("应用编号无效")
+	}
+	version := strings.TrimSpace(in.Version)
+	if version == "" || len(version) > 64 {
+		return appmodels.Release{}, errors.New("请填写版本")
+	}
+	fileName := filepath.Base(strings.TrimSpace(in.File))
+	if fileName == "" || fileName == "." || strings.Contains(fileName, "..") {
+		return appmodels.Release{}, errors.New("文件名无效")
+	}
+	anchor, err := dao.SiteAnchor(ctx, db, tenantID, in.AgentID, in.InstanceName)
+	if err != nil {
+		if errors.Is(err, dao.ErrMissing) {
+			return appmodels.Release{}, errors.New("找不到运行时")
+		}
+		return appmodels.Release{}, err
+	}
+	if anchor.OnlineFlag != "Y" {
+		return appmodels.Release{}, errors.New("运行时离线，不能新增")
+	}
+	// 下发时 AppName/Kind 用表单，不用锚点上的 runtime 标记。
+	target := anchor
+	target.AppCode = appCode
+	target.ArtifactKind = kind
+
+	svc := command.Current()
+	if svc == nil {
+		return appmodels.Release{}, errors.New("命令通道未启用")
+	}
+	releaseID := id.New()
+	sum, err := apprelease.Save(tenantID, releaseID, in.Body)
+	if err != nil {
+		return appmodels.Release{}, err
+	}
+	extBody, _ := json.Marshal(releaseExt{Purpose: "create"})
+	now := store.FormatTime(time.Now().UTC())
+	out := appmodels.Release{
+		ReleaseID: releaseID, TenantID: tenantID, AppCode: appCode, ArtifactKind: kind,
+		VersionText: version, SHA256: sum, FileName: fileName, ExtProperty: string(extBody),
+		AddTime: now, AddWho: user, EditTime: now, EditWho: user,
+		OprSeqFlag: oprSeq, CurrentVersion: 1, ActiveFlag: "Y",
+		Purpose: "create",
+	}
+	if err := db.Insert(ctx, tableRelease, &out); err != nil {
+		return appmodels.Release{}, err
+	}
+	if err := dispatchUpdate(ctx, db, svc, tenantID, user, releaseID, protocol.ActionAppReplace, kind, version, sum, fileName, []appmodels.Instance{target}, &out); err != nil {
 		return out, err
 	}
 	return out, nil

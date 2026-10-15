@@ -67,6 +67,10 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 		if strings.TrimSpace(in.Instance) == "" {
 			return models.View{}, models.ErrBadRelease
 		}
+	} else if in.Action == protocol.ActionAppStart || in.Action == protocol.ActionAppStop || in.Action == protocol.ActionAppRestart {
+		if strings.TrimSpace(in.Instance) == "" {
+			return models.View{}, models.ErrBadRelease
+		}
 	} else if (protocol.AppAction(in.Action) || protocol.AgentAction(in.Action)) &&
 		(strings.TrimSpace(in.ReleaseID) == "" || strings.TrimSpace(in.SHA256) == "" || strings.TrimSpace(in.Version) == "") {
 		return models.View{}, models.ErrBadRelease

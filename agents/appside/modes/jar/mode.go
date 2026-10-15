@@ -39,7 +39,7 @@ func (jarMode) CollectArtifacts(ctx context.Context, rt core.Runtime) ([]core.Ar
 }
 
 func (jarMode) ListInventory(rt core.Runtime) ([]core.Artifact, error) {
-	return nil, fmt.Errorf("实例 %s 是 jar 模式，不支持列目录", rt.Instance)
+	return jarMode{}.CollectArtifacts(context.Background(), rt)
 }
 
 func (jarMode) Replace(rt core.Runtime, call protocol.CommandCall, file string) (core.ApplyReport, error) {

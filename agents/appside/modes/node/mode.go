@@ -36,7 +36,7 @@ func (nodeMode) CollectArtifacts(ctx context.Context, rt core.Runtime) ([]core.A
 }
 
 func (nodeMode) ListInventory(rt core.Runtime) ([]core.Artifact, error) {
-	return nil, fmt.Errorf("实例 %s 是 node 模式，不支持列目录", rt.Instance)
+	return nodeMode{}.CollectArtifacts(context.Background(), rt)
 }
 
 func (nodeMode) Replace(rt core.Runtime, call protocol.CommandCall, file string) (core.ApplyReport, error) {

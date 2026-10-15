@@ -13,6 +13,7 @@ import (
 
 	"fluxguard/agents/appside"
 	"fluxguard/agents/host"
+	"fluxguard/common/agenttunnel"
 	"fluxguard/common/agentupdate"
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/command"
@@ -64,6 +65,15 @@ func main() {
 	}, func(addr string) {
 		commandAddr.Store(addr)
 	})
+	// 会话隧道：日志跟读等交互流；与命令长轮询、上报分立。
+	tun := agenttunnel.New(agenttunnel.Config{
+		ServerURL:  cfg.ServerURL,
+		AgentToken: cfg.AgentToken,
+		AgentCode:  appside.Code,
+		MachineID:  machineID,
+	})
+	tun.Handle(protocol.TunnelChannelAppTail, appside.AppTailHandle(runtimes))
+	go tun.Run(ctx)
 	report.Run(ctx, cfg, appside.Code, func(ctx context.Context) (protocol.CollectResult, error) {
 		addr, _ := commandAddr.Load().(string)
 		result, err := appside.CollectAll(ctx, runtimes, addr)
@@ -87,6 +97,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 	}
 	switch call.Action {
 	case protocol.ActionAppReplace, protocol.ActionAppUpgrade, protocol.ActionAppRollback,
+		protocol.ActionAppStart, protocol.ActionAppStop, protocol.ActionAppRestart,
 		protocol.ActionAppFilePush, protocol.ActionAppFileList:
 	default:
 		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", call.Action)
@@ -101,6 +112,10 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 			Name: name, Status: "failed", TargetPath: target, BackupPath: backup, Detail: err.Error(),
 		})
 		return protocol.CommandOutcome{Message: err.Error(), Steps: steps}, err
+	}
+
+	if call.Action == protocol.ActionAppStart || call.Action == protocol.ActionAppStop || call.Action == protocol.ActionAppRestart {
+		return runLifecycle(ctx, rt, call.Action, steps, fail)
 	}
 
 	if call.Action == protocol.ActionAppFileList {
@@ -196,6 +211,39 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
 		return finishWithStartup(ctx, rt, mark, steps, "运行时已升级并重启 "+rt.Instance)
+	}
+}
+
+func runLifecycle(
+	ctx context.Context,
+	rt appside.Runtime,
+	action string,
+	steps []protocol.CommandStep,
+	fail func(name, target, backup string, err error) (protocol.CommandOutcome, error),
+) (protocol.CommandOutcome, error) {
+	switch action {
+	case protocol.ActionAppStop:
+		if err := appside.Stop(ctx, rt); err != nil {
+			return fail("stop", rt.Base, "", err)
+		}
+		steps = append(steps, protocol.CommandStep{Name: "stop", Status: "done", Detail: rt.Instance})
+		return protocol.CommandOutcome{Message: "已停止 " + rt.Instance, Steps: steps}, nil
+	case protocol.ActionAppStart:
+		mark := appside.MarkStartupLog(rt)
+		if err := appside.Start(ctx, rt); err != nil {
+			return fail("start", rt.Base, "", err)
+		}
+		steps = append(steps, protocol.CommandStep{Name: "start", Status: "done", Detail: rt.Instance})
+		return finishWithStartup(ctx, rt, mark, steps, "已启动 "+rt.Instance)
+	case protocol.ActionAppRestart:
+		mark := appside.MarkStartupLog(rt)
+		if err := appside.Restart(ctx, rt); err != nil {
+			return fail("restart", rt.Base, "", err)
+		}
+		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
+		return finishWithStartup(ctx, rt, mark, steps, "已重启 "+rt.Instance)
+	default:
+		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", action)
 	}
 }
 

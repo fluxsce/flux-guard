@@ -154,16 +154,41 @@ func ListSiteFiles(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceN
 
 // SiteMode 读一套运行时的 mode（取任意一行）。
 func SiteMode(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName string) (string, error) {
-	all, err := listInst(ctx, db, tenantID, "")
+	row, err := SiteAnchor(ctx, db, tenantID, agentID, instanceName)
 	if err != nil {
 		return "", err
 	}
+	return row.ModeCode, nil
+}
+
+// SiteAnchor 取一套运行时的锚点行：优先 artifactKind=runtime，否则任意一行。
+// 用于新增制品时挂发布明细与下发 Instance。
+func SiteAnchor(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName string) (models.Instance, error) {
+	agentID = strings.TrimSpace(agentID)
+	instanceName = strings.TrimSpace(instanceName)
+	if agentID == "" || instanceName == "" {
+		return models.Instance{}, ErrMissing
+	}
+	all, err := listInst(ctx, db, tenantID, "")
+	if err != nil {
+		return models.Instance{}, err
+	}
+	var fallback models.Instance
 	for _, row := range all {
-		if row.AgentID == agentID && row.InstanceName == instanceName {
-			return row.ModeCode, nil
+		if row.AgentID != agentID || row.InstanceName != instanceName {
+			continue
+		}
+		if row.ArtifactKind == "runtime" {
+			return row, nil
+		}
+		if fallback.InstID == "" {
+			fallback = row
 		}
 	}
-	return "", ErrMissing
+	if fallback.InstID != "" {
+		return fallback, nil
+	}
+	return models.Instance{}, ErrMissing
 }
 
 func siteBase(row models.Instance) string {

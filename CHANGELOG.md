@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-10-15
+
+### 新增
+- 代理会话隧道：`GET /fluxguard/api/agent/v1/tunnel`（WebSocket，代理出站）。会话面与上报、命令面分立；通道可扩展（当前 `apptail`），不再按功能堆 REST。
+- `fg0008` 文件仓支持日志在线滚动查看（经隧道跟读末尾并持续追加；隔离网可用）。右键「查看」或双击 `.log`/`.txt`/`.out`。
+- `fg0008` 支持「上传新增」：在当前运行时下新增制品，不必勾选已有文件（`purpose=create`）。
+- `fg0008` 运行时可启动 / 停止 / 重启（`app.runtime.start|stop|restart`），启动与重启带启动探测；工具栏可打开启动日志跟读。
+
+### 变更
+- 架构约定三面：Telemetry（ingest）/ Control（`FG_COMMAND`）/ Session（一条出站 WS）。扩展 agent 种类只加 `agentCode` 与动作枚举，不新开会话 URL。
+- 交互终端迁入隧道 `shell` 通道；**移除** `/api/shell/v1/*` HTTP（不再兼容）。host 开启 `shell_enabled` 后出站连同一条会话隧道。
+- 架构部署图与交互图补上会话隧道；约定后续连续交互一律走 WS；文档写明并发上限、心跳、断线取消与重连重推。
+- 隧道客户端断线指数退避重连；shell / apptail 在 OnAttach 时重推仍打开的会话。
+- 应用文件仓刷新：各 mode 均可短拨/出站列目录并同步注销已删文件；列目录与换包仍走 Control，不进 Session。
+
+### 安全
+- 跟读 ring / 单帧 / 并发路数有硬顶；空闲回收会话，断开取消跟读，避免内存与 goroutine 泄漏。
+- 控制台不回绝对路径与令牌；跟读错误用稳定短文案；路径须落在 appside 看守目录。
+
 ## [1.1.7] - 2026-10-15
 
 ### 新增

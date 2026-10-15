@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"fluxguard/agents/host"
+	"fluxguard/common/agenttunnel"
 	"fluxguard/common/agentupdate"
 	"fluxguard/common/buildinfo"
 	"fluxguard/common/command"
@@ -49,13 +50,15 @@ func main() {
 		logger.Info(ctx, "命令端口 %s", addr)
 	})
 	if cfg.ShellEnabled {
-		logger.Info(ctx, "终端通道已开启")
-		go shellrun.Run(ctx, shellrun.Config{
+		logger.Info(ctx, "终端通道已开启（会话隧道）")
+		tun := agenttunnel.New(agenttunnel.Config{
 			ServerURL:  cfg.ServerURL,
 			AgentToken: cfg.AgentToken,
 			AgentCode:  host.Code,
 			MachineID:  host.MachineID(),
 		})
+		shellrun.Bind(tun)
+		go tun.Run(ctx)
 	}
 	report.RunControlled(ctx, cfg, host.Code, func(ctx context.Context) (protocol.CollectResult, error) {
 		result, err := host.Collect(ctx)
@@ -78,9 +81,9 @@ func runCommand(ctx context.Context, cfg report.Config, ctl *report.Control, cal
 		return protocol.CommandOutcome{Message: "已触发采集"}, nil
 	case protocol.ActionIntervalSet:
 		if err := ctl.SetInterval(call.IntervalSec); err != nil {
-			return protocol.CommandOutcome{}, err
+			return protocol.CommandOutcome{Message: err.Error()}, err
 		}
-		return protocol.CommandOutcome{Message: fmt.Sprintf("上报间隔已改为 %d 秒", call.IntervalSec)}, nil
+		return protocol.CommandOutcome{Message: fmt.Sprintf("间隔已改为 %d 秒", call.IntervalSec)}, nil
 	case protocol.ActionAgentUpdate:
 		msg, err := agentupdate.Apply(ctx, cfg.ServerURL, cfg.AgentToken, host.Code, host.MachineID(), call)
 		if err != nil {
@@ -88,6 +91,6 @@ func runCommand(ctx context.Context, cfg report.Config, ctl *report.Control, cal
 		}
 		return protocol.CommandOutcome{Message: msg}, nil
 	default:
-		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", call.Action)
+		return protocol.CommandOutcome{Message: "未知动作"}, fmt.Errorf("未知动作")
 	}
 }

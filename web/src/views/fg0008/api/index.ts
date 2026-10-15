@@ -142,6 +142,25 @@ export function queryRelease(releaseId: string) {
   return fg0008.get('/queryRelease', { releaseId })
 }
 
+/** 运行时启停命令视图。 */
+export interface RuntimeCommand {
+  commandId: string
+  agentId: string
+  action: string
+  status: string
+  message?: string
+}
+
+/** 下发启动 / 停止 / 重启。 */
+export function runtimeControl(agentId: string, instanceName: string, op: 'start' | 'stop' | 'restart') {
+  return fg0008.post('/runtimeControl', { agentId, instanceName, op })
+}
+
+/** 查询一条命令进度。 */
+export function queryCommand(commandId: string) {
+  return fg0008.get('/queryCommand', { commandId })
+}
+
 /** 代下任务。 */
 export interface FileFetchJob {
   jobId: string
@@ -185,6 +204,41 @@ export function downloadFileFetchURL(jobId: string): string {
   const query = new URLSearchParams({ jobId: jobId.trim() }).toString()
   const base = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
   return `${base}${path}?${query}`
+}
+
+/** 打开日志跟读后的会话摘要（不含绝对路径）。 */
+export interface LogViewSession {
+  logViewId: string
+  agentId: string
+  instId: string
+  fileName: string
+}
+
+/** 跟读增量块。 */
+export interface LogViewChunk {
+  text: string
+  offset: number
+  closed: boolean
+}
+
+/** 打开一路应用日志跟读（经代理会话隧道）。 */
+export function openLogView(instId: string) {
+  return fg0008.post<LogViewSession>('/openLogView', { instId }, undefined, { showLoading: false })
+}
+
+/** 拉取跟读增量。 */
+export function logOutput(logViewId: string, offset: number) {
+  return fg0008.get<LogViewChunk>('/logOutput', { logViewId, offset }, { showLoading: false })
+}
+
+/** 关闭跟读。 */
+export function closeLogView(logViewId: string) {
+  return fg0008.post<{ logViewId: string }>('/closeLogView', { logViewId }, undefined, { showLoading: false })
+}
+
+/** 跟读保活。 */
+export function touchLogView(logViewId: string) {
+  return fg0008.post<{ logViewId: string }>('/touchLogView', { logViewId }, undefined, { showLoading: false })
 }
 
 /**

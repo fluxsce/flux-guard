@@ -55,7 +55,7 @@ const mineShells = computed(() => shells.value.filter((item) => item.userId === 
 const screenNote = computed(() => {
   if (activeEnded.value) return '这一路已经关闭。'
   if (!activeSeen.value) {
-    return '等待代理接入。本机代理需打开 shell_enabled 后重新启动，并在这台正在上报的主机上开终端。'
+    return '等待代理接入会话隧道。本机代理需打开 shell_enabled 后重新启动，并在这台正在上报的主机上开终端。'
   }
   return ''
 })

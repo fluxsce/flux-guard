@@ -27,7 +27,11 @@ type AgentController struct {
 
 // NewAgentController 创建代理控制器。
 func NewAgentController(db *dbx.DB) *AgentController {
-	return &AgentController{db: db, agents: agent.Open(db), shells: shell.OpenStore(db), Commands: command.Current()}
+	shells := shell.Global()
+	if shells == nil {
+		shells = shell.OpenStore(db)
+	}
+	return &AgentController{db: db, agents: agent.Open(db), shells: shells, Commands: command.Current()}
 }
 
 // QueryAgents 列出本租户代理。

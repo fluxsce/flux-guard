@@ -4,6 +4,7 @@ import { useButtonAllowed } from '@/components/buttonAccess'
 import { rsConfirm, useRsToast } from '@/ui'
 import {
   continueRelease,
+  queryCommand,
   queryFileFetch,
   triggerFileFetchDownload,
   queryRelease,
@@ -13,11 +14,13 @@ import {
   releaseApp,
   requestFileFetch,
   rollbackRelease,
+  runtimeControl,
   type AppInstance,
   type AppRelease,
   type AppSite,
   type DownloadProgress,
   type FileFetchJob,
+  type RuntimeCommand,
 } from '../api'
 import { canRollbackRelease, kindLabel, moduleId, statusText, statusVariant, stepLabel } from './useAppCatalog'
 
@@ -63,6 +66,40 @@ export function modeLabel(mode: string) {
     static: '静态',
   }
   return map[mode] || mode || '—'
+}
+
+/** 从文件名推断应用编号、种类与版本（对齐代理 AppCode / FileKind）。 */
+export function inferArtifactFromFile(fileName: string, cwd = '') {
+  const base = fileName.split(/[/\\]/).pop() || fileName
+  const dot = base.lastIndexOf('.')
+  const ext = dot >= 0 ? base.slice(dot).toLowerCase() : ''
+  const stem = dot >= 0 ? base.slice(0, dot) : base
+  let appCode = stem
+  let version = ''
+  const hash = stem.indexOf('##')
+  if (hash >= 0) {
+    appCode = stem.slice(0, hash)
+    version = stem.slice(hash + 2)
+  }
+  let kind = ''
+  switch (ext) {
+    case '.war':
+      kind = 'war'
+      break
+    case '.jar':
+      kind = 'jar'
+      break
+    case '.zip':
+      kind = 'static'
+      break
+    default:
+      kind = ''
+  }
+  const prefix = cwd.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (prefix && appCode) {
+    appCode = `${prefix}/${appCode}`
+  }
+  return { appCode, kind, version }
 }
 
 /** 应用管理：左运行时 · 右文件仓 · 下操作日志。 */
@@ -509,6 +546,108 @@ export function useAppWorkbench() {
     }
   }
 
+  /** 当前站点是否支持进程启停（files / static 无进程）。 */
+  const canLifecycle = computed(() => {
+    const mode = current.value?.modeCode || ''
+    return mode !== '' && mode !== 'files' && mode !== 'static'
+  })
+
+  async function submitLifecycle(op: 'start' | 'stop' | 'restart') {
+    if (!current.value || !canRelease.value || !canLifecycle.value) return
+    const site = current.value
+    const label = op === 'start' ? '启动' : op === 'stop' ? '停止' : '重启'
+    const ok = await rsConfirm.confirm({
+      title: `${label}运行时`,
+      description: `将对「${site.instanceName}」执行${label}（按代理本机 systemd / Windows 服务 / docker / 命令配置）。`,
+      confirmText: label,
+      teleportTo: `#${moduleId}`,
+    })
+    if (!ok) return
+    try {
+      const res = await runtimeControl(site.agentId, site.instanceName, op)
+      if (!isApiSuccess(res)) {
+        toast.error(getApiMessage(res, `${label}失败`))
+        pushLog(`${label}失败：${getApiMessage(res, `${label}失败`)}`)
+        return
+      }
+      const cmd = parseApiData<RuntimeCommand>(res)
+      if (!cmd?.commandId) {
+        toast.error(`${label}未返回命令`)
+        return
+      }
+      pushLog(`已下发${label} ${site.instanceName}`)
+      toast.success(`已下发${label}`)
+      void pollCommand(cmd.commandId, label)
+    } catch (err) {
+      toast.error(getHttpErrorMessage(err, `${label}失败`))
+      pushLog(`${label}失败：${getHttpErrorMessage(err, `${label}失败`)}`)
+    }
+  }
+
+  async function pollCommand(commandId: string, label: string) {
+    if (!pageAlive) return
+    const res = await queryCommand(commandId)
+    if (!pageAlive || !isApiSuccess(res)) return
+    const cmd = parseApiData<RuntimeCommand>(res)
+    if (!cmd) return
+    if (cmd.status === 'done' || cmd.status === 'failed') {
+      pushLog(`${label} · ${statusText(cmd.status)}${cmd.message ? ` · ${cmd.message}` : ''}`)
+      if (cmd.status === 'done') void refreshFiles()
+      return
+    }
+    window.setTimeout(() => void pollCommand(commandId, label), 2000)
+  }
+
+  /** 在当前运行时下新增制品（不勾选已有文件）。 */
+  async function submitCreate(appCode: string, kind: string) {
+    if (!current.value || !canRelease.value) return
+    appCode = appCode.trim()
+    kind = kind.trim()
+    if (!appCode || !kind) {
+      toast.error('请填写应用编号与制品种类')
+      return
+    }
+    if (kind === 'dir' || kind === 'log') {
+      toast.error('目录与日志不能走新增上传')
+      return
+    }
+    if (!version.value.trim() || !file.value) {
+      toast.error('请填写版本并选择本地文件')
+      return
+    }
+    const body = new FormData()
+    body.set('purpose', 'create')
+    body.set('agentId', current.value.agentId)
+    body.set('instanceName', current.value.instanceName)
+    body.set('appCode', appCode)
+    body.set('kind', kind)
+    body.set('version', version.value.trim())
+    body.set('file', file.value)
+    try {
+      const res = await releaseApp(body)
+      if (!isApiSuccess(res)) {
+        toast.error(getApiMessage(res, '新增失败'))
+        pushLog(`新增失败：${getApiMessage(res, '新增失败')}`)
+        return
+      }
+      const next = parseApiData<AppRelease>(res)
+      if (!next) {
+        toast.error('新增未返回发布信息')
+        return
+      }
+      releasing.value = next
+      const msg = `已下发新增 ${appCode}`
+      toast.success(msg)
+      pushLog(msg)
+      void poll()
+      const relRes = await queryReleases(appCode)
+      if (isApiSuccess(relRes)) releases.value = parseApiData<AppRelease[]>(relRes) ?? []
+    } catch (err) {
+      toast.error(getHttpErrorMessage(err, '新增失败'))
+      pushLog(`新增失败：${getHttpErrorMessage(err, '新增失败')}`)
+    }
+  }
+
   async function continueBatch() {
     const id = releasing.value?.releaseId
     if (!id || !canRelease.value || continueBusy.value) return
@@ -634,6 +773,7 @@ export function useAppWorkbench() {
     downloadProgress,
     logLines,
     canRelease,
+    canLifecycle,
     selectedFiles,
     releaseKind,
     releaseAppCode,
@@ -647,6 +787,8 @@ export function useAppWorkbench() {
     downloadOne,
     onPickFile,
     submitRelease,
+    submitCreate,
+    submitLifecycle,
     continueBatch,
     submitRollback,
     openRelease,

@@ -14,8 +14,9 @@ import (
 	dbx "github.com/fluxsce/dbx/db"
 )
 
-// Refresh 刷新一套 files 运行时的文件清单并写库。
+// Refresh 刷新一套运行时的制品清单并写库（files / tomcat 等凡代理能 ListInventory 的 mode）。
 // 拨通：中央短拨列目录后同步。拨不通：下发 app.file.list，等代理出站推清单后再同步。
+// 同步含 retire：代理侧已删文件会从库注销，避免控制台残留。
 func Refresh(ctx context.Context, db *dbx.DB, tenantID, user, agentID, instance string) (mode string, err error) {
 	agentID = strings.TrimSpace(agentID)
 	instance = strings.TrimSpace(instance)
@@ -25,9 +26,6 @@ func Refresh(ctx context.Context, db *dbx.DB, tenantID, user, agentID, instance 
 	mode, err = dao.SiteMode(ctx, db, tenantID, agentID, instance)
 	if err != nil {
 		return "", err
-	}
-	if mode != "files" {
-		return mode, nil
 	}
 	svc := command.Current()
 	if svc == nil {
