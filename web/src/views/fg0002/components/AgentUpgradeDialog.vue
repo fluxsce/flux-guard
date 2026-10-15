@@ -308,6 +308,27 @@ function matchText(flag?: string) {
   if (flag === 'N') return '版本未对齐'
   return '待上报'
 }
+
+/**
+ * 升级勾选列表里区分同名代理：显示名旁附主机与地址。
+ * @param row - 代理行
+ */
+function agentPickLabel(row: Agent) {
+  const parts = [row.agentName || row.agentId]
+  if (row.hostName) parts.push(row.hostName)
+  if (row.ipAddress) parts.push(row.ipAddress)
+  return parts.join(' · ')
+}
+
+/**
+ * 进度明细标识；优先用当前列表里的主机/地址，否则回退到显示名。
+ * @param item - 一次升级中的单台明细
+ */
+function releaseItemLabel(item: { agentId: string; agentName?: string }) {
+  const row = props.agents.find((agent) => agent.agentId === item.agentId)
+  if (row) return agentPickLabel(row)
+  return item.agentName || item.agentId
+}
 </script>
 
 <template>
@@ -370,7 +391,7 @@ function matchText(flag?: string) {
           :disabled="releaseOpen"
           @update:model-value="setPicked(row.agentId, $event)"
         >
-          <span class="name">{{ row.agentName }}</span>
+          <span class="name">{{ agentPickLabel(row) }}</span>
           <span class="meta">{{ row.agentVersion || '—' }} · {{ row.goos }}/{{ row.goarch }}</span>
         </RsCheckbox>
       </li>
@@ -411,7 +432,7 @@ function matchText(flag?: string) {
         />
         <ul v-else-if="releasing?.items?.length">
           <li v-for="item in releasing.items" :key="item.commandId" class="progress-row">
-            <span class="name">{{ item.agentName || item.agentId }}</span>
+            <span class="name">{{ releaseItemLabel(item) }}</span>
             <RsTag size="sm" :variant="upgradeStatusVariant(item.status, item.versionMatched)">
               {{ upgradeStatusText(item.status, item.versionMatched) }}
             </RsTag>
@@ -527,6 +548,7 @@ function matchText(flag?: string) {
   align-items: center;
 }
 .name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

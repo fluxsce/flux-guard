@@ -3,7 +3,6 @@ package dao
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -206,18 +205,19 @@ func baseOf(path, mode string) string {
 }
 
 // tomcatHomeOf 从 webapps/WAR 或 logs 下的文件路径还原 CATALINA_HOME。
+// 不用 filepath.ToSlash：Linux 流水线上 Separator 是 /，无法把 Windows 反斜杠路径归一化。
 func tomcatHomeOf(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}
-	slash := filepath.ToSlash(path)
+	slash := strings.ReplaceAll(path, `\`, "/")
 	lower := strings.ToLower(slash)
 	for _, marker := range []string{"/webapps/", "/logs/", "/conf/", "/bin/"} {
 		if i := strings.Index(lower, marker); i > 0 {
 			home := slash[:i]
 			if strings.Contains(path, `\`) {
-				return filepath.FromSlash(home)
+				return strings.ReplaceAll(home, "/", `\`)
 			}
 			return home
 		}
