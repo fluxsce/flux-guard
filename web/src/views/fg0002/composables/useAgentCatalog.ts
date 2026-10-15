@@ -35,6 +35,7 @@ export const agentCodeOptions: FlagOption[] = [
 
 export const agentColumns = [
   { key: 'agentName', title: '名称', minWidth: 140 },
+  { key: 'noteText', title: '描述', minWidth: 160, ellipsis: true },
   { key: 'agentCode', title: '种类', width: 88 },
   { key: 'agentVersion', title: '版本', width: 100 },
   { key: 'upgradeStatus', title: '升级', width: 100 },
@@ -136,10 +137,17 @@ export const agentCreateFields: FgFormField[] = [
 
 export const agentRenameFields: FgFormField[] = [
   { field: 'agentName', label: '显示名', required: true, placeholder: '只改列表显示，不影响身份分行' },
+  {
+    field: 'noteText',
+    label: '描述',
+    type: 'textarea',
+    placeholder: '例如：机房A 生产 Tomcat / 测试环境主机代理',
+  },
 ]
 
 export const agentFormFields: FgFormField[] = [
   { field: 'agentName', label: '名称' },
+  { field: 'noteText', label: '描述', type: 'textarea' },
   { field: 'agentCode', label: '种类' },
   { field: 'agentVersion', label: '版本' },
   { field: 'goos', label: '系统' },
@@ -338,7 +346,7 @@ export function useAgentCatalog() {
     const target = row ?? active.value
     if (!target || !allow('fg0002:edit')) return
     active.value = target
-    renameCurrent.value = { agentName: target.agentName || '' }
+    renameCurrent.value = { agentName: target.agentName || '', noteText: target.noteText || '' }
     renameOpen.value = true
   }
 
@@ -351,16 +359,17 @@ export function useAgentCatalog() {
       toast.error(error.value)
       return
     }
+    const noteText = str(values.noteText).trim()
     error.value = ''
     try {
-      const result = await renameAgent(target.agentId, agentName)
+      const result = await renameAgent(target.agentId, agentName, noteText)
       if (!isApiSuccess(result)) {
         error.value = getApiMessage(result, '改名失败')
         toast.error(error.value)
         return
       }
       renameOpen.value = false
-      toast.success('已更新显示名')
+      toast.success('已更新显示名与描述')
       await reload()
     } catch (err) {
       error.value = getHttpErrorMessage(err, '改名失败')

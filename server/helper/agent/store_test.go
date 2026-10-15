@@ -101,11 +101,11 @@ func TestRenameAgentKeepsUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := agents.RenameAgent(ctx, second.AgentID, "alpha"); err != ErrAgentNameTaken {
+	if _, err := agents.RenameAgent(ctx, second.AgentID, "alpha", ""); err != ErrAgentNameTaken {
 		t.Fatalf("taken: %v", err)
 	}
-	view, err := agents.RenameAgent(ctx, first.AgentID, "机房A")
-	if err != nil || view.AgentName != "机房A" {
+	view, err := agents.RenameAgent(ctx, first.AgentID, "机房A", "生产主机")
+	if err != nil || view.AgentName != "机房A" || view.NoteText != "生产主机" {
 		t.Fatalf("rename %+v %v", view, err)
 	}
 }

@@ -8,13 +8,26 @@ import (
 	"testing"
 )
 
+func TestNormalizeCommandClearsService(t *testing.T) {
+	rt, err := normalizeRuntime(Runtime{
+		Kind: "command", Mode: "tomcat", Instance: "a", Base: "/opt/t",
+		Service: "tomcat-a", // 误写，应被丢掉
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Service != "" {
+		t.Fatalf("service should be cleared, got %q", rt.Service)
+	}
+}
+
 func TestFillTomcatCommandDefaults(t *testing.T) {
 	rt := Runtime{Kind: "command", Mode: "tomcat", Base: "/opt/tomcat-a", Instance: "tomcat-a"}
 	if err := fillCommandDefaults(&rt); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.GOOS == "windows" {
-		if !strings.Contains(rt.Start, "startup.bat") || !strings.Contains(rt.Status, "catalina.bat") {
+		if !strings.Contains(rt.Start, "startup.bat") || !strings.Contains(rt.Status, "catalina.base=") {
 			t.Fatalf("%+v", rt)
 		}
 		return
@@ -22,8 +35,11 @@ func TestFillTomcatCommandDefaults(t *testing.T) {
 	if !strings.HasSuffix(rt.Start, "startup.sh") || !strings.HasSuffix(rt.Stop, "shutdown.sh") {
 		t.Fatalf("%+v", rt)
 	}
-	if !strings.Contains(rt.Status, "catalina.sh") || !strings.HasSuffix(rt.Status, "status") {
+	if !strings.Contains(rt.Status, "pgrep") || !strings.Contains(rt.Status, "catalina.base=") {
 		t.Fatalf("status %s", rt.Status)
+	}
+	if !strings.Contains(rt.Kill, "pkill") || !strings.Contains(rt.Kill, "catalina.base=") {
+		t.Fatalf("kill %s", rt.Kill)
 	}
 }
 

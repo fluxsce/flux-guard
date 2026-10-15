@@ -232,6 +232,20 @@ export function useAppWorkbench() {
     await refreshFiles()
   }
 
+  function onSiteNoteSaved(row: AppSite) {
+    const i = sites.value.findIndex(
+      (item) => item.agentId === row.agentId && item.instanceName === row.instanceName,
+    )
+    if (i >= 0) sites.value[i] = { ...sites.value[i], noteText: row.noteText || '' }
+    if (
+      current.value &&
+      current.value.agentId === row.agentId &&
+      current.value.instanceName === row.instanceName
+    ) {
+      current.value = { ...current.value, noteText: row.noteText || '' }
+    }
+  }
+
   async function refreshFiles() {
     const site = current.value
     if (!site) return
@@ -779,6 +793,7 @@ export function useAppWorkbench() {
     releaseAppCode,
     loadSites,
     openSite,
+    onSiteNoteSaved,
     refreshFiles,
     toggle,
     pickAll,

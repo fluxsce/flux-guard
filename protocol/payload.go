@@ -34,6 +34,7 @@ type Host struct {
 	IPList         string    `json:"ipList,omitempty"`
 	BootTime       time.Time `json:"bootTime,omitempty"`
 	ReportName     string    `json:"reportName,omitempty"`
+	Description    string    `json:"description,omitempty"` // 代理描述，写入 FG_AGENT.noteText
 	MachineID      string    `json:"machineId,omitempty"`
 	KernelVersion  string    `json:"kernelVersion,omitempty"`
 	AgentVersion   string    `json:"agentVersion,omitempty"`
@@ -76,6 +77,7 @@ type AppSide struct {
 	HostName       string        `json:"hostName,omitempty"`
 	IPAddress      string        `json:"ipAddress,omitempty"`
 	MachineID      string        `json:"machineId,omitempty"`
+	Description    string        `json:"description,omitempty"` // 运行时描述，写入 FG_APP_INST.noteText
 	RunningFlag    string        `json:"runningFlag"`
 	Artifacts      []AppArtifact `json:"artifacts,omitempty"`
 }
@@ -114,6 +116,7 @@ type Request struct {
 	AgentVersion string    `json:"agentVersion,omitempty"`
 	GoOS         string    `json:"goos,omitempty"`
 	GoArch       string    `json:"goarch,omitempty"`
+	Description  string    `json:"description,omitempty"` // 代理描述（configs 的 description），写入 FG_AGENT.noteText
 	SentAt       time.Time `json:"sentAt"`
 	Samples      []Sample  `json:"samples,omitempty"`
 	Events       []Event   `json:"events,omitempty"`

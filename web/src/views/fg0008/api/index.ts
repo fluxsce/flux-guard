@@ -13,6 +13,8 @@ export interface AppSite {
   modeCode: string
   runtimeKind: string
   basePath?: string
+  /** 人工备注，便于区分同名多机运行时。 */
+  noteText?: string
   fileCount: number
   onlineFlag: string
   commandAddress?: string
@@ -115,6 +117,11 @@ export function queryReleases(appCode: string) {
 /** 修改应用显示名。 */
 export function renameApp(appCode: string, appName: string) {
   return fg0008.post('/rename', { appCode, appName })
+}
+
+/** 修改运行时简短描述。 */
+export function updateSiteNote(agentId: string, instanceName: string, noteText: string) {
+  return fg0008.post('/updateSiteNote', { agentId, instanceName, noteText })
 }
 
 /** 忽略应用。 */

@@ -108,10 +108,11 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 			return models.View{}, models.ErrNotUpdatable
 		}
 	}
-	// 自更新与出站推文件超过拨号时限或专供隔离网；只走长轮询。
+	// 自更新、出站推文件、启停/重启：超过短拨时限或专供隔离网，只走长轮询。
 	primary, list, addr := s.targetAddress(ctx, tenantID, agentID, in.Action)
 	token := setting.IngestPlain(tenantID)
 	canDial := !protocol.AgentAction(in.Action) && !protocol.FilePushAction(in.Action) &&
+		!protocol.AppLifecycleAction(in.Action) &&
 		addr != "" && token != "" && allowedTarget(addr, primary, list)
 	commandID := id.New()
 	statusFlag := models.StatusWaiting

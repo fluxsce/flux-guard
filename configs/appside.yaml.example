@@ -8,12 +8,15 @@
 #   systemd   Linux 系统服务。service 填服务名。
 #   windows   Windows 服务。service 填服务名。
 #   docker    容器。service 填容器名。
-#   command   本机命令。可手写 start / stop / status；未填时按 mode 推导：
-#             tomcat -> base/bin/startup.sh（Windows 为 .bat）等
+#   command   本机命令。可手写 start / stop / status / kill；未填时按 mode 推导：
+#             tomcat -> startup/shutdown；status/kill 按 catalina.base 查/杀进程
 #             node / script -> 优先用 base/bin、base、base/scripts 下的 start/stop/status，
-#                             没有则落到 base/bin/start.sh（Windows 为 .bat）
+#                             没有则落到 base/bin/start.sh（Windows 为 .bat）；kill 可手写
 #             jar -> 在 jar 同目录找上述约定脚本
 #             files -> 不启停；心跳只报站点，文件清单在控制台打开时向代理请求
+#             kind=command 会忽略 service（写了也丢弃；systemd/windows/docker 才用 service）
+#             stop_grace_sec：优雅 stop 最长秒数（默认 30），超时仍在跑则执行 kill
+#             startup_wait_sec：启动探测最长秒数（Tomcat 默认 180，其它默认 30），按秒轮询日志/进程
 #
 # tomcat / node / script 填 base。换包或升级都会先挪到 backup_dir，再写回原路径，然后重启。
 # files 填 base 为制品目录：心跳只登记这一套运行时；打开/刷新文件仓时向代理要清单
@@ -24,7 +27,9 @@
 server_url: http://127.0.0.1:8080 # 中央地址
 agent_token: agt_dev_local # 开发令牌，上线前换成环境设置里的上报令牌
 interval_sec: 15 # 多久上报一次，单位秒
-command_listen: 127.0.0.1:7701 # 中央连这台机器下发换包命令的端口。整台机器一个。留空则由这台机器自己去中央取命令
+description: # 可选；写入代理列表「描述」（FG_AGENT.noteText）；非空时每次上报覆盖控制台备注，空则不改
+# 中央能拨到本机时填 0.0.0.0:端口或本机网卡 IP；填 127.0.0.1 时中央在其它机器上拨不通，启停/换包会改走代理长轮询（仍可用）。
+command_listen: 0.0.0.0:7701 # 中央连这台机器下发命令的端口。整台机器一个。留空则由这台机器自己去中央取命令
 backup_dir: /data/fluxguard/backup # 换包和升级前，旧文件挪到这里。必须填写，不要放在 webapps / 制品目录里面。Windows 可写成 E:\fluxguard\backup
 
 runtimes:
@@ -34,16 +39,22 @@ runtimes:
     service: tomcat-a
     mode: tomcat
     base: /opt/tomcat-a
-  # 脚本启动的 Tomcat：不写 start/stop/status，按 base/bin 推导。
+    description: 生产订单 Tomcat # 可选；写入 fg0008 左侧运行时描述；非空覆盖、空不改
+  # 脚本启动的 Tomcat：不写 start/stop/status/kill，按 base 推导；shutdown 超时会 pkill。
   - kind: command
     instance: tomcat-b
     mode: tomcat
     base: /opt/tomcat-b
+    description: 测试环境 Tomcat
+    # stop_grace_sec: 30      # 可选；优雅停止等待，超时强杀
+    # startup_wait_sec: 300   # 可选；大应用启动探测可加长（默认 180）
+    # kill: pkill -9 -f '[c]atalina.base=/opt/tomcat-b'  # 可选；一般不用手写
   # Node：换包是 zip 解到 base。启停可手写，也可放约定脚本后自动推导。
   - kind: command
     instance: order-api
     mode: node
     base: /opt/order-api
+    description: 订单 API（Node）
   # 通用脚本应用：目录 + start/stop/status，换包同样进 base。
   - kind: command
     instance: batch-job
@@ -66,6 +77,7 @@ runtimes:
     instance: war-v10-p05
     mode: files
     base: E:\war\V10.0.0-P05
+    description: 本机 war 制品目录
 
 log:
   file: logs/appside.log

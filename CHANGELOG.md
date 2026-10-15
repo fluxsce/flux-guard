@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-10-15
+
+### 新增
+- `command` 运行时支持 `kill`：优雅 `stop` 超时（默认 30s，可配 `stop_grace_sec`）后仍在跑则强杀；Tomcat 默认按 `catalina.base` 推导 `pkill -9`。
+- 启动探测可配 `startup_wait_sec`；Tomcat 默认轮询最长 180s（见日志 `Server startup`），不再固定等 5s。
+
+### 修复
+- 应用启停/重启：优雅 stop 有上限，超时强杀后再 start 并回执，避免卡在「执行中 / 等待回执」。
+- 启停/重启只走长轮询，不再短拨（短拨总时限盖不住停机+启动探测）。
+- Tomcat `command` 默认 status 改为按 `catalina.base` 查进程（stock `catalina.sh` 无 status 子命令）。
+
 ## [1.1.8] - 2026-10-15
 
 ### 新增
@@ -13,6 +24,8 @@
 - `fg0008` 文件仓支持日志在线滚动查看（经隧道跟读末尾并持续追加；隔离网可用）。右键「查看」或双击 `.log`/`.txt`/`.out`。
 - `fg0008` 支持「上传新增」：在当前运行时下新增制品，不必勾选已有文件（`purpose=create`）。
 - `fg0008` 运行时可启动 / 停止 / 重启（`app.runtime.start|stop|restart`），启动与重启带启动探测；工具栏可打开启动日志跟读。
+- `fg0002` 代理列表支持「描述」备注（`noteText`）；`fg0008` 左侧运行时支持简短描述，便于区分同名多机。
+- 代理配置可填 `description`（进程级）与 appside `runtimes[].description`（运行时级），上报写入列表描述；非空覆盖、空不改。
 
 ### 变更
 - 架构约定三面：Telemetry（ingest）/ Control（`FG_COMMAND`）/ Session（一条出站 WS）。扩展 agent 种类只加 `agentCode` 与动作枚举，不新开会话 URL。

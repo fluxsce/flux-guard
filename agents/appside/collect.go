@@ -47,6 +47,7 @@ func Collect(ctx context.Context, rt Runtime, commandAddr string) (protocol.Coll
 		CommandAddress: commandAddr,
 		HostName:       hostName,
 		IPAddress:      localIPv4(),
+		Description:    rt.Description,
 		RunningFlag:    running,
 	}
 	m.FillSide(side, rt)
@@ -68,6 +69,7 @@ func skeletonSide(rt Runtime, commandAddr string) protocol.AppSide {
 		CommandAddress: commandAddr,
 		HostName:       hostName,
 		IPAddress:      localIPv4(),
+		Description:    rt.Description,
 		RunningFlag:    "N",
 		Artifacts:      nil,
 	}

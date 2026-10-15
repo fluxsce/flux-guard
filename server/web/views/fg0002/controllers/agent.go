@@ -78,13 +78,14 @@ func (c *AgentController) DeleteAgents(g *gin.Context) {
 	httpx.WriteOK(g, map[string]any{"deleted": n})
 }
 
-// renameAgentBody 改显示名的请求体。
+// renameAgentBody 改显示名与备注的请求体。
 type renameAgentBody struct {
 	AgentID   string `json:"agentId"`
 	AgentName string `json:"agentName"`
+	NoteText  string `json:"noteText"`
 }
 
-// RenameAgent 只改显示名。上报不会冲掉这里改过的名字。
+// RenameAgent 改显示名与备注。上报不会冲掉这里改过的名字。
 func (c *AgentController) RenameAgent(g *gin.Context) {
 	var body renameAgentBody
 	if !request.Bind(g, &body) {
@@ -92,7 +93,7 @@ func (c *AgentController) RenameAgent(g *gin.Context) {
 	}
 	name := strings.TrimSpace(body.AgentName)
 	audit.Note(g, "", "AGENT", body.AgentID, name, "修改代理显示名 "+name)
-	view, err := c.agents.RenameAgent(g.Request.Context(), body.AgentID, body.AgentName)
+	view, err := c.agents.RenameAgent(g.Request.Context(), body.AgentID, body.AgentName, body.NoteText)
 	if err != nil {
 		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
 		return

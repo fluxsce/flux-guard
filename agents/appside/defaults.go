@@ -18,21 +18,23 @@ func fillCommandDefaults(rt *Runtime) error {
 	if rt.Mode == "files" {
 		return nil
 	}
-	if rt.Start != "" && rt.Stop != "" && rt.Status != "" {
-		return nil
+	if rt.Start == "" || rt.Stop == "" || rt.Status == "" {
+		start, stop, status, err := defaultCommands(rt)
+		if err != nil {
+			return err
+		}
+		if rt.Start == "" {
+			rt.Start = start
+		}
+		if rt.Stop == "" {
+			rt.Stop = stop
+		}
+		if rt.Status == "" {
+			rt.Status = status
+		}
 	}
-	start, stop, status, err := defaultCommands(rt)
-	if err != nil {
-		return err
-	}
-	if rt.Start == "" {
-		rt.Start = start
-	}
-	if rt.Stop == "" {
-		rt.Stop = stop
-	}
-	if rt.Status == "" {
-		rt.Status = status
+	if rt.Mode == "tomcat" && rt.Kill == "" && rt.Base != "" {
+		rt.Kill = tomcatKillCommand(rt.Base)
 	}
 	if rt.Start == "" || rt.Stop == "" || rt.Status == "" {
 		return fmt.Errorf("command 模式请填写 start、stop、status，或按约定放置脚本")
@@ -68,14 +70,40 @@ func defaultCommands(rt *Runtime) (start, stop, status string, err error) {
 
 func tomcatCommands(base string) (start, stop, status string) {
 	bin := filepath.Join(base, "bin")
+	// stock Tomcat 没有 catalina status；用进程命令行里的 catalina.base 判断是否在跑。
+	status = tomcatStatusCommand(base)
 	if runtime.GOOS == "windows" {
 		return shellPath(filepath.Join(bin, "startup.bat")),
 			shellPath(filepath.Join(bin, "shutdown.bat")),
-			shellPath(filepath.Join(bin, "catalina.bat")) + " status"
+			status
 	}
 	return shellPath(filepath.Join(bin, "startup.sh")),
 		shellPath(filepath.Join(bin, "shutdown.sh")),
-		shellPath(filepath.Join(bin, "catalina.sh")) + " status"
+		status
+}
+
+// tomcatStatusCommand 按 CATALINA_BASE 查 Java 进程。路径含空格时已带引号片段。
+func tomcatStatusCommand(base string) string {
+	base = filepath.Clean(strings.TrimSpace(base))
+	marker := "catalina.base=" + base
+	if runtime.GOOS == "windows" {
+		// PowerShell：命令行含 catalina.base=<base> 即视为在跑。
+		esc := strings.ReplaceAll(marker, `'`, `''`)
+		return `powershell -NoProfile -Command "if (Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | Where-Object { $_.CommandLine -like '*` + esc + `*' } | Select-Object -First 1) { exit 0 } else { exit 1 }"`
+	}
+	// [c] 避免 pgrep 匹配到自身命令行。
+	return "pgrep -f " + shellPath("[c]"+marker)
+}
+
+// tomcatKillCommand 按 CATALINA_BASE 强杀 Java 进程（优雅 shutdown 超时后用）。
+func tomcatKillCommand(base string) string {
+	base = filepath.Clean(strings.TrimSpace(base))
+	marker := "catalina.base=" + base
+	if runtime.GOOS == "windows" {
+		esc := strings.ReplaceAll(marker, `'`, `''`)
+		return `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | Where-Object { $_.CommandLine -like '*` + esc + `*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`
+	}
+	return "pkill -9 -f " + shellPath("[c]"+marker)
 }
 
 // lifecycleCommands 优先找已有约定脚本，没有则落到 base/bin/start|stop|status。

@@ -52,15 +52,19 @@ func (c *BatchController) Accept(g *gin.Context) {
 	httpx.WriteOK(g, result)
 }
 
-// reportingTouch 取本批上报的产品版本与平台。
+// reportingTouch 取本批上报的产品版本、平台与描述。
 func reportingTouch(body protocol.Request) agent.TouchInfo {
 	info := agent.TouchInfo{
-		Version: strings.TrimSpace(body.AgentVersion),
-		GoOS:    strings.TrimSpace(body.GoOS),
-		GoArch:  strings.TrimSpace(body.GoArch),
+		Version:     strings.TrimSpace(body.AgentVersion),
+		GoOS:        strings.TrimSpace(body.GoOS),
+		GoArch:      strings.TrimSpace(body.GoArch),
+		Description: strings.TrimSpace(body.Description),
 	}
 	if info.Version == "" && body.Host != nil {
 		info.Version = strings.TrimSpace(body.Host.AgentVersion)
+	}
+	if info.Description == "" && body.Host != nil {
+		info.Description = strings.TrimSpace(body.Host.Description)
 	}
 	return info
 }

@@ -102,6 +102,35 @@ type nameBody struct {
 	AppName string `json:"appName"`
 }
 
+type siteNoteBody struct {
+	AgentID      string `json:"agentId"`
+	InstanceName string `json:"instanceName"`
+	NoteText     string `json:"noteText"`
+}
+
+// UpdateSiteNote 为左侧运行时写简短描述，便于区分同名多机。
+func (c *AppController) UpdateSiteNote(g *gin.Context) {
+	p := middleware.Principal(g)
+	var body siteNoteBody
+	if !request.Bind(g, &body) {
+		return
+	}
+	agentID := strings.TrimSpace(body.AgentID)
+	instance := strings.TrimSpace(body.InstanceName)
+	if agentID == "" || instance == "" {
+		httpx.WriteErr(g, http.StatusBadRequest, "缺少运行时")
+		return
+	}
+	audit.Note(g, "", "APP", instance, instance, "修改运行时描述 "+instance)
+	if err := dao.SetSiteNote(g.Request.Context(), c.db, p.TenantID, agentID, instance, body.NoteText, p.UserID); err != nil {
+		writeMissing(g, err, "修改失败")
+		return
+	}
+	httpx.WriteOK(g, map[string]string{
+		"agentId": agentID, "instanceName": instance, "noteText": strings.TrimSpace(body.NoteText),
+	})
+}
+
 // Rename 只改显示名。
 func (c *AppController) Rename(g *gin.Context) {
 	p := middleware.Principal(g)

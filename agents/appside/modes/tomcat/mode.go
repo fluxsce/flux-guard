@@ -82,43 +82,88 @@ func (tomcatMode) MarkStartupLog(rt core.Runtime) core.LogMark {
 
 func (tomcatMode) ProbeStartup(ctx context.Context, rt core.Runtime, mark core.LogMark) protocol.CommandStep {
 	step := protocol.CommandStep{Name: "startup", Status: "done"}
-	if err := core.WaitStartup(ctx, core.StartupWait); err != nil {
-		step.Status = "failed"
-		step.Detail = "等待启动时任务已取消"
-		return step
-	}
-	running := core.Running(ctx, rt)
+	deadline := time.Now().Add(core.StartupProbeWait(rt, core.TomcatStartupWait))
 	logPath := mark.Path
 	if logPath == "" {
-		var err error
-		logPath, err = pickTomcatLog(filepath.Join(strings.TrimSpace(rt.Base), "logs"))
-		if err != nil {
-			if !running {
-				step.Status = "failed"
-				step.Detail = "重启后进程未运行，且未能读取启动日志：" + err.Error()
-				return step
-			}
-			step.Detail = "进程已在运行；未能读取启动日志：" + err.Error()
-			return step
+		if p, err := pickTomcatLog(filepath.Join(strings.TrimSpace(rt.Base), "logs")); err == nil {
+			logPath = p
 		}
 	}
 	step.TargetPath = logPath
-	snippet, err := readLogAfter(logPath, mark.Offset, startupTailBytes)
-	if err != nil {
-		if !running {
-			step.Status = "failed"
-			step.Detail = "重启后进程未运行，且未能读取启动日志：" + err.Error()
+
+	for {
+		running := core.Running(ctx, rt)
+		if logPath == "" {
+			if p, err := pickTomcatLog(filepath.Join(strings.TrimSpace(rt.Base), "logs")); err == nil {
+				logPath = p
+				step.TargetPath = logPath
+			}
+		}
+		var snippet string
+		var readErr error
+		if logPath != "" {
+			snippet, readErr = readLogAfter(logPath, mark.Offset, startupTailBytes)
+		}
+		if readErr == nil && logPath != "" {
+			if earlyReady(snippet) {
+				verdict, ok := judgeTomcatStartup(snippet, running)
+				step.Detail = formatStartupDetail(verdict, logPath, snippet)
+				if !ok {
+					step.Status = "failed"
+				}
+				return step
+			}
+		}
+		if time.Now().After(deadline) {
+			if logPath == "" {
+				if !running {
+					step.Status = "failed"
+					if readErr != nil {
+						step.Detail = "重启后进程未运行，且未能读取启动日志：" + readErr.Error()
+					} else {
+						step.Detail = "重启后进程未运行，且未能定位启动日志"
+					}
+					return step
+				}
+				step.Detail = "进程已在运行；未能读取启动日志"
+				if readErr != nil {
+					step.Detail += "：" + readErr.Error()
+				}
+				return step
+			}
+			if readErr != nil {
+				if !running {
+					step.Status = "failed"
+					step.Detail = "重启后进程未运行，且未能读取启动日志：" + readErr.Error()
+					return step
+				}
+				step.Detail = "进程已在运行；未能读取启动日志：" + readErr.Error()
+				return step
+			}
+			verdict, ok := judgeTomcatStartup(snippet, running)
+			step.Detail = formatStartupDetail(verdict, logPath, snippet)
+			if !ok {
+				step.Status = "failed"
+			}
 			return step
 		}
-		step.Detail = "进程已在运行；未能读取启动日志：" + err.Error()
-		return step
+		timer := time.NewTimer(core.StartupPollEvery)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			step.Status = "failed"
+			step.Detail = "等待启动时任务已取消"
+			return step
+		case <-timer.C:
+		}
 	}
-	verdict, ok := judgeTomcatStartup(snippet, running)
-	step.Detail = formatStartupDetail(verdict, logPath, snippet)
-	if !ok {
-		step.Status = "failed"
+}
+
+func earlyReady(snippet string) bool {
+	if strings.Contains(snippet, "Server startup in") {
+		return true
 	}
-	return step
+	return strings.Contains(strings.ToLower(snippet), "server startup [")
 }
 
 // ReplaceWar 用新包替换 webapps 里同 AppCode 的 WAR（含 order##2.4.1.war），并清掉已展开目录。

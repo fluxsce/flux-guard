@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"fluxguard/common/buildinfo"
@@ -74,12 +75,20 @@ func Report(ctx context.Context, cfg Config, client *http.Client, agentCode stri
 	if len(result.Samples) == 0 && len(result.Events) == 0 && result.Host == nil && result.Java == nil && result.Go == nil && result.AppSide == nil && len(result.AppSides) == 0 {
 		return nil
 	}
+	desc := strings.TrimSpace(cfg.Description)
+	if len([]rune(desc)) > 500 {
+		desc = string([]rune(desc)[:500])
+	}
+	if result.Host != nil && strings.TrimSpace(result.Host.Description) == "" && desc != "" {
+		result.Host.Description = desc
+	}
 	payload := protocol.Request{
 		BatchID:      id.New(),
 		AgentCode:    agentCode,
 		AgentVersion: buildinfo.Version,
 		GoOS:         runtime.GOOS,
 		GoArch:       runtime.GOARCH,
+		Description:  desc,
 		SentAt:       time.Now().UTC(),
 		Samples:      result.Samples,
 		Events:       result.Events,

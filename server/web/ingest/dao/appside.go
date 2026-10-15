@@ -167,6 +167,7 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 		"tomcatVersion":  nullText(clip(strings.TrimSpace(side.TomcatVersion), 64)),
 		"runningFlag":    side.RunningFlag,
 		"commandAddress": nullText(clip(strings.TrimSpace(side.CommandAddress), 128)),
+		"noteText":       clip(strings.TrimSpace(side.Description), 500),
 		"reportedTime":   reported, "editTime": edited,
 	}
 	if err == nil && instID != "" {
@@ -177,6 +178,7 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 			  instanceName = @instanceName, runtimeKind = @runtimeKind, modeCode = @modeCode, artifactKind = @artifactKind,
 			  artifactPath = @artifactPath, versionText = @versionText, tomcatVersion = @tomcatVersion,
 			  runningFlag = @runningFlag, commandAddress = @commandAddress, reportedTime = @reportedTime,
+			  noteText = CASE WHEN @noteText = '' THEN noteText ELSE @noteText END,
 			  activeFlag = 'Y', editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
 			WHERE tenantId = @tenantId AND instId = @instId`, args)
 		return err
@@ -190,11 +192,11 @@ func upsertInst(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *pro
 		INSERT INTO FG_APP_INST (
 		  instId, tenantId, agentId, appCode, machineId, hostName, ipAddress, instanceName,
 		  runtimeKind, modeCode, artifactKind, artifactPath, versionText, tomcatVersion, runningFlag,
-		  commandAddress, reportedTime, addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
+		  commandAddress, noteText, reportedTime, addTime, addWho, editTime, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
 		  @instId, @tenantId, @agentId, @appCode, @machineId, @hostName, @ipAddress, @instanceName,
 		  @runtimeKind, @modeCode, @artifactKind, @artifactPath, @versionText, @tomcatVersion, @runningFlag,
-		  @commandAddress, @reportedTime, @editTime, @addWho, @editTime, 'system', 'INGEST', 1, 'Y'
+		  @commandAddress, @noteText, @reportedTime, @editTime, @addWho, @editTime, 'system', 'INGEST', 1, 'Y'
 		)`, args)
 	return err
 }

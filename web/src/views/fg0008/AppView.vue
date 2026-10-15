@@ -27,6 +27,7 @@ const {
   releaseAppCode,
   loadSites,
   openSite,
+  onSiteNoteSaved,
   refreshFiles,
   toggle,
   pickAll,
@@ -78,6 +79,7 @@ useModuleAi(() => ({
         @search="loadSites(keyword)"
         @select="openSite"
         @refresh="loadSites()"
+        @note-saved="onSiteNoteSaved"
       />
       <div class="fg-app-right">
         <p v-if="error" class="fg-app-error">{{ error }}</p>

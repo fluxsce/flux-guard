@@ -14,6 +14,7 @@ type Config struct {
 	AgentToken    string        `mapstructure:"agent_token"`
 	IntervalSec   int           `mapstructure:"interval_sec"`
 	ReportName    string        `mapstructure:"report_name"`
+	Description   string        `mapstructure:"description"` // 写入 FG_AGENT.noteText；非空时每次上报覆盖
 	CommandListen string        `mapstructure:"command_listen"`
 	ShellEnabled  bool          `mapstructure:"shell_enabled"`
 	SpoolFile     string        `mapstructure:"spool_file"`

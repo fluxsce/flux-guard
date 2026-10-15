@@ -47,6 +47,7 @@ type AgentView struct {
 	HostName       string     `json:"hostName" db:"hostName"`
 	IPAddress      string     `json:"ipAddress" db:"ipAddress"`
 	CommandAddress string     `json:"commandAddress,omitempty" db:"commandAddress"`
+	NoteText       string     `json:"noteText,omitempty" db:"noteText,omitempty"`
 	OnlineFlag     string     `json:"onlineFlag" db:"-"`
 	StatusFlag     string     `json:"statusFlag" db:"statusFlag"`
 	LastSeenTime   *time.Time `json:"lastSeenTime,omitempty" db:"lastSeenTime"`
@@ -75,6 +76,7 @@ type agent struct {
 	StatusFlag     string     `db:"statusFlag"`
 	ActiveFlag     string     `db:"activeFlag"`
 	LastSeen       *time.Time `db:"lastSeenTime,omitempty"`
+	NoteText       string     `db:"noteText,omitempty"`
 	AddTime        string     `db:"addTime,noupdate,omitempty"`
 	AddWho         string     `db:"addWho,noupdate,omitempty"`
 	EditTime       string     `db:"editTime,omitempty"`
@@ -203,8 +205,8 @@ func (a *Store) EnsureMachineAgent(tenantID, agentCode, machineID string) (strin
 	return row.AgentID, nil
 }
 
-// RenameAgent 只改显示名。身份仍按 agentId / machineId，上报不会冲掉这里改过的名字。
-func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (AgentView, error) {
+// RenameAgent 改显示名与备注。身份仍按 agentId / machineId，上报不会冲掉这里改过的名字。
+func (a *Store) RenameAgent(ctx context.Context, agentID, agentName, noteText string) (AgentView, error) {
 	sess, err := request.Require(ctx)
 	if err != nil {
 		return AgentView{}, err
@@ -218,6 +220,7 @@ func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (Age
 		return AgentView{}, ErrAgentNameEmpty
 	}
 	name = clipName(name, 100)
+	note := clipName(strings.TrimSpace(noteText), 500)
 	taken, err := a.db.Count(ctx, `
 		SELECT count(*) FROM FG_AGENT
 		WHERE tenantId = @tenantId AND activeFlag = 'Y' AND agentName = @agentName AND agentId <> @agentId`,
@@ -231,11 +234,11 @@ func (a *Store) RenameAgent(ctx context.Context, agentID, agentName string) (Age
 	now := sess.When()
 	res, err := a.db.Exec(ctx, `
 		UPDATE FG_AGENT
-		SET agentName = @agentName, editTime = @editTime, editWho = @editWho,
+		SET agentName = @agentName, noteText = @noteText, editTime = @editTime, editWho = @editWho,
 		    currentVersion = currentVersion + 1
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'`,
 		dbx.Args{
-			"agentName": name, "editTime": now, "editWho": sess.UserID,
+			"agentName": name, "noteText": note, "editTime": now, "editWho": sess.UserID,
 			"tenantId": sess.TenantID, "agentId": agentID,
 		})
 	if err != nil {
@@ -313,17 +316,19 @@ func (a *Store) EnsureReportingAgent(tenantID, agentCode string) (string, error)
 
 // TouchInfo 是心跳时顺带更新的产品版本与平台。
 type TouchInfo struct {
-	Version string
-	GoOS    string
-	GoArch  string
+	Version     string
+	GoOS        string
+	GoArch      string
+	Description string // 非空时覆盖 FG_AGENT.noteText
 }
 
-// TouchAgent 记下代理心跳，并在有值时更新产品版本与平台。
+// TouchAgent 记下代理心跳，并在有值时更新产品版本、平台与描述。
 func (a *Store) TouchAgent(tenantID, agentID string, info TouchInfo) {
 	now := store.FormatTime(time.Now().UTC())
 	version := strings.TrimSpace(info.Version)
 	goos := strings.ToLower(strings.TrimSpace(info.GoOS))
 	goarch := strings.ToLower(strings.TrimSpace(info.GoArch))
+	note := clipName(strings.TrimSpace(info.Description), 500)
 	if len(version) > 64 {
 		version = version[:64]
 	}
@@ -333,7 +338,7 @@ func (a *Store) TouchAgent(tenantID, agentID string, info TouchInfo) {
 	if len(goarch) > 32 {
 		goarch = goarch[:32]
 	}
-	if version == "" && goos == "" && goarch == "" {
+	if version == "" && goos == "" && goarch == "" && note == "" {
 		_, _ = a.db.Exec(context.Background(), `
 			UPDATE FG_AGENT SET lastSeenTime = @lastSeenTime, editTime = @editTime, editWho = 'system'
 			WHERE tenantId = @tenantId AND agentId = @agentId`,
@@ -346,11 +351,12 @@ func (a *Store) TouchAgent(tenantID, agentID string, info TouchInfo) {
 		    agentVersion = CASE WHEN @agentVersion = '' THEN agentVersion ELSE @agentVersion END,
 		    goos = CASE WHEN @goos = '' THEN goos ELSE @goos END,
 		    goarch = CASE WHEN @goarch = '' THEN goarch ELSE @goarch END,
+		    noteText = CASE WHEN @noteText = '' THEN noteText ELSE @noteText END,
 		    editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
 		WHERE tenantId = @tenantId AND agentId = @agentId`,
 		dbx.Args{
 			"lastSeenTime": now, "agentVersion": version, "goos": goos, "goarch": goarch,
-			"editTime": now, "tenantId": tenantID, "agentId": agentID,
+			"noteText": note, "editTime": now, "tenantId": tenantID, "agentId": agentID,
 		})
 }
 
@@ -423,6 +429,7 @@ func toAgentView(item agent, now time.Time) AgentView {
 		AgentID: item.AgentID, AgentName: item.AgentName, AgentCode: item.AgentCode, MachineID: item.MachineID,
 		AgentVersion: item.AgentVersion, GoOS: item.GoOS, GoArch: item.GoArch,
 		HostName: item.HostName, IPAddress: item.IPAddress, CommandAddress: item.CommandAddress,
+		NoteText: item.NoteText,
 		OnlineFlag: onlineOf(item.StatusFlag, item.LastSeen, now), StatusFlag: item.StatusFlag,
 		LastSeenTime: item.LastSeen,
 	}

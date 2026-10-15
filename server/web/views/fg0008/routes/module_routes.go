@@ -37,6 +37,7 @@ func Init(router *gin.Engine, db *dbx.DB) {
 	router.POST(APIPrefix+"/closeLogView", middleware.RequireButton("fg0008:view", ctrl.CloseLogView))
 	router.POST(APIPrefix+"/touchLogView", middleware.RequireButton("fg0008:view", ctrl.TouchLogView))
 	router.POST(APIPrefix+"/rename", middleware.RequireButton("fg0008:edit", ctrl.Rename))
+	router.POST(APIPrefix+"/updateSiteNote", middleware.RequireButton("fg0008:edit", ctrl.UpdateSiteNote))
 	router.POST(APIPrefix+"/ignore", middleware.RequireButton("fg0008:edit", ctrl.Ignore))
 	router.POST(APIPrefix+"/release", middleware.RequireButton("fg0008:release", ctrl.Release))
 	router.POST(APIPrefix+"/continueRelease", middleware.RequireButton("fg0008:release", ctrl.ContinueRelease))

@@ -88,7 +88,7 @@ func ListSites(ctx context.Context, db *dbx.DB, tenantID, keyword string) ([]mod
 				ModeCode: row.ModeCode, RuntimeKind: row.RuntimeKind,
 				CommandAddress: row.CommandAddress, TomcatVersion: row.TomcatVersion,
 				ReportedTime: row.ReportedTime, OnlineFlag: row.OnlineFlag,
-				BasePath: siteBase(row),
+				BasePath: siteBase(row), NoteText: strings.TrimSpace(row.NoteText),
 			}
 			by[k] = site
 			order = append(order, k)
@@ -111,12 +111,17 @@ func ListSites(ctx context.Context, db *dbx.DB, tenantID, keyword string) ([]mod
 		if site.TomcatVersion == "" {
 			site.TomcatVersion = row.TomcatVersion
 		}
+		// 优先取 runtime 行备注；否则保留已有非空备注。
+		note := strings.TrimSpace(row.NoteText)
+		if note != "" && (row.ArtifactKind == "runtime" || site.NoteText == "") {
+			site.NoteText = note
+		}
 	}
 	out := make([]models.Site, 0, len(order))
 	for _, k := range order {
 		site := by[k]
 		if keyword != "" {
-			blob := strings.ToLower(site.InstanceName + " " + site.HostName + " " + site.IPAddress + " " + site.ModeCode + " " + site.BasePath)
+			blob := strings.ToLower(site.InstanceName + " " + site.HostName + " " + site.IPAddress + " " + site.ModeCode + " " + site.BasePath + " " + site.NoteText)
 			if !strings.Contains(blob, keyword) {
 				continue
 			}
@@ -312,6 +317,38 @@ func qualifyCols(alias, cols string) string {
 		parts[i] = alias + "." + p
 	}
 	return strings.Join(parts, ", ")
+}
+
+// SetSiteNote 写入一套运行时下全部实例行的备注（刷新清单不覆盖）。
+func SetSiteNote(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName, noteText, user string) error {
+	agentID = strings.TrimSpace(agentID)
+	instanceName = strings.TrimSpace(instanceName)
+	if agentID == "" || instanceName == "" {
+		return ErrMissing
+	}
+	note := strings.TrimSpace(noteText)
+	if len([]rune(note)) > 500 {
+		note = string([]rune(note)[:500])
+	}
+	res, err := db.Exec(ctx, `
+		UPDATE FG_APP_INST SET noteText = @noteText, editTime = @editTime, editWho = @editWho,
+		  currentVersion = currentVersion + 1
+		WHERE tenantId = @tenantId AND agentId = @agentId AND instanceName = @instanceName AND activeFlag = 'Y'`,
+		dbx.Args{
+			"noteText": note, "editTime": store.FormatTime(time.Now().UTC()), "editWho": user,
+			"tenantId": tenantID, "agentId": agentID, "instanceName": instanceName,
+		})
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrMissing
+	}
+	return nil
 }
 
 // Rename 只改显示名。应用编码仍是上报的名字。

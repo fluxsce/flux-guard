@@ -11,6 +11,7 @@ type Site struct {
 	ModeCode       string `json:"modeCode"`
 	RuntimeKind    string `json:"runtimeKind"`
 	BasePath       string `json:"basePath,omitempty"`
+	NoteText       string `json:"noteText,omitempty"`
 	FileCount      int    `json:"fileCount"`
 	OnlineFlag     string `json:"onlineFlag"`
 	CommandAddress string `json:"commandAddress,omitempty"`
@@ -48,6 +49,7 @@ type Instance struct {
 	RunningFlag    string `json:"runningFlag" db:"runningFlag"`
 	OnlineFlag     string `json:"onlineFlag" db:"-"`
 	ReportedTime   string `json:"reportedTime" db:"reportedTime"`
+	NoteText       string `json:"noteText,omitempty" db:"noteText,omitempty"`
 }
 
 // ReleaseStep 是一台实例上的可审计步骤（目标路径、备份路径），不是 CI 流水线。

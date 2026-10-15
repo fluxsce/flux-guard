@@ -313,7 +313,7 @@ function onMenu(payload: { key: string; row: Agent | null }) {
     <FgDataFormModal
       v-model:open="renameOpen"
       mode="create"
-      title="修改显示名"
+      title="修改显示名与描述"
       :fields="agentRenameFields"
       :initial-data="renameCurrent"
       :auto-close="false"

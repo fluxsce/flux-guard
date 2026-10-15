@@ -14,6 +14,8 @@ export interface Agent {
   hostName: string
   ipAddress: string
   commandAddress?: string
+  /** 人工备注，便于区分同机/同名代理用途。 */
+  noteText?: string
   onlineFlag: string
   statusFlag: string
   lastSeenTime?: string
@@ -69,8 +71,8 @@ export function registerAgent(agentName: string, hostName: string) {
  * @param agentId - 代理编号
  * @param agentName - 新显示名
  */
-export function renameAgent(agentId: string, agentName: string) {
-  return fg0002.post<Agent>('/renameAgent', { agentId, agentName })
+export function renameAgent(agentId: string, agentName: string, noteText = '') {
+  return fg0002.post<Agent>('/renameAgent', { agentId, agentName, noteText })
 }
 
 /**

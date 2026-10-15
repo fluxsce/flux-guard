@@ -30,15 +30,20 @@ defineTools([
   {
     name: 'fg0002.rename',
     moduleId: 'fg0002',
-    title: '改代理显示名',
-    description: '只改列表显示名。同机多代理仍按种类和机器编号分行，上报不会冲掉改过的名字。',
+    title: '改代理显示名与描述',
+    description: '改列表显示名与备注。同机多代理仍按种类和机器编号分行，上报不会冲掉改过的名字。',
     risk: 'write',
     resourceCode: 'fg0002:edit',
     parameters: [
       { name: 'agentId', type: 'string', description: '代理编号', required: true },
       { name: 'agentName', type: 'string', description: '显示名', required: true },
+      { name: 'noteText', type: 'string', description: '描述备注' },
     ],
-    execute: async (args) => unwrap(await renameAgent(argString(args, 'agentId'), argString(args, 'agentName')), '改名失败'),
+    execute: async (args) =>
+      unwrap(
+        await renameAgent(argString(args, 'agentId'), argString(args, 'agentName'), argString(args, 'noteText')),
+        '改名失败',
+      ),
   },
   {
     name: 'fg0002.delete',

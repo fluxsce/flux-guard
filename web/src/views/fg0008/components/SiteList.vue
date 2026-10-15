@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FgToolbar from '@/components/toolbar/FgToolbar.vue'
 import type { FgToolbarButton } from '@/components/toolbar/types'
-import { RsButton, RsEmpty, RsInput, RsTag } from '@/ui'
+import { RsButton, RsDialog, RsEmpty, RsInput, RsTag, RsTextarea, useRsToast } from '@/ui'
+import { getApiMessage, getHttpErrorMessage, isApiSuccess } from '@/api/request'
 import type { AppSite } from '../api'
+import { updateSiteNote } from '../api'
 import { modeLabel, moduleId } from '../composables/useAppWorkbench'
+import { useButtonAllowed } from '@/components/buttonAccess'
 
 const props = defineProps<{
   sites: AppSite[]
@@ -19,7 +22,17 @@ const emit = defineEmits<{
   search: []
   select: [row: AppSite]
   refresh: []
+  'note-saved': [row: AppSite]
 }>()
+
+const toast = useRsToast()
+const allowed = useButtonAllowed()
+const canEdit = computed(() => allowed(moduleId, 'edit'))
+
+const noteOpen = ref(false)
+const noteDraft = ref('')
+const noteTarget = ref<AppSite | null>(null)
+const noteBusy = ref(false)
 
 const toolbarButtons: FgToolbarButton[] = [
   {
@@ -37,6 +50,43 @@ const empty = computed(() => !props.loading && !props.sites.length)
 function isActive(row: AppSite) {
   return !!props.current && props.siteKey(props.current) === props.siteKey(row)
 }
+
+function openNote(row: AppSite, event: MouseEvent) {
+  event.stopPropagation()
+  if (!canEdit.value) return
+  noteTarget.value = row
+  noteDraft.value = row.noteText || ''
+  noteOpen.value = true
+}
+
+watch(noteOpen, (open) => {
+  if (!open) {
+    noteTarget.value = null
+    noteDraft.value = ''
+  }
+})
+
+async function saveNote() {
+  const row = noteTarget.value
+  if (!row || noteBusy.value) return
+  noteBusy.value = true
+  try {
+    const note = noteDraft.value.trim()
+    const res = await updateSiteNote(row.agentId, row.instanceName, note)
+    if (!isApiSuccess(res)) {
+      toast.error(getApiMessage(res, '保存描述失败'))
+      return
+    }
+    const next = { ...row, noteText: note }
+    toast.success('已保存描述')
+    noteOpen.value = false
+    emit('note-saved', next)
+  } catch (err) {
+    toast.error(getHttpErrorMessage(err, '保存描述失败'))
+  } finally {
+    noteBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -48,7 +98,7 @@ function isActive(row: AppSite) {
         size="sm"
         clearable
         :model-value="keyword"
-        placeholder="实例 / 主机 / 路径"
+        placeholder="实例 / 主机 / 描述 / 路径"
         @update:model-value="emit('update:keyword', String($event ?? ''))"
       />
       <RsButton size="sm" type="submit" @click.prevent="emit('search')">搜索</RsButton>
@@ -73,6 +123,7 @@ function isActive(row: AppSite) {
               {{ row.onlineFlag === 'Y' ? '在线' : '离线' }}
             </RsTag>
           </div>
+          <span v-if="row.noteText" class="meta note" :title="row.noteText">{{ row.noteText }}</span>
           <span class="meta">
             {{ modeLabel(row.modeCode) }} · {{ row.fileCount }} 项
           </span>
@@ -81,9 +132,42 @@ function isActive(row: AppSite) {
             <template v-if="row.ipAddress"> · {{ row.ipAddress }}</template>
           </span>
           <span v-if="row.basePath" class="meta path">{{ row.basePath }}</span>
+          <span
+            v-if="canEdit"
+            class="fg-site-note-btn"
+            role="button"
+            tabindex="0"
+            @click="openNote(row, $event)"
+            @keydown.enter.prevent="openNote(row, $event as unknown as MouseEvent)"
+          >
+            {{ row.noteText ? '改描述' : '加描述' }}
+          </span>
         </button>
       </li>
     </ul>
+
+    <RsDialog
+      v-model:open="noteOpen"
+      title="运行时描述"
+      layout="form"
+      width="420px"
+      :modal="false"
+      :teleport-to="`#${moduleId}`"
+    >
+      <p class="hint">
+        简短说明用途，便于区分同名多机（例如「生产订单 / 测试订单」）。
+      </p>
+      <RsTextarea
+        v-model="noteDraft"
+        :rows="3"
+        maxlength="500"
+        placeholder="例如：生产机房 A · 订单 Tomcat"
+      />
+      <template #footer>
+        <RsButton size="sm" variant="ghost" @click="noteOpen = false">取消</RsButton>
+        <RsButton size="sm" variant="primary" :loading="noteBusy" @click="saveNote">保存</RsButton>
+      </template>
+    </RsDialog>
   </aside>
 </template>
 
@@ -126,6 +210,7 @@ function isActive(row: AppSite) {
 }
 
 .fg-site-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -174,5 +259,29 @@ function isActive(row: AppSite) {
 
 .meta.path {
   opacity: 0.85;
+}
+
+.meta.note {
+  color: var(--rs-text, inherit);
+  font-weight: 500;
+}
+
+.fg-site-note-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--rs-primary, #2563eb);
+  cursor: pointer;
+}
+
+.fg-site-note-btn:hover {
+  text-decoration: underline;
+}
+
+.hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--rs-text-secondary);
+  line-height: 1.5;
 }
 </style>

@@ -47,6 +47,9 @@ func validate(batch protocol.Batch) error {
 		if utf8.RuneCountInString(strings.TrimSpace(batch.Host.ReportName)) > 100 {
 			return errHost
 		}
+		if utf8.RuneCountInString(strings.TrimSpace(batch.Host.Description)) > 500 {
+			return errHost
+		}
 		host := batch.Host
 		if len(host.MachineID) > 64 || len(host.KernelVersion) > 100 || len(host.AgentVersion) > 64 || len(host.IPList) > 255 {
 			return errHost
@@ -138,6 +141,9 @@ func checkAppSide(side *protocol.AppSide) error {
 	switch strings.TrimSpace(side.RunningFlag) {
 	case "Y", "N":
 	default:
+		return errAppSide
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(side.Description)) > 500 {
 		return errAppSide
 	}
 	if len(side.Artifacts) > 200 {

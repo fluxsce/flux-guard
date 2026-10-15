@@ -139,22 +139,37 @@ func WaitStartup(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// StartupWait 默认启动探测等待时长。
-const StartupWait = 5 * time.Second
+// StartupWait 无专用日志 mode 的默认启动探测等待。
+var StartupWait = 30 * time.Second
 
-// ProbeProcessStartup 无专用日志的 mode：等待后只看进程是否在跑。
+// TomcatStartupWait Tomcat 默认启动探测上限（大应用常远超数秒）。
+var TomcatStartupWait = 180 * time.Second
+
+// StartupPollEvery 启动探测轮询间隔。
+var StartupPollEvery = 2 * time.Second
+
+// ProbeProcessStartup 无专用日志的 mode：在时限内轮询进程是否在跑。
 func ProbeProcessStartup(ctx context.Context, rt Runtime) protocol.CommandStep {
 	step := protocol.CommandStep{Name: "startup", Status: "done"}
-	if err := WaitStartup(ctx, StartupWait); err != nil {
-		step.Status = "failed"
-		step.Detail = "等待启动时任务已取消"
-		return step
+	deadline := time.Now().Add(StartupProbeWait(rt, StartupWait))
+	for {
+		if Running(ctx, rt) {
+			step.Detail = "进程已在运行"
+			return step
+		}
+		if time.Now().After(deadline) {
+			step.Status = "failed"
+			step.Detail = "重启后进程未运行"
+			return step
+		}
+		timer := time.NewTimer(StartupPollEvery)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			step.Status = "failed"
+			step.Detail = "等待启动时任务已取消"
+			return step
+		case <-timer.C:
+		}
 	}
-	if Running(ctx, rt) {
-		step.Detail = "进程已在运行"
-		return step
-	}
-	step.Status = "failed"
-	step.Detail = "重启后进程未运行"
-	return step
 }

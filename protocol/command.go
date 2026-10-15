@@ -101,6 +101,11 @@ func FilePushAction(action string) bool {
 	return action == ActionAppFilePush || action == ActionAppFileList
 }
 
+// AppLifecycleAction 启停/重启可能超过短拨总时限（Tomcat shutdown 等），只走长轮询回执。
+func AppLifecycleAction(action string) bool {
+	return action == ActionAppStart || action == ActionAppStop || action == ActionAppRestart
+}
+
 // AgentAction 判断动作是否为代理自身升级。
 func AgentAction(action string) bool {
 	return action == ActionAgentUpdate
