@@ -15,8 +15,10 @@ type Runtime struct {
 	Start     string `mapstructure:"start"`
 	Stop      string `mapstructure:"stop"`
 	Status    string `mapstructure:"status"`
-	Kill      string `mapstructure:"kill"` // 优雅停止仍存活时强杀；Tomcat command 默认按 catalina.base 推导
+	Restart   string `mapstructure:"restart"` // 非空时重启只执行这条脚本
+	Kill      string `mapstructure:"kill"`    // 未配置 stop，或停止脚本之后进程仍在时强杀
 	// StatusAuto / KillAuto 为 true 时，Tomcat 按 base 精确查/杀 JVM 参数 -Dcatalina.base=<base>，不执行 Status/Kill 里的 shell。
+	// 未配置 stop 和 kill 时，KillAuto 默认为 true。
 	StatusAuto bool `mapstructure:"-"`
 	KillAuto   bool `mapstructure:"-"`
 	// StopGraceSec 优雅 stop 最长秒数，超时后若仍在跑则执行 kill；0 用默认。

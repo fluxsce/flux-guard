@@ -58,6 +58,12 @@ final class Session {
             case "children" -> Children.list(params);
             case "stat" -> Meta.read(params);
             case "get" -> Content.read(params);
+            case "create" -> Write.create(params);
+            case "set" -> Write.set(params);
+            case "delete" -> Write.delete(params);
+            case "acl" -> Access.read(params);
+            case "setacl" -> Access.write(params);
+            case "move" -> Move.run(params);
             default -> null;
         };
     }

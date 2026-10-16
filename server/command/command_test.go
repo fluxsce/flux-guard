@@ -12,8 +12,8 @@ import (
 
 	agentcommand "fluxguard/common/command"
 	"fluxguard/protocol"
-	"fluxguard/server/helper/agent"
 	"fluxguard/server/command/models"
+	"fluxguard/server/helper/agent"
 	"fluxguard/server/setting"
 	"fluxguard/server/store"
 	dbx "github.com/fluxsce/dbx/db"
@@ -80,6 +80,10 @@ func TestDispatchPushAndPull(t *testing.T) {
 	}
 	postCommandResult(t, api.URL, "machine-1", protocol.CommandResult{
 		CommandID: call.CommandID, OK: true, Message: "间隔已改",
+		Steps: []protocol.CommandStep{{
+			Name: "startup", Status: "failed",
+			Detail: "重启后进程未运行，且日志未见启动完成\n--- catalina.out ---\nAddress already in use",
+		}},
 	})
 	done, err := svc.Get(context.Background(), "default", call.CommandID)
 	if err != nil {
@@ -87,6 +91,9 @@ func TestDispatchPushAndPull(t *testing.T) {
 	}
 	if done.Status != "done" || done.DeliverMode != models.DeliverPull || done.Message != "间隔已改" {
 		t.Fatalf("pull result %#v", done)
+	}
+	if len(done.Steps) != 1 || !strings.Contains(done.Steps[0].Detail, "catalina.out") {
+		t.Fatalf("steps %#v", done.Steps)
 	}
 }
 

@@ -11,6 +11,12 @@ session:
     - children
     - stat
     - get
+    - create
+    - set
+    - delete
+    - acl
+    - setacl
+    - move
 runtime:
   executable: zk/dist/zk-probe/zk-probe.exe
   executable_windows: zk/dist/zk-probe/zk-probe.exe
@@ -35,3 +41,15 @@ methods:
     args: [path]
   - name: get
     args: [path]
+  - name: create
+    args: [path, data, mode]
+  - name: set
+    args: [path, data, version]
+  - name: delete
+    args: [path, version, recursive]
+  - name: acl
+    args: [path]
+  - name: setacl
+    args: [path, acl, version]
+  - name: move
+    args: [path, dest]

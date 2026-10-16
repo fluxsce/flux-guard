@@ -161,7 +161,14 @@ func checkListed(allowed map[string]struct{}, args map[string]string) error {
 		return fmt.Errorf("操作参数过多")
 	}
 	for key, arg := range args {
-		if len(arg) > maxArgLen {
+		limit := maxArgLen
+		if key == "data" {
+			limit = maxDataLen
+		}
+		if key == "acl" {
+			limit = maxAclLen
+		}
+		if len(arg) > limit {
 			return fmt.Errorf("操作参数过长")
 		}
 		if _, ok := allowed[key]; !ok {

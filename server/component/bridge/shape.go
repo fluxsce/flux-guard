@@ -15,6 +15,9 @@ const (
 	maxOutput = 10 << 20
 	maxArgs   = 16
 	maxArgLen = 200
+	// maxDataLen 是节点正文。maxAclLen 是权限列表。其它参数仍用 maxArgLen。
+	maxDataLen = 1 << 20
+	maxAclLen  = 64 << 10
 )
 
 // ProbeParams 是采集参数。组件口令只放在这里，不进清单。

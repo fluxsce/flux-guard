@@ -169,6 +169,7 @@ func (s *Service) Get(ctx context.Context, tenantID, commandID string) (models.V
 		return models.View{}, err
 	}
 	view.Status = models.StatusName(view.StatusFlag)
+	view.Steps = decodeSteps(view.NoteText)
 	return view, nil
 }
 
@@ -194,6 +195,7 @@ func (s *Service) ListByAgent(ctx context.Context, tenantID, agentID string, lim
 	}
 	for i := range out {
 		out[i].Status = models.StatusName(out[i].StatusFlag)
+		out[i].Steps = decodeSteps(out[i].NoteText)
 	}
 	if out == nil {
 		out = []models.View{}
@@ -389,6 +391,19 @@ func (s *Service) finish(ctx context.Context, commandID, flag, message string, s
 		return models.ErrCommandGone
 	}
 	return nil
+}
+
+// decodeSteps 从 noteText 还原步骤。旧回执或截断的 JSON 没有步骤。
+func decodeSteps(raw string) []protocol.CommandStep {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var steps []protocol.CommandStep
+	if err := json.Unmarshal([]byte(raw), &steps); err != nil || len(steps) == 0 {
+		return nil
+	}
+	return steps
 }
 
 // encodeSteps 把步骤写成 noteText。空步骤清掉旧值。

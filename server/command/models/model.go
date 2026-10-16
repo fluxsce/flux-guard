@@ -1,7 +1,11 @@
 // Package models 定义命令队列的对外类型与状态常量。
 package models
 
-import "errors"
+import (
+	"errors"
+
+	"fluxguard/protocol"
+)
 
 const (
 	StatusDialing = "D"
@@ -56,16 +60,18 @@ type DispatchInput struct {
 
 // View 是控制台看到的一行命令；json 给 API，db 给 Get/Select。
 type View struct {
-	CommandID   string `json:"commandId" db:"commandId"`
-	AgentID     string `json:"agentId" db:"agentId"`
-	Action      string `json:"action" db:"actionName"`
-	Status      string `json:"status" db:"-"`
-	StatusFlag  string `json:"-" db:"statusFlag"`
-	DeliverMode string `json:"deliverMode,omitempty" db:"deliverMode"`
-	Message     string `json:"message,omitempty" db:"resultText"`
-	IntervalSec int    `json:"intervalSec,omitempty" db:"intervalSec"`
-	AddTime     string `json:"addTime,omitempty" db:"addTime"`
-	AddWho      string `json:"addWho,omitempty" db:"addWho"`
+	CommandID   string                 `json:"commandId" db:"commandId"`
+	AgentID     string                 `json:"agentId" db:"agentId"`
+	Action      string                 `json:"action" db:"actionName"`
+	Status      string                 `json:"status" db:"-"`
+	StatusFlag  string                 `json:"-" db:"statusFlag"`
+	DeliverMode string                 `json:"deliverMode,omitempty" db:"deliverMode"`
+	Message     string                 `json:"message,omitempty" db:"resultText"`
+	NoteText    string                 `json:"-" db:"noteText,omitempty"`
+	Steps       []protocol.CommandStep `json:"steps,omitempty" db:"-"`
+	IntervalSec int                    `json:"intervalSec,omitempty" db:"intervalSec"`
+	AddTime     string                 `json:"addTime,omitempty" db:"addTime"`
+	AddWho      string                 `json:"addWho,omitempty" db:"addWho"`
 }
 
 // StatusName 把库里的状态码转成控制台用的英文名。

@@ -37,4 +37,5 @@ func Init(router *gin.Engine, db *dbx.DB) {
 	router.POST(APIPrefix+"/probeConn", middleware.RequireButton("fg0007:edit", ctrl.ProbeConn))
 	router.GET(APIPrefix+"/queryLatest", middleware.RequireButton("fg0007:view", ctrl.QueryLatest))
 	router.GET(APIPrefix+"/querySeries", middleware.RequireButton("fg0007:view", ctrl.QuerySeries))
+	router.POST(APIPrefix+"/execConn", middleware.RequireButton("fg0007:shell", ctrl.ExecConn))
 }

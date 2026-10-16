@@ -8,14 +8,20 @@
 #   systemd   Linux 系统服务。service 填服务名。
 #   windows   Windows 服务。service 填服务名。
 #   docker    容器。service 填容器名。
-#   command   本机命令。可手写 start / stop / status / kill；未填时按 mode 推导：
-#             tomcat -> startup/shutdown；是否在跑按完整 base 精确匹配 JVM 参数 -Dcatalina.base=<base>，不按实例名
+#   command   本机命令。可手写 start / stop / status / restart / kill。
+#             tomcat 不写 stop：不执行 shutdown。KillAuto 默认为 true，按完整
+#                    -Dcatalina.base=<base> 强杀（不按实例名），再启动。
+#                    不写 start 时按常见位置找脚本：base/bin/startup.sh（Windows 为 startup.bat），
+#                    没有则依次找 base/bin、base、base/scripts 下的 start.sh（Windows 为 .bat）。
+#                    这些文件都不存在时，仍使用 base/bin/startup.sh。
+#             tomcat 写了 stop：先执行这支脚本；进程还在再按上面的方式强杀。
+#             tomcat 写了 restart：重启只执行这支脚本，不再先强杀。
 #             node / script -> 优先用 base/bin、base、base/scripts 下的 start/stop/status，
 #                             没有则落到 base/bin/start.sh（Windows 为 .bat）；kill 可手写
 #             jar -> 在 jar 同目录找上述约定脚本
 #             files -> 不启停；心跳只报站点，文件清单在控制台打开时向代理请求
 #             kind=command 会忽略 service（写了也丢弃；systemd/windows/docker 才用 service）
-#             stop_grace_sec：优雅 stop 最长秒数（默认 30），超时仍在跑则执行 kill
+#             stop_grace_sec：写了 stop 时，优雅停止最长秒数（默认 30），超时仍在跑则强杀
 #             startup_wait_sec：启动探测最长秒数（Tomcat 默认 180，其它默认 30），按秒轮询日志/进程
 #
 # tomcat / node / script 填 base。换包或升级都会先挪到 backup_dir，再写回原路径，然后重启。
@@ -40,15 +46,21 @@ runtimes:
     mode: tomcat
     base: /opt/tomcat-a
     description: 生产订单 Tomcat # 可选；写入 fg0008 左侧运行时描述；非空覆盖、空不改
-  # 脚本启动的 Tomcat：不写 start/stop/status/kill。按完整 base 匹配 -Dcatalina.base=<base>；shutdown 超时则强杀该进程。
+  # 脚本启动的 Tomcat：不写 stop。直接按 -Dcatalina.base=/opt/tomcat-b 强杀，再执行启动脚本。
   - kind: command
     instance: tomcat-b
     mode: tomcat
     base: /opt/tomcat-b
     description: 测试环境 Tomcat
-    # stop_grace_sec: 30      # 可选；优雅停止等待，超时强杀
+    # start: /opt/tomcat-b/bin/startup.sh
+    # 不写 start 时的查找顺序：bin/startup.sh → bin/start.sh → base/start.sh → base/scripts/start.sh
+    # stop: /opt/tomcat-b/bin/shutdown.sh
+    # 写了 stop 才先走脚本；不写则只强杀。进程还在时仍会强杀。
+    # restart: /opt/tomcat-b/bin/restart.sh
+    # 写了 restart 时，重启只执行这支脚本。
+    # stop_grace_sec: 30      # 可选；仅在写了 stop 时等待脚本结束，超时强杀
     # startup_wait_sec: 300   # 可选；大应用启动探测可加长（默认 180）
-    # kill:  # 可选；一般不用手写。默认按 -Dcatalina.base=<base> 精确强杀，不会波及同名的其它目录
+    # kill:  # 可选；一般不用手写。默认 KillAuto，按 -Dcatalina.base=<base> 精确强杀
   # Node：换包是 zip 解到 base。启停可手写，也可放约定脚本后自动推导。
   - kind: command
     instance: order-api

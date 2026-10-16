@@ -10,6 +10,8 @@ import MetricSections from './MetricSections.vue'
 import MongoMonitor from './MongoMonitor.vue'
 import RedisMonitor from './RedisMonitor.vue'
 import TerminalPane from './TerminalPane.vue'
+import ZkBrowser from './ZkBrowser.vue'
+import ZkMonitor from './ZkMonitor.vue'
 import { querySeries, type ComponentConn, type Panel, type Point, type PointDetail, type SeriesRange } from '../api'
 import { inspect } from '../composables/boards'
 import { layoutOf } from '../composables/forms'
@@ -49,7 +51,7 @@ const detail = computed<PointDetail>(() => latest.value?.detail ?? {})
 const layout = computed(() => layoutOf(props.conn.kindCode, props.conn.optionText, props.conn.userName, props.conn.secretSet).label)
 const ranged = computed(() => {
   const kind = props.conn.kindCode
-  return kind === 'redis' || kind === 'mongo' || kind === 'kafka'
+  return kind === 'redis' || kind === 'mongo' || kind === 'kafka' || kind === 'zk'
 })
 const kafkaSignals = ['Broker', '离线分区', '未同步分区', '低于最小 ISR', '最大分区延迟', '再均衡']
 const signalCards = computed(() => {
@@ -186,7 +188,7 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
     code: 'fg0007:view',
     aiRisk: 'read',
     onClick: () => {
-      if (props.conn.kindCode === 'kafka') emit('refresh')
+      if (props.conn.kindCode === 'kafka' || props.conn.kindCode === 'zk') emit('refresh')
       else slideWindow()
     },
   },
@@ -288,7 +290,8 @@ onUnmounted(() => {
           <strong>{{ item.value }}</strong>
         </span>
       </div>
-      <TerminalPane v-if="terminal" :kind-code="conn.kindCode" :kind-name="conn.kindName || conn.kindCode" />
+      <ZkBrowser v-if="terminal && conn.kindCode === 'zk'" :component-id="conn.componentId" />
+      <TerminalPane v-else-if="terminal" :kind-code="conn.kindCode" :kind-name="conn.kindName || conn.kindCode" />
       <template v-else>
         <MetricSections
           v-if="chartSections.length && !kafkaDesk"
@@ -299,6 +302,7 @@ onUnmounted(() => {
         <RedisMonitor v-if="conn.kindCode === 'redis'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <KafkaMonitor v-else-if="conn.kindCode === 'kafka'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
+        <ZkMonitor v-else-if="conn.kindCode === 'zk'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
       </template>
     </div>
   </section>

@@ -10,11 +10,15 @@ final class Mntr {
     }
 
     static String read(String hostPort) throws IOException {
+        return command(hostPort, "mntr");
+    }
+
+    static String command(String hostPort, String word) throws IOException {
         Host host = host(hostPort);
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host.name, host.port), 3000);
             socket.setSoTimeout(3000);
-            socket.getOutputStream().write("mntr\n".getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().write((word + "\n").getBytes(StandardCharsets.US_ASCII));
             socket.shutdownOutput();
             byte[] body = socket.getInputStream().readNBytes(64 * 1024);
             return new String(body, StandardCharsets.UTF_8);

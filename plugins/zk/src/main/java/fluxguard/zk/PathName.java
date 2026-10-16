@@ -7,7 +7,11 @@ final class PathName {
     }
 
     static String of(JsonNode args) {
-        String path = Session.text(args, "path");
+        return field(args, "path");
+    }
+
+    static String field(JsonNode args, String name) {
+        String path = Session.text(args, name);
         if (path.isEmpty() || path.charAt(0) != '/' || path.indexOf('\0') >= 0) {
             throw new IllegalArgumentException("路径无效");
         }

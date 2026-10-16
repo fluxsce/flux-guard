@@ -156,6 +156,7 @@ export interface RuntimeCommand {
   action: string
   status: string
   message?: string
+  steps?: ReleaseStep[]
 }
 
 /** 下发启动 / 停止 / 重启。 */

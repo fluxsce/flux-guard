@@ -26,8 +26,8 @@ func TestFillTomcatCommandDefaults(t *testing.T) {
 	if err := fillCommandDefaults(&rt); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.StatusAuto || !rt.KillAuto {
-		t.Fatalf("tomcat defaults should match by base, %+v", rt)
+	if !rt.StatusAuto || !rt.KillAuto || rt.Stop != "" {
+		t.Fatalf("tomcat defaults should kill when stop is unset, %+v", rt)
 	}
 	if !strings.Contains(rt.Status, "-Dcatalina.base=") || !strings.Contains(rt.Kill, "-Dcatalina.base=") {
 		t.Fatalf("%+v", rt)
@@ -38,7 +38,7 @@ func TestFillTomcatCommandDefaults(t *testing.T) {
 		}
 		return
 	}
-	if !strings.HasSuffix(rt.Start, "startup.sh") || !strings.HasSuffix(rt.Stop, "shutdown.sh") {
+	if !strings.HasSuffix(rt.Start, "startup.sh") || rt.Stop != "" {
 		t.Fatalf("%+v", rt)
 	}
 }
@@ -105,6 +105,59 @@ func TestFillScriptAndJarCommandDefaults(t *testing.T) {
 	}
 	if !strings.Contains(jar.Start, "start"+ext) {
 		t.Fatalf("%+v", jar)
+	}
+}
+
+func TestFillTomcatStartUsesUsualScript(t *testing.T) {
+	base := t.TempDir()
+	bin := filepath.Join(base, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ext := ".sh"
+	if runtime.GOOS == "windows" {
+		ext = ".bat"
+	}
+	if err := os.WriteFile(filepath.Join(bin, "startup"+ext), []byte("ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "start"+ext), []byte("ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rt := Runtime{Kind: "command", Mode: "tomcat", Base: base, Instance: "web"}
+	if err := fillCommandDefaults(&rt); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Stop != "" || !rt.KillAuto || !rt.StatusAuto {
+		t.Fatalf("%+v", rt)
+	}
+	if !strings.Contains(rt.Start, "startup"+ext) {
+		t.Fatalf("start %s", rt.Start)
+	}
+}
+
+func TestFillTomcatStartFallsBackToStartScript(t *testing.T) {
+	base := t.TempDir()
+	bin := filepath.Join(base, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ext := ".sh"
+	if runtime.GOOS == "windows" {
+		ext = ".bat"
+	}
+	if err := os.WriteFile(filepath.Join(bin, "start"+ext), []byte("ok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rt := Runtime{Kind: "command", Mode: "tomcat", Base: base, Instance: "web"}
+	if err := fillCommandDefaults(&rt); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rt.Start, "startup"+ext) || !strings.Contains(rt.Start, "start"+ext) {
+		t.Fatalf("start %s", rt.Start)
+	}
+	if rt.Stop != "" || !rt.KillAuto {
+		t.Fatalf("%+v", rt)
 	}
 }
 

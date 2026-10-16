@@ -26,6 +26,14 @@ import { canRollbackRelease, kindLabel, moduleId, statusText, statusVariant, ste
 
 export { kindLabel, moduleId, statusText, statusVariant, stepLabel, canRollbackRelease }
 
+/** 启动探测详情的第一行是结论，其余是日志摘录。 */
+function startupExcerpt(detail?: string) {
+  const text = (detail || '').replace(/\r\n/g, '\n').trim()
+  const split = text.indexOf('\n')
+  if (split < 0) return ''
+  return text.slice(split + 1).trim()
+}
+
 /** 文件名：优先路径末段，否则应用编码。 */
 export function fileNameOf(row: AppInstance) {
   const path = (row.artifactPath || '').replace(/\\/g, '/')
@@ -606,6 +614,9 @@ export function useAppWorkbench() {
     if (!cmd) return
     if (cmd.status === 'done' || cmd.status === 'failed') {
       pushLog(`${label} · ${statusText(cmd.status)}${cmd.message ? ` · ${cmd.message}` : ''}`)
+      const startup = (cmd.steps ?? []).find((step) => step.name === 'startup')
+      const excerpt = startupExcerpt(startup?.detail)
+      if (excerpt) pushLog(excerpt)
       if (cmd.status === 'done') void refreshFiles()
       return
     }

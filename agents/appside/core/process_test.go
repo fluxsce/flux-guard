@@ -28,6 +28,67 @@ func TestRestartCommandStopsThenStarts(t *testing.T) {
 	}
 }
 
+func TestRestartWithoutStopKillsThenStarts(t *testing.T) {
+	alive := true
+	var calls []string
+	prev := shellRunner
+	shellRunner = func(ctx context.Context, cmdline string) error {
+		calls = append(calls, cmdline)
+		switch cmdline {
+		case "./status.sh":
+			if alive {
+				return nil
+			}
+			return errors.New("down")
+		case "./kill.sh":
+			alive = false
+			return nil
+		default:
+			return nil
+		}
+	}
+	t.Cleanup(func() { shellRunner = prev })
+
+	rt := Runtime{
+		Kind: "command", Start: "./startup.sh", Status: "./status.sh", Kill: "./kill.sh",
+	}
+	if err := Restart(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) < 2 || calls[0] == "./shutdown.sh" || calls[len(calls)-1] != "./startup.sh" {
+		t.Fatalf("%v", calls)
+	}
+	sawKill := false
+	for _, call := range calls {
+		if call == "./kill.sh" {
+			sawKill = true
+		}
+	}
+	if !sawKill {
+		t.Fatalf("%v", calls)
+	}
+}
+
+func TestRestartCommandUsesRestartScript(t *testing.T) {
+	var calls []string
+	prev := shellRunner
+	shellRunner = func(ctx context.Context, cmdline string) error {
+		calls = append(calls, cmdline)
+		return nil
+	}
+	t.Cleanup(func() { shellRunner = prev })
+
+	rt := Runtime{
+		Kind: "command", Start: "./startup.sh", Stop: "./shutdown.sh", Restart: "./restart.sh",
+	}
+	if err := Restart(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0] != "./restart.sh" {
+		t.Fatalf("%v", calls)
+	}
+}
+
 func TestRestartCommandContinuesAfterStopTimeout(t *testing.T) {
 	var calls []string
 	prev := shellRunner

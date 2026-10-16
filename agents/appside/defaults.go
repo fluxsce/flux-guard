@@ -9,7 +9,7 @@ import (
 )
 
 // fillCommandDefaults 在 kind=command 且未写全 start/stop/status 时，按应用类型推导。
-// Tomcat 用 base/bin 标准脚本；node / script 用约定启停脚本；jar 在 jar 同目录找约定脚本。
+// 未配置 stop 的 Tomcat 不补停止脚本，KillAuto 为 true，重启时直接强杀后再按常见位置的启动脚本拉起。
 func fillCommandDefaults(rt *Runtime) error {
 	if rt == nil || rt.Kind != "command" {
 		return nil
@@ -18,15 +18,15 @@ func fillCommandDefaults(rt *Runtime) error {
 	if rt.Mode == "files" {
 		return nil
 	}
-	if rt.Start == "" || rt.Stop == "" || rt.Status == "" {
-		start, stop, status, err := defaultCommands(rt)
+	if rt.Start == "" || (rt.Mode != "tomcat" && rt.Stop == "") || rt.Status == "" {
+		start, stop, status, _, err := defaultCommands(rt)
 		if err != nil {
 			return err
 		}
 		if rt.Start == "" {
 			rt.Start = start
 		}
-		if rt.Stop == "" {
+		if rt.Stop == "" && rt.Mode != "tomcat" {
 			rt.Stop = stop
 		}
 		if rt.Status == "" {
@@ -38,36 +38,67 @@ func fillCommandDefaults(rt *Runtime) error {
 		rt.Kill = tomcatKillCommand(rt.Base)
 		rt.KillAuto = true
 	}
-	if rt.Start == "" || rt.Stop == "" || rt.Status == "" {
+	if rt.Start == "" || rt.Status == "" || (rt.Stop == "" && rt.Mode != "tomcat" && rt.Kill == "") {
 		return fmt.Errorf("command 模式请填写 start、stop、status，或按约定放置脚本")
 	}
 	return nil
 }
 
-func defaultCommands(rt *Runtime) (start, stop, status string, err error) {
+func defaultCommands(rt *Runtime) (start, stop, status string, fromFiles bool, err error) {
 	switch rt.Mode {
 	case "tomcat":
 		if rt.Base == "" {
-			return "", "", "", fmt.Errorf("tomcat 的 command 推导需要 base")
+			return "", "", "", false, fmt.Errorf("tomcat 的 command 推导需要 base")
 		}
-		start, stop, status = tomcatCommands(rt.Base)
-		return start, stop, status, nil
+		start = findStartScript(rt.Base, true)
+		fromFiles = start != ""
+		if start == "" {
+			start, _, _ = tomcatCommands(rt.Base)
+		}
+		_, _, status = tomcatCommands(rt.Base)
+		return start, "", status, fromFiles, nil
 	case "node", "script":
 		if rt.Base == "" {
-			return "", "", "", fmt.Errorf("%s 的 command 推导需要 base", rt.Mode)
+			return "", "", "", false, fmt.Errorf("%s 的 command 推导需要 base", rt.Mode)
+		}
+		if found := findLifecycleScripts(rt.Base); found[0] != "" {
+			return found[0], found[1], found[2], true, nil
 		}
 		start, stop, status = lifecycleCommands(rt.Base)
-		return start, stop, status, nil
+		return start, stop, status, false, nil
 	case "jar":
 		dir := filepath.Dir(rt.Jar)
 		if dir == "" || dir == "." {
-			return "", "", "", nil
+			return "", "", "", false, nil
+		}
+		if found := findLifecycleScripts(dir); found[0] != "" {
+			return found[0], found[1], found[2], true, nil
 		}
 		start, stop, status = lifecycleCommands(dir)
-		return start, stop, status, nil
+		return start, stop, status, false, nil
 	default:
-		return "", "", "", nil
+		return "", "", "", false, nil
 	}
+}
+
+// findStartScript 在常见位置找启动脚本。Tomcat 先看 bin 下的 startup，再看 start。
+func findStartScript(base string, tomcat bool) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	exts := scriptExts()
+	if tomcat {
+		if path := firstExisting(filepath.Join(base, "bin"), "startup", exts); path != "" {
+			return shellPath(path)
+		}
+	}
+	for _, dir := range scriptDirs(base) {
+		if path := firstExisting(dir, "start", exts); path != "" {
+			return shellPath(path)
+		}
+	}
+	return ""
 }
 
 func tomcatCommands(base string) (start, stop, status string) {
@@ -120,11 +151,8 @@ func tomcatWindowsQuery(marker string, kill bool) string {
 	return `powershell -NoProfile -Command "$m='` + esc + `'; $hit=$false; Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | ForEach-Object { $c=$_.CommandLine; if($c -and (($c -eq $m) -or $c.StartsWith($m+' ') -or $c.Contains(' '+$m+' ') -or $c.EndsWith(' '+$m) -or $c.Contains(' '+$m+'\"') -or $c.StartsWith('\"'+$m))) { $hit=$true; ` + action + ` } }; if($hit){ exit 0 } else { exit 1 }"`
 }
 
-// lifecycleCommands 优先找已有约定脚本，没有则落到 base/bin/start|stop|status。
+// lifecycleCommands 没有现成脚本时，落到 base/bin/start|stop|status。
 func lifecycleCommands(base string) (start, stop, status string) {
-	if found := findLifecycleScripts(base); found[0] != "" {
-		return found[0], found[1], found[2]
-	}
 	bin := filepath.Join(base, "bin")
 	ext := ".sh"
 	if runtime.GOOS == "windows" {
@@ -135,17 +163,25 @@ func lifecycleCommands(base string) (start, stop, status string) {
 		shellPath(filepath.Join(bin, "status"+ext))
 }
 
-// findLifecycleScripts 按 base/bin、base、base/scripts 查找 start/stop/status 脚本。
-func findLifecycleScripts(base string) [3]string {
-	exts := []string{".sh", ".bat", ".cmd"}
+func scriptExts() []string {
 	if runtime.GOOS == "windows" {
-		exts = []string{".bat", ".cmd", ".sh"}
+		return []string{".bat", ".cmd", ".sh"}
 	}
-	dirs := []string{
+	return []string{".sh", ".bat", ".cmd"}
+}
+
+func scriptDirs(base string) []string {
+	return []string{
 		filepath.Join(base, "bin"),
 		base,
 		filepath.Join(base, "scripts"),
 	}
+}
+
+// findLifecycleScripts 在 base/bin、base、base/scripts 查找成套的 start/stop/status。
+func findLifecycleScripts(base string) [3]string {
+	exts := scriptExts()
+	dirs := scriptDirs(base)
 	names := []string{"start", "stop", "status"}
 	var out [3]string
 	for _, dir := range dirs {

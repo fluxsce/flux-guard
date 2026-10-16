@@ -256,7 +256,7 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
         'zkGroup',
         'ZooKeeper',
         [{ field: 'address', label: '地址', span: 16, required: true, placeholder: 'host:2181' }],
-        { tips: '用四字命令 mntr。服务端没打开时，页面会显示连不上。', show: kindIs('zk') },
+        { tips: '先读 mntr。服务端默认只开放 srvr 时，改用 srvr 看连通、角色和节点数。', show: kindIs('zk') },
       ),
       fieldset(
         'nacosGroup',

@@ -169,11 +169,13 @@ func Start(ctx context.Context, rt Runtime) error {
 	}
 }
 
-// stopCommand 先优雅 stop，仍在跑则 kill；专供 kind=command。
+// stopCommand 有停止脚本时先执行脚本；没有配置 stop 时直接强杀。专供 kind=command。
 func stopCommand(ctx context.Context, rt Runtime) error {
-	_ = runShell(ctx, rt.Stop, stopGrace(rt))
-	if !Running(ctx, rt) {
-		return nil
+	if stop := strings.TrimSpace(rt.Stop); stop != "" {
+		_ = runShell(ctx, stop, stopGrace(rt))
+		if !Running(ctx, rt) {
+			return nil
+		}
 	}
 	if !killTomcatBase(rt) {
 		kill := strings.TrimSpace(rt.Kill)
@@ -271,6 +273,13 @@ func Restart(ctx context.Context, rt Runtime) error {
 		}
 		return nil
 	case "command":
+		// 配置或目录里有重启脚本时只走脚本，不先强杀。
+		if script := strings.TrimSpace(rt.Restart); script != "" {
+			if err := runShell(ctx, script, LifecycleTimeout); err != nil {
+				return fmt.Errorf("重启脚本失败")
+			}
+			return nil
+		}
 		// 停不干净也尽量 start，避免旧进程占端口时至少把失败写进后续启动探测。
 		_ = stopCommand(ctx, rt)
 		if err := runShell(ctx, rt.Start, LifecycleTimeout); err != nil {

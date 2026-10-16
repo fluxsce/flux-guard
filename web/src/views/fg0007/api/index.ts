@@ -208,6 +208,13 @@ export interface PointDetail {
   memberNote?: string
   dbNote?: string
   runningNote?: string
+  source?: string
+  minLatency?: number
+  maxLatency?: number
+  connections?: number
+  received?: number
+  sent?: number
+  zxid?: string
 }
 
 export interface Point {
@@ -261,6 +268,32 @@ export function testConn(body: ComponentInput) {
 
 export function probeConn(componentId: string) {
   return api.post<ComponentConn>('/probeConn', { componentId })
+}
+
+export interface ZkNodeStat {
+  path: string
+  czxid?: number
+  mzxid?: number
+  ctime?: number
+  mtime?: number
+  version?: number
+  cversion?: number
+  aversion?: number
+  dataLength?: number
+  numChildren?: number
+  ephemeralOwner?: number
+  data?: string
+  dataBase64?: string
+}
+
+export interface ZkChildren {
+  path: string
+  children?: string[]
+}
+
+/** 对一条 ZooKeeper 连接执行目录操作。写操作由终端按钮控制。 */
+export function execZk(componentId: string, command: string, args: Record<string, string>) {
+  return api.post<ZkNodeStat & ZkChildren>('/execConn', { componentId, command, args })
 }
 
 export interface SeriesRange {

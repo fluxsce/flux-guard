@@ -55,7 +55,7 @@ export function terminalNote(kindCode: string) {
     mysql: 'MySQL 终端是 SQL 客户端。',
     mongo: 'MongoDB 终端走自己的命令通道。',
     kafka: 'Kafka 终端看主题和消费组，不是系统终端。',
-    zk: 'ZooKeeper 终端走四字命令和节点浏览。',
+    zk: 'ZooKeeper 终端按树浏览节点，并可修改数据、权限、移动和删除子树。',
     nacos: 'Nacos 终端走控制台操作。',
   }
   return notes[kindCode] || '这种组件的终端还没有接入。'

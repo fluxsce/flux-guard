@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"fluxguard/server/component/catalog"
 	"fluxguard/server/component/conn"
 	"fluxguard/server/component/models"
+	"fluxguard/server/component/runtime"
 	"fluxguard/server/component/service"
 	"fluxguard/server/web/httpx"
 	"fluxguard/server/web/middleware"
@@ -206,6 +208,88 @@ func (c *ComponentController) QueryLatest(g *gin.Context) {
 	httpx.WriteOK(g, item)
 }
 
+// ExecConn 对一条 ZooKeeper 连接执行已登记的目录操作。
+func (c *ComponentController) ExecConn(g *gin.Context) {
+	if !c.ready(g) {
+		return
+	}
+	var body zkExec
+	if !request.Bind(g, &body) {
+		return
+	}
+	item, ok := c.owned(g, body.ComponentID)
+	if !ok {
+		return
+	}
+	if item.KindCode != catalog.ZK {
+		httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有目录操作")
+		return
+	}
+	command := strings.TrimSpace(body.Command)
+	if _, allowed := zkCommands[command]; !allowed {
+		httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
+		return
+	}
+	args := body.Args
+	if args == nil {
+		args = map[string]string{}
+	}
+	if len(args["data"]) > 1<<20 {
+		httpx.WriteErr(g, http.StatusBadRequest, "节点数据超过 1MB")
+		return
+	}
+	if len(args["acl"]) > 64<<10 {
+		httpx.WriteErr(g, http.StatusBadRequest, "权限数据过长")
+		return
+	}
+	principal := middleware.Principal(g)
+	open, err := conn.LoadOpen(g.Request.Context(), c.DB, principal.TenantID, item.ComponentID)
+	if err != nil {
+		httpx.WriteFail(g, http.StatusBadRequest, err)
+		return
+	}
+	audit.Note(g, "", "COMPONENT", item.ComponentID, item.ComponentName, zkAudit(command, args))
+	output, err := runtime.Exec(g.Request.Context(), open, command, args)
+	if err != nil {
+		httpx.WriteFail(g, http.StatusBadRequest, err)
+		return
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		httpx.WriteOK(g, map[string]string{"output": output})
+		return
+	}
+	httpx.WriteOK(g, parsed)
+}
+
+func zkAudit(command string, args map[string]string) string {
+	path := strings.TrimSpace(args["path"])
+	if path == "" {
+		path = "/"
+	}
+	switch command {
+	case "create":
+		return "新建 ZooKeeper 节点 " + path
+	case "set":
+		return "修改 ZooKeeper 节点 " + path
+	case "delete":
+		if args["recursive"] == "Y" {
+			return "删除 ZooKeeper 子树 " + path
+		}
+		return "删除 ZooKeeper 节点 " + path
+	case "setacl":
+		return "修改 ZooKeeper 节点权限 " + path
+	case "move":
+		dest := strings.TrimSpace(args["dest"])
+		if dest == "" {
+			return "移动 ZooKeeper 节点 " + path
+		}
+		return "移动 ZooKeeper 节点 " + path + " 到 " + dest
+	default:
+		return "查看 ZooKeeper 节点 " + path
+	}
+}
+
 // QuerySeries 返回曲线。
 func (c *ComponentController) QuerySeries(g *gin.Context) {
 	if !c.ready(g) {
@@ -233,6 +317,24 @@ func (c *ComponentController) owned(g *gin.Context, componentID string) (models.
 		return models.Conn{}, false
 	}
 	return item, true
+}
+
+type zkExec struct {
+	ComponentID string            `json:"componentId"`
+	Command     string            `json:"command"`
+	Args        map[string]string `json:"args"`
+}
+
+var zkCommands = map[string]struct{}{
+	"children": {},
+	"stat":     {},
+	"get":      {},
+	"create":   {},
+	"set":      {},
+	"delete":   {},
+	"acl":      {},
+	"setacl":   {},
+	"move":     {},
 }
 
 func (c *ComponentController) allowKind(g *gin.Context, kind string) bool {

@@ -67,6 +67,7 @@ func normalizeRuntime(rt core.Runtime) (core.Runtime, error) {
 	rt.Start = strings.TrimSpace(rt.Start)
 	rt.Stop = strings.TrimSpace(rt.Stop)
 	rt.Status = strings.TrimSpace(rt.Status)
+	rt.Restart = strings.TrimSpace(rt.Restart)
 	rt.Kill = strings.TrimSpace(rt.Kill)
 	rt.Description = strings.TrimSpace(rt.Description)
 	if runes := []rune(rt.Description); len(runes) > 500 {
@@ -98,7 +99,7 @@ func normalizeRuntime(rt core.Runtime) (core.Runtime, error) {
 			return rt, fmt.Errorf("%s 模式请填写 service", rt.Kind)
 		}
 	case "command":
-		// command 只认 start/stop/status/kill，不认 service（systemd/windows/docker 才用）。
+		// command 只认 start/stop/status/restart/kill，不认 service（systemd/windows/docker 才用）。
 		rt.Service = ""
 		if err := fillCommandDefaults(&rt); err != nil {
 			return rt, err
