@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { getApiMessage, getHttpErrorMessage, isApiSuccess, parseApiData } from '@/api/request'
 import {
   RsButton,
+  RsContextMenu,
   RsInput,
   RsSelect,
   RsTextarea,
   RsTree,
   rsConfirm,
   useRsToast,
+  type RsContextMenuItem,
   type RsSelectOption,
   type RsTreeNode,
 } from '@/ui'
@@ -44,6 +46,42 @@ const tab = ref<'data' | 'acl'>('data')
 const aclRows = ref<AclRow[]>([])
 const aversion = ref(-1)
 const aclLoaded = ref(false)
+const menuKey = ref('/')
+const nodeMenu = ref<{ open: (point?: { x: number; y: number }) => void } | null>(null)
+const query = ref('')
+
+const menuItems = computed<RsContextMenuItem[]>(() => {
+  const key = menuKey.value
+  const root = key === '/'
+  const treeNode = findNode(nodes.value, key)
+  const opened = expanded.value.includes(key)
+  const title = key === '/' ? '/' : key.slice(key.lastIndexOf('/') + 1)
+  const knownBinary = key === path.value && (!node.value || binary.value)
+  return [
+    { key: 'head', label: title, separator: true },
+    { key: 'refresh', label: '刷新', icon: 'refresh-cw' },
+    {
+      key: 'toggle',
+      label: opened ? '收起' : '展开',
+      icon: opened ? 'chevron-down' : 'chevron-right',
+      disabled: treeNode?.isLeaf === true,
+    },
+    { key: 'sep-edit', label: '', separator: true },
+    {
+      key: 'create',
+      label: '新建子节点',
+      icon: 'plus',
+      children: modeOptions.map((item) => ({ key: `create:${String(item.value)}`, label: String(item.label) })),
+    },
+    { key: 'copy-path', label: '复制路径', icon: 'copy' },
+    { key: 'copy-data', label: '复制数据', icon: 'clipboard', disabled: knownBinary },
+    { key: 'sep-move', label: '', separator: true },
+    { key: 'move', label: '移动', icon: 'folder-input', disabled: root },
+    { key: 'acl', label: '权限', icon: 'shield' },
+    { key: 'sep-danger', label: '', separator: true },
+    { key: 'delete', label: '删除', icon: 'trash-2', danger: true, disabled: root },
+  ]
+})
 
 const modeOptions: RsSelectOption[] = [
   { label: '持久', value: 'persistent' },
@@ -75,6 +113,16 @@ function parentOf(value: string) {
   if (value === '/') return '/'
   const cut = value.lastIndexOf('/')
   return cut <= 0 ? '/' : value.slice(0, cut)
+}
+
+function matchNode(node: RsTreeNode, keyword: string) {
+  const q = keyword.trim().toLowerCase()
+  if (!q) return true
+  const label = String(node.label ?? '').toLowerCase()
+  if (label.includes(q)) return true
+  const key = String(node.key ?? '').toLowerCase()
+  if (key === '/') return false
+  return key.includes(q)
 }
 
 function findNode(list: RsTreeNode[], key: string): RsTreeNode | null {
@@ -152,7 +200,7 @@ async function open(next: string) {
     const got = await call<ZkNodeStat>('get', { path: next })
     path.value = next
     selected.value = next
-    node.value = got
+    node.value = got ?? null
     binary.value = !!got?.dataBase64 && got.data == null
     data.value = got?.data ?? ''
     aclRows.value = []
@@ -368,6 +416,121 @@ function when(ms?: number) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
+function zxidText(value?: number) {
+  if (value == null) return '—'
+  return `0x${value.toString(16)}`
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('已复制')
+  } catch {
+    toast.error('复制失败')
+  }
+}
+
+async function useNode(key: string) {
+  selected.value = key
+  if (path.value === key && node.value) return true
+  await open(key)
+  return path.value === key && !!node.value
+}
+
+async function toggleBranch(key: string) {
+  const treeNode = findNode(nodes.value, key)
+  if (!treeNode || treeNode.isLeaf) return
+  if (expanded.value.includes(key)) {
+    expanded.value = expanded.value.filter((item) => item !== key)
+    return
+  }
+  if (!(treeNode.children?.length)) {
+    busy.value = true
+    try {
+      await fill(treeNode, key)
+    } catch (err) {
+      fail(err, '目录操作失败')
+      busy.value = false
+      return
+    }
+    busy.value = false
+  }
+  if (treeNode.isLeaf || expanded.value.includes(key)) return
+  expanded.value = [...expanded.value, key]
+}
+
+async function refreshNode(key: string) {
+  const treeNode = findNode(nodes.value, key)
+  if (!treeNode) return
+  busy.value = true
+  error.value = ''
+  try {
+    await fill(treeNode, key)
+  } catch (err) {
+    fail(err, '目录操作失败')
+    busy.value = false
+    return
+  }
+  const alive = path.value === key || !!findNode(nodes.value, path.value)
+  if (path.value === key || !alive) {
+    await open(alive ? path.value : key)
+    return
+  }
+  busy.value = false
+}
+
+function onNodeMenu(_treeNode: RsTreeNode, key: string, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (busy.value) return
+  menuKey.value = key
+  nodeMenu.value?.open({ x: event.clientX, y: event.clientY })
+}
+
+async function onMenuSelect(action: string) {
+  const key = menuKey.value
+  if (!key || busy.value) return
+  if (action === 'copy-path') {
+    await copyText(key)
+    return
+  }
+  if (action === 'toggle') {
+    await toggleBranch(key)
+    return
+  }
+  if (action === 'refresh') {
+    await refreshNode(key)
+    return
+  }
+  if (!(await useNode(key))) return
+  if (action.startsWith('create:')) {
+    const mode = action.slice('create:'.length)
+    if (modeOptions.some((item) => item.value === mode)) childMode.value = mode
+    creating.value = true
+    moving.value = false
+    return
+  }
+  if (action === 'move') {
+    moving.value = true
+    creating.value = false
+    target.value = ''
+    return
+  }
+  if (action === 'acl') {
+    await showAcl()
+    return
+  }
+  if (action === 'copy-data') {
+    if (binary.value) {
+      toast.error('节点数据不是文本')
+      return
+    }
+    await copyText(data.value)
+    return
+  }
+  if (action === 'delete') await remove()
+}
+
 onMounted(async () => {
   const root = nodes.value[0]
   if (!root) return
@@ -406,10 +569,20 @@ onMounted(async () => {
     </form>
     <div class="fg-zk-body">
       <div class="fg-zk-tree">
+        <RsInput
+          v-model="query"
+          class="fg-zk-filter"
+          size="sm"
+          clearable
+          placeholder="过滤已展开的节点"
+          aria-label="过滤已展开的节点"
+        />
         <RsTree
           v-model="selected"
           v-model:expanded-keys="expanded"
           :nodes="nodes"
+          :filter="query.trim()"
+          :filter-node="matchNode"
           lazy
           show-line
           block-node
@@ -417,7 +590,9 @@ onMounted(async () => {
           :load-data="loadData"
           aria-label="ZooKeeper 节点"
           @node-click="(_node, key) => open(key)"
+          @node-contextmenu="onNodeMenu"
         />
+        <RsContextMenu ref="nodeMenu" :items="menuItems" aria-label="ZooKeeper 节点操作" @select="onMenuSelect" />
       </div>
       <div class="fg-zk-detail">
         <div class="fg-zk-tabs">
@@ -425,11 +600,17 @@ onMounted(async () => {
           <button type="button" :data-on="tab === 'acl'" @click="showAcl">权限</button>
         </div>
         <dl v-if="node && tab === 'data'" class="fg-zk-stat">
-          <div><dt>版本</dt><dd>{{ node.version ?? '—' }}</dd></div>
+          <div><dt>数据版本</dt><dd>{{ node.version ?? '—' }}</dd></div>
+          <div><dt>子节点版本</dt><dd>{{ node.cversion ?? '—' }}</dd></div>
+          <div><dt>权限版本</dt><dd>{{ node.aversion ?? '—' }}</dd></div>
           <div><dt>子节点</dt><dd>{{ node.numChildren ?? '—' }}</dd></div>
           <div><dt>数据长度</dt><dd>{{ node.dataLength ?? '—' }}</dd></div>
-          <div><dt>修改时间</dt><dd>{{ when(node.mtime) }}</dd></div>
           <div><dt>临时</dt><dd>{{ node.ephemeralOwner ? '是' : '否' }}</dd></div>
+          <div><dt>创建时间</dt><dd>{{ when(node.ctime) }}</dd></div>
+          <div><dt>修改时间</dt><dd>{{ when(node.mtime) }}</dd></div>
+          <div><dt>创建事务</dt><dd class="fg-mono">{{ zxidText(node.czxid) }}</dd></div>
+          <div><dt>修改事务</dt><dd class="fg-mono">{{ zxidText(node.mzxid) }}</dd></div>
+          <div><dt>子节点事务</dt><dd class="fg-mono">{{ zxidText(node.pzxid) }}</dd></div>
         </dl>
         <template v-if="tab === 'data'">
           <p v-if="binary" class="fg-zk-note">节点数据不是文本，这里不展示，也不能在页面上改。移动和删除仍可用。</p>
@@ -515,6 +696,13 @@ onMounted(async () => {
   padding: 8px;
   border-right: 1px solid var(--fg-panel-border, var(--rs-border));
 }
+.fg-zk-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 8px;
+  background: var(--rs-surface);
+}
 .fg-zk-detail {
   display: flex;
   flex-direction: column;
@@ -555,6 +743,9 @@ onMounted(async () => {
 }
 .fg-zk-stat dd {
   margin: 0;
+}
+.fg-mono {
+  font-family: var(--rs-font-mono, ui-monospace, monospace);
 }
 .fg-zk-data {
   flex: 1;

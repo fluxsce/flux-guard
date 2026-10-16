@@ -93,6 +93,17 @@ func ListSites(ctx context.Context, db *dbx.DB, tenantID, keyword string) ([]mod
 			by[k] = site
 			order = append(order, k)
 		}
+		if row.ArtifactKind == "runtime" {
+			site.ModeCode = row.ModeCode
+			if row.RuntimeKind != "" {
+				site.RuntimeKind = row.RuntimeKind
+			}
+		} else if !hasProcessMode(site.ModeCode) && hasProcessMode(row.ModeCode) {
+			site.ModeCode = row.ModeCode
+			if site.RuntimeKind == "" {
+				site.RuntimeKind = row.RuntimeKind
+			}
+		}
 		if row.ArtifactKind != "runtime" {
 			site.FileCount++
 		}
@@ -157,7 +168,7 @@ func ListSiteFiles(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceN
 	return out, nil
 }
 
-// SiteMode 读一套运行时的 mode（取任意一行）。
+// SiteMode 读一套运行时的 mode：runtime 锚点优先，否则取仍带进程模式的行。
 func SiteMode(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName string) (string, error) {
 	row, err := SiteAnchor(ctx, db, tenantID, agentID, instanceName)
 	if err != nil {
@@ -179,6 +190,7 @@ func SiteAnchor(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName
 		return models.Instance{}, err
 	}
 	var fallback models.Instance
+	var process models.Instance
 	for _, row := range all {
 		if row.AgentID != agentID || row.InstanceName != instanceName {
 			continue
@@ -186,14 +198,30 @@ func SiteAnchor(ctx context.Context, db *dbx.DB, tenantID, agentID, instanceName
 		if row.ArtifactKind == "runtime" {
 			return row, nil
 		}
+		if process.InstID == "" && hasProcessMode(row.ModeCode) {
+			process = row
+		}
 		if fallback.InstID == "" {
 			fallback = row
 		}
+	}
+	if process.InstID != "" {
+		return process, nil
 	}
 	if fallback.InstID != "" {
 		return fallback, nil
 	}
 	return models.Instance{}, ErrMissing
+}
+
+// hasProcessMode 表示这一行还能启停进程。files / static 只换文件。
+func hasProcessMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case "", "files", "static":
+		return false
+	default:
+		return true
+	}
 }
 
 func siteBase(row models.Instance) string {

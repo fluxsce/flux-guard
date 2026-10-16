@@ -48,6 +48,10 @@ func SaveAppside(ctx context.Context, tx *dbx.DB, batch protocol.Batch) error {
 				return err
 			}
 		}
+		// 制品行会被目录同步改写 mode。每套另留 runtime 锚点，启停读这一行的 mode。
+		if err := upsertRuntimeAnchor(ctx, tx, batch, &sides[i], reported, edited, seen); err != nil {
+			return err
+		}
 	}
 	return retireMissing(ctx, tx, batch.TenantID, batch.AgentID, seen, filesHeartbeatOnly, edited)
 }
@@ -110,6 +114,35 @@ func syncAppsideAgent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, sid
 
 func slotKey(instance, appCode string) string {
 	return strings.TrimSpace(instance) + "\n" + appCode
+}
+
+// upsertRuntimeAnchor 写入 artifactKind=runtime 的站点行，mode 与代理配置一致。
+// 新建的锚点应用标成忽略，不出现在应用目录里。
+func upsertRuntimeAnchor(ctx context.Context, tx *dbx.DB, batch protocol.Batch, side *protocol.AppSide, reported, edited string, seen map[string]bool) error {
+	inst := clip(strings.TrimSpace(side.InstanceName), 100)
+	if inst == "" {
+		return nil
+	}
+	seen[slotKey(side.InstanceName, inst)] = true
+	var existing int
+	if err := store.Scan(ctx, tx, `
+		SELECT count(*) FROM FG_APP WHERE tenantId = @tenantId AND appCode = @appCode`,
+		dbx.Args{"tenantId": batch.TenantID, "appCode": inst}, &existing); err != nil {
+		return err
+	}
+	if err := upsertApp(ctx, tx, batch, inst, "runtime", reported, edited); err != nil {
+		return err
+	}
+	if existing == 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE FG_APP SET ignoreFlag = 'Y', editTime = @editTime, editWho = 'system', currentVersion = currentVersion + 1
+			WHERE tenantId = @tenantId AND appCode = @appCode`,
+			dbx.Args{"editTime": edited, "tenantId": batch.TenantID, "appCode": inst}); err != nil {
+			return err
+		}
+	}
+	item := protocol.AppArtifact{AppName: inst, Kind: "runtime", Path: strings.TrimSpace(side.BasePath)}
+	return upsertInst(ctx, tx, batch, side, item, inst, reported, edited)
 }
 
 func upsertApp(ctx context.Context, tx *dbx.DB, batch protocol.Batch, appCode, kind, reported, edited string) error {

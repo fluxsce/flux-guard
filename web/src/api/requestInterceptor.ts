@@ -19,6 +19,11 @@ export class RequestInterceptorHelper {
         requestHeaderHelper.patchAuth(cfg.headers)
         requestHeaderHelper.patchTrace(cfg.headers)
         await requestPluginHelper.applyRequest(cfg)
+        // 实例默认 Content-Type 是 application/json。axios 会据此把 FormData 收成 JSON，文件字段变成空对象，服务端只能报「请选择发行包」。
+        // 写成 multipart/form-data 后，浏览器和 Node 适配器都会补上 boundary。
+        if (typeof FormData !== 'undefined' && cfg.data instanceof FormData) {
+          cfg.headers.setContentType('multipart/form-data', true)
+        }
         if (cfg.showLoading) {
           requestLoadingHelper.begin()
         }

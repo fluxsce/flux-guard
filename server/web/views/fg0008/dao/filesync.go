@@ -123,7 +123,7 @@ func upsertSyncedInst(ctx context.Context, db *dbx.DB, tenantID, agentID, instan
 		"ipAddress":      nullText(clip(tpl.IPAddress, 128)),
 		"instanceName":   clip(instance, 100),
 		"runtimeKind":    clip(tpl.RuntimeKind, 16),
-		"modeCode":       "files",
+		"modeCode":       syncedMode(tpl.ModeCode),
 		"artifactKind":   clip(strings.TrimSpace(item.Kind), 16),
 		"artifactPath":   nullText(clip(strings.TrimSpace(item.Path), 255)),
 		"versionText":    nullText(clip(strings.TrimSpace(item.Version), 64)),
@@ -197,6 +197,15 @@ func retireSynced(ctx context.Context, db *dbx.DB, tenantID, agentID, instance s
 		}
 	}
 	return nil
+}
+
+// syncedMode 沿用站点锚点上的模式。只有锚点没写模式时才落成 files。
+func syncedMode(mode string) string {
+	mode = clip(strings.TrimSpace(mode), 16)
+	if mode == "" {
+		return "files"
+	}
+	return mode
 }
 
 func clip(s string, n int) string {

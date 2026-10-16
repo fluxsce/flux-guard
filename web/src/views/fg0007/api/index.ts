@@ -281,6 +281,7 @@ export interface ZkNodeStat {
   aversion?: number
   dataLength?: number
   numChildren?: number
+  pzxid?: number
   ephemeralOwner?: number
   data?: string
   dataBase64?: string

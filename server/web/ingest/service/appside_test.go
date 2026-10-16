@@ -90,7 +90,7 @@ func TestAppsideReportFillsAgentRow(t *testing.T) {
 		AppSide: &protocol.AppSide{
 			InstanceName: "war-repo", RuntimeKind: "command", Mode: "files", RunningFlag: "N",
 			HostName: "box-a", IPAddress: "10.0.0.8", CommandAddress: "10.0.0.8:7701",
-			BasePath: "E:\\war\\repo",
+			BasePath:  "E:\\war\\repo",
 			Artifacts: []protocol.AppArtifact{{AppName: "war-repo", Kind: "runtime", Path: "E:\\war\\repo"}},
 		},
 	}
@@ -134,5 +134,17 @@ func TestOneAgentKeepsSameWarOnTwoTomcats(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("instances %d", count)
+	}
+	var mode, kind, ignore string
+	if err := store.Scan(context.Background(), svc.db, `
+		SELECT i.modeCode, i.artifactKind, a.ignoreFlag
+		FROM FG_APP_INST i
+		JOIN FG_APP a ON a.tenantId = i.tenantId AND a.appCode = i.appCode
+		WHERE i.tenantId = 'default' AND i.agentId = 'side-box' AND i.instanceName = 'tomcat-a' AND i.appCode = 'tomcat-a' AND i.activeFlag = 'Y'`,
+		nil, &mode, &kind, &ignore); err != nil {
+		t.Fatal(err)
+	}
+	if mode != "tomcat" || kind != "runtime" || ignore != "Y" {
+		t.Fatalf("anchor mode %s kind %s ignore %s", mode, kind, ignore)
 	}
 }

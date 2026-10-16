@@ -6,7 +6,7 @@
  * 2. 页面用 isApiSuccess / getApiMessage / parseApiData。
  * 3. 后端已给出 { ok, error } 的 HTTP 4xx/5xx 会 resolve 为 ok=false，不当异常抛。
  * 4. 仅网络中断、超时、取消才 reject。会话 401 在拦截器弹窗。登录口令错误除外。
- * 5. blob/multipart 才用 http；请求前扩展走 registerHttpPlugin。
+ * 5. blob 下载才用 http。FormData 仍走 createApi，拦截器会去掉 JSON Content-Type。请求前扩展走 registerHttpPlugin。
  * 6. 取消使用 RequestConfig.signal。
  */
 import { requestInterceptorHelper } from '@/api/requestInterceptor'
