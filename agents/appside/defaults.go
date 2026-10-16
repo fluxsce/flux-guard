@@ -31,10 +31,12 @@ func fillCommandDefaults(rt *Runtime) error {
 		}
 		if rt.Status == "" {
 			rt.Status = status
+			rt.StatusAuto = rt.Mode == "tomcat"
 		}
 	}
 	if rt.Mode == "tomcat" && rt.Kill == "" && rt.Base != "" {
 		rt.Kill = tomcatKillCommand(rt.Base)
+		rt.KillAuto = true
 	}
 	if rt.Start == "" || rt.Stop == "" || rt.Status == "" {
 		return fmt.Errorf("command 模式请填写 start、stop、status，或按约定放置脚本")
@@ -70,7 +72,8 @@ func defaultCommands(rt *Runtime) (start, stop, status string, err error) {
 
 func tomcatCommands(base string) (start, stop, status string) {
 	bin := filepath.Join(base, "bin")
-	// stock Tomcat 没有 catalina status；用进程命令行里的 catalina.base 判断是否在跑。
+	// stock Tomcat 没有 catalina status。Linux 上按完整 base 精确匹配
+	// JVM 参数 -Dcatalina.base=<base>，不用实例名，也不走 pgrep 正则。
 	status = tomcatStatusCommand(base)
 	if runtime.GOOS == "windows" {
 		return shellPath(filepath.Join(bin, "startup.bat")),
@@ -82,28 +85,39 @@ func tomcatCommands(base string) (start, stop, status string) {
 		status
 }
 
-// tomcatStatusCommand 按 CATALINA_BASE 查 Java 进程。路径含空格时已带引号片段。
+// tomcatStatusCommand 是 Windows 上的备用命令。Linux 在 StatusAuto 时直接读进程表，不执行这里。
 func tomcatStatusCommand(base string) string {
-	base = filepath.Clean(strings.TrimSpace(base))
-	marker := "catalina.base=" + base
+	marker := catalinaBaseMarker(base)
 	if runtime.GOOS == "windows" {
-		// PowerShell：命令行含 catalina.base=<base> 即视为在跑。
-		esc := strings.ReplaceAll(marker, `'`, `''`)
-		return `powershell -NoProfile -Command "if (Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | Where-Object { $_.CommandLine -like '*` + esc + `*' } | Select-Object -First 1) { exit 0 } else { exit 1 }"`
+		return tomcatWindowsQuery(marker, false)
 	}
-	// [c] 避免 pgrep 匹配到自身命令行。
-	return "pgrep -f " + shellPath("[c]"+marker)
+	return "flux-guard-tomcat-status " + shellPath(marker)
 }
 
-// tomcatKillCommand 按 CATALINA_BASE 强杀 Java 进程（优雅 shutdown 超时后用）。
+// tomcatKillCommand 是 Windows 上的备用强杀。Linux 在 KillAuto 时直接按同一参数发 SIGKILL。
 func tomcatKillCommand(base string) string {
-	base = filepath.Clean(strings.TrimSpace(base))
-	marker := "catalina.base=" + base
+	marker := catalinaBaseMarker(base)
 	if runtime.GOOS == "windows" {
-		esc := strings.ReplaceAll(marker, `'`, `''`)
-		return `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | Where-Object { $_.CommandLine -like '*` + esc + `*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`
+		return tomcatWindowsQuery(marker, true)
 	}
-	return "pkill -9 -f " + shellPath("[c]"+marker)
+	return "flux-guard-tomcat-kill " + shellPath(marker)
+}
+
+// catalinaBaseMarker 是这一套 Tomcat 在 JVM 命令行里的完整参数，含 base，不含实例名。
+func catalinaBaseMarker(base string) string {
+	base = filepath.Clean(strings.TrimSpace(base))
+	return "-Dcatalina.base=" + base
+}
+
+// tomcatWindowsQuery 按完整参数匹配 java.exe。kill 为 true 时结束这些进程，否则只判断是否存在。
+func tomcatWindowsQuery(marker string, kill bool) string {
+	esc := strings.ReplaceAll(marker, `'`, `''`)
+	action := "exit 0"
+	if kill {
+		action = "Stop-Process -Id $_.ProcessId -Force"
+	}
+	// 参数两侧必须是开头、空格或引号，避免 /data/app 命中 /data/app-other。
+	return `powershell -NoProfile -Command "$m='` + esc + `'; $hit=$false; Get-CimInstance Win32_Process -Filter \"name='java.exe'\" | ForEach-Object { $c=$_.CommandLine; if($c -and (($c -eq $m) -or $c.StartsWith($m+' ') -or $c.Contains(' '+$m+' ') -or $c.EndsWith(' '+$m) -or $c.Contains(' '+$m+'\"') -or $c.StartsWith('\"'+$m))) { $hit=$true; ` + action + ` } }; if($hit){ exit 0 } else { exit 1 }"`
 }
 
 // lifecycleCommands 优先找已有约定脚本，没有则落到 base/bin/start|stop|status。

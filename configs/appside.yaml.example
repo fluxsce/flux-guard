@@ -9,7 +9,7 @@
 #   windows   Windows 服务。service 填服务名。
 #   docker    容器。service 填容器名。
 #   command   本机命令。可手写 start / stop / status / kill；未填时按 mode 推导：
-#             tomcat -> startup/shutdown；status/kill 按 catalina.base 查/杀进程
+#             tomcat -> startup/shutdown；是否在跑按完整 base 精确匹配 JVM 参数 -Dcatalina.base=<base>，不按实例名
 #             node / script -> 优先用 base/bin、base、base/scripts 下的 start/stop/status，
 #                             没有则落到 base/bin/start.sh（Windows 为 .bat）；kill 可手写
 #             jar -> 在 jar 同目录找上述约定脚本
@@ -40,7 +40,7 @@ runtimes:
     mode: tomcat
     base: /opt/tomcat-a
     description: 生产订单 Tomcat # 可选；写入 fg0008 左侧运行时描述；非空覆盖、空不改
-  # 脚本启动的 Tomcat：不写 start/stop/status/kill，按 base 推导；shutdown 超时会 pkill。
+  # 脚本启动的 Tomcat：不写 start/stop/status/kill。按完整 base 匹配 -Dcatalina.base=<base>；shutdown 超时则强杀该进程。
   - kind: command
     instance: tomcat-b
     mode: tomcat
@@ -48,7 +48,7 @@ runtimes:
     description: 测试环境 Tomcat
     # stop_grace_sec: 30      # 可选；优雅停止等待，超时强杀
     # startup_wait_sec: 300   # 可选；大应用启动探测可加长（默认 180）
-    # kill: pkill -9 -f '[c]atalina.base=/opt/tomcat-b'  # 可选；一般不用手写
+    # kill:  # 可选；一般不用手写。默认按 -Dcatalina.base=<base> 精确强杀，不会波及同名的其它目录
   # Node：换包是 zip 解到 base。启停可手写，也可放约定脚本后自动推导。
   - kind: command
     instance: order-api

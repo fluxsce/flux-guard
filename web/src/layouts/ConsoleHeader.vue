@@ -7,6 +7,7 @@ import { useModuleI18n } from '@/locales/useModuleI18n'
 import { moduleIcon } from '@/router'
 import { ACCOUNT_PATH, modulePath, useSessionStore } from '@/stores/session'
 import { setTheme, theme, type AppTheme } from '@/layouts/theme'
+import ServerUpgradeDialog from '@/layouts/ServerUpgradeDialog.vue'
 import { useProductVersion } from '@/productVersion'
 import { RsAvatar, RsBreadcrumb, RsIcon, RsPopover } from '@/ui'
 import type { Menu } from '@/views/login/api'
@@ -18,6 +19,7 @@ const { t, locale } = useModuleI18n('shell')
 const { version } = useProductVersion()
 const now = ref(new Date())
 const accountOpen = ref(false)
+const upgradeOpen = ref(false)
 const query = ref('')
 const searchOpen = ref(false)
 const activeIndex = ref(0)
@@ -43,6 +45,7 @@ const crumbs = computed(() => {
 const userLabel = computed(() => session.user?.realName || session.user?.userName || t('signedOut'))
 const userAccount = computed(() => session.user?.userName || '')
 const userMark = computed(() => userLabel.value.trim().slice(0, 1))
+const canUpgrade = computed(() => session.allowButton('fg0001:upgrade'))
 const hits = computed(() => {
   const keyword = query.value.trim().toLowerCase()
   const menus = session.menus.filter((menu) => menu.resourceCode)
@@ -121,6 +124,11 @@ function onSearchBlur(event: FocusEvent) {
 function openProfile() {
   accountOpen.value = false
   if (route.path !== ACCOUNT_PATH) void router.push(ACCOUNT_PATH)
+}
+
+function openUpgrade() {
+  accountOpen.value = false
+  upgradeOpen.value = true
 }
 
 function hitIcon(code: string) {
@@ -250,6 +258,10 @@ watch(
                 </div>
               </div>
             </div>
+            <button v-if="canUpgrade" type="button" class="fg-account-set" @click="openUpgrade">
+              <RsIcon name="package" :size="14" />
+              <span>{{ t('upgradeServer') }}</span>
+            </button>
             <button type="button" class="fg-account-set" @click="openProfile">
               <RsIcon name="user-pen" :size="14" />
               <span>{{ t('profile') }}</span>
@@ -261,6 +273,7 @@ watch(
           </div>
         </template>
       </RsPopover>
+      <ServerUpgradeDialog v-model:open="upgradeOpen" />
     </div>
   </header>
 </template>

@@ -157,7 +157,23 @@ func findBinary(root, base string) string {
 	return ""
 }
 
-// mergeTree 把安装包内容合进现有目录。不覆盖已有 configs/*.yaml，只更新 example 与脚本。
+// serviceBase 是开机服务名，与 scripts/run 里的 binary_name 一致。
+func serviceBase(scriptName string) string {
+	switch scriptName {
+	case "server":
+		return "flux-guard-server"
+	case "host":
+		return "flux-guard-agent-host"
+	case "goruntime":
+		return "flux-guard-agent-goruntime"
+	case "appside":
+		return "flux-guard-agent-appside"
+	default:
+		return ""
+	}
+}
+
+// mergeTree 把安装包内容合进现有目录。不覆盖已有 configs/*.yaml，不写入 data 与 logs。
 func mergeTree(src, dest, binBase string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -168,6 +184,13 @@ func mergeTree(src, dest, binBase string) error {
 			return err
 		}
 		if rel == "." {
+			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == "data" || relSlash == "logs" {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		base := filepath.Base(path)

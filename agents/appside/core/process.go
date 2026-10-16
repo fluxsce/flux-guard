@@ -117,6 +117,9 @@ func Running(ctx context.Context, rt Runtime) bool {
 		out, err := runCommand(ctx, StatusTimeout, "docker", "inspect", "-f", "{{.State.Running}}", service)
 		return err == nil && strings.TrimSpace(string(out)) == "true"
 	case "command":
+		if alive, ok := tomcatBaseAlive(rt); ok {
+			return alive
+		}
 		return runShell(ctx, rt.Status, StatusTimeout) == nil
 	default:
 		return false
@@ -172,11 +175,13 @@ func stopCommand(ctx context.Context, rt Runtime) error {
 	if !Running(ctx, rt) {
 		return nil
 	}
-	kill := strings.TrimSpace(rt.Kill)
-	if kill == "" {
-		return fmt.Errorf("停止失败：进程仍在运行（未配置 kill）")
+	if !killTomcatBase(rt) {
+		kill := strings.TrimSpace(rt.Kill)
+		if kill == "" {
+			return fmt.Errorf("停止失败：进程仍在运行（未配置 kill）")
+		}
+		_ = runShell(ctx, kill, KillTimeout)
 	}
-	_ = runShell(ctx, kill, KillTimeout)
 	// 给内核一点时间收尸，再查一次。
 	timer := time.NewTimer(400 * time.Millisecond)
 	defer timer.Stop()

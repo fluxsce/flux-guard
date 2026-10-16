@@ -22,6 +22,7 @@ set ROOT=%s
 set DEST=%s
 set STAGED=%s
 set NAME=%s
+set TASK=%s
 set PID=%d
 set LOG=%%ROOT%%\data\agent-update.log
 :wait
@@ -30,6 +31,8 @@ if not errorlevel 1 (
   timeout /t 1 /nobreak >NUL
   goto wait
 )
+schtasks /End /TN "%%TASK%%" >NUL 2>&1
+for %%%%I in ("%%DEST%%") do taskkill /F /IM "%%%%~nxI" >NUL 2>&1
 if exist "%%DEST%%" move /Y "%%DEST%%" "%%DEST%%.bak" >NUL
 move /Y "%%STAGED%%" "%%DEST%%" >NUL
 set OK=0
@@ -54,10 +57,17 @@ if "%%OK%%"=="0" (
 )
 if exist "%%DEST%%.bak" del /F /Q "%%DEST%%.bak" >NUL 2>&1
 del "%%~f0" >NUL 2>&1
-`, root, destBin, staged, scriptName, os.Getpid())
+`, root, destBin, staged, scriptName, serviceBase(scriptName), os.Getpid())
 	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
 		return err
 	}
+	return StartHelper(root, helper, serviceBase(scriptName))
+}
+
+// StartHelper 脱离当前进程启动旁路脚本。
+// Windows 计划任务结束时，脱离的进程组不会跟着退出，脚本可以换二进制再启动。
+func StartHelper(root, helper, unitBase string) error {
+	_ = unitBase
 	cmd := exec.Command("cmd", "/C", helper)
 	cmd.Dir = root
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000008 | 0x00000200} // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP

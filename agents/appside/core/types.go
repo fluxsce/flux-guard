@@ -4,18 +4,21 @@ package core
 
 // Runtime 是这一进程看守的一套应用。一台机器可以列多套。中央不下发这些路径。
 type Runtime struct {
-	Kind        string `mapstructure:"kind"`
-	Instance    string `mapstructure:"instance"`
-	Service     string `mapstructure:"service"`
-	Mode        string `mapstructure:"mode"`
-	Base        string `mapstructure:"base"`
-	Jar         string `mapstructure:"jar"`
-	StaticApp   string `mapstructure:"static_app"`
-	StaticDir   string `mapstructure:"static_dir"`
-	Start       string `mapstructure:"start"`
-	Stop        string `mapstructure:"stop"`
-	Status      string `mapstructure:"status"`
-	Kill        string `mapstructure:"kill"` // 优雅停止仍存活时强杀；Tomcat command 默认按 catalina.base 推导
+	Kind      string `mapstructure:"kind"`
+	Instance  string `mapstructure:"instance"`
+	Service   string `mapstructure:"service"`
+	Mode      string `mapstructure:"mode"`
+	Base      string `mapstructure:"base"`
+	Jar       string `mapstructure:"jar"`
+	StaticApp string `mapstructure:"static_app"`
+	StaticDir string `mapstructure:"static_dir"`
+	Start     string `mapstructure:"start"`
+	Stop      string `mapstructure:"stop"`
+	Status    string `mapstructure:"status"`
+	Kill      string `mapstructure:"kill"` // 优雅停止仍存活时强杀；Tomcat command 默认按 catalina.base 推导
+	// StatusAuto / KillAuto 为 true 时，Tomcat 按 base 精确查/杀 JVM 参数 -Dcatalina.base=<base>，不执行 Status/Kill 里的 shell。
+	StatusAuto bool `mapstructure:"-"`
+	KillAuto   bool `mapstructure:"-"`
 	// StopGraceSec 优雅 stop 最长秒数，超时后若仍在跑则执行 kill；0 用默认。
 	StopGraceSec int `mapstructure:"stop_grace_sec"`
 	// StartupWaitSec 启动探测最长等待秒数（轮询日志/进程）；0 用 mode 默认（Tomcat 更长）。

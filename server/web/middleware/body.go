@@ -14,13 +14,15 @@ import (
 const MaxBodyBytes = limits.MaxBodyBytes
 
 // LimitBody 限制请求体字节数。超出后读取请求体会得到 http.MaxBytesError。
-// 代理出站推送制品走 AppFileMaxBytes，其余管理端请求仍用 MaxBodyBytes。
+// 代理出站推送制品走 AppFileMaxBytes，中央发行包走 ServerPackMaxBytes，其余管理端请求仍用 MaxBodyBytes。
 func LimitBody() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request != nil && c.Request.Body != nil {
 			limit := limits.MaxBodyBytes
 			if isAppFilePush(c.Request.URL.Path) {
 				limit = limits.AppFileMaxBytes
+			} else if isServerPack(c.Request.URL.Path) {
+				limit = limits.ServerPackMaxBytes
 			}
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
@@ -31,4 +33,9 @@ func LimitBody() gin.HandlerFunc {
 func isAppFilePush(path string) bool {
 	path = strings.TrimSpace(path)
 	return path == protocol.FilePushPath
+}
+
+func isServerPack(path string) bool {
+	path = strings.TrimSpace(path)
+	return strings.HasSuffix(path, "/fg0001/upgradeServer")
 }

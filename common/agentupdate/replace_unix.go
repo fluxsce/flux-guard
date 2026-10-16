@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 )
 
 // scheduleReplace 写旁路脚本：等本进程退出后换二进制，优先 restart，失败则回滚 .bak。
@@ -64,9 +66,35 @@ rm -f "$DEST.bak" "$0"
 	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
 		return err
 	}
+	return StartHelper(root, helper, serviceBase(scriptName))
+}
+
+// StartHelper 在服务进程之外启动旁路脚本。
+// 已登记 systemd 单元时必须用 systemd-run，否则主进程退出会把同一 cgroup 里的脚本一起杀掉。
+// 没有单元时用新会话，scripts/run 拉起的进程退出后脚本仍在。
+func StartHelper(root, helper, unitBase string) error {
+	if unitBase != "" {
+		unitPath := filepath.Join("/etc/systemd/system", unitBase+".service")
+		if _, err := os.Stat(unitPath); err == nil {
+			if _, lookErr := exec.LookPath("systemd-run"); lookErr != nil {
+				return fmt.Errorf("开机服务升级需要 systemd-run")
+			}
+			unit := fmt.Sprintf("flux-guard-upgrade-%d", os.Getpid())
+			cmd := exec.Command("systemd-run", "--collect", "--no-block", "--unit="+unit, "/bin/sh", helper)
+			cmd.Dir = root
+			out, runErr := cmd.CombinedOutput()
+			if runErr != nil {
+				msg := strings.TrimSpace(string(out))
+				if msg == "" {
+					msg = runErr.Error()
+				}
+				return fmt.Errorf("无法在开机服务之外执行升级：%s", msg)
+			}
+			return nil
+		}
+	}
 	cmd := exec.Command("/bin/sh", helper)
 	cmd.Dir = root
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
 }

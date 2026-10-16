@@ -47,6 +47,7 @@ INSERT OR IGNORE INTO FG_AUTH_RESOURCE (
 ('group:system', 'default', '系统管理', 'group:system', 'GROUP', NULL, NULL, 1, 20, 'settings', 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0001', 'default', '总览', 'fg0001', 'MODULE', '/fg0001', 'group:observe', 2, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0001:view', 'default', '查看', 'fg0001:view', 'BUTTON', NULL, 'fg0001', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
+('fg0001:upgrade', 'default', '升级中央服务', 'fg0001:upgrade', 'BUTTON', NULL, 'fg0001', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002', 'default', '采集代理', 'fg0002', 'MODULE', '/fg0002', 'group:observe', 2, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:search', 'default', '查询', 'fg0002:search', 'BUTTON', NULL, 'fg0002', 3, 10, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),
 ('fg0002:view', 'default', '查看', 'fg0002:view', 'BUTTON', NULL, 'fg0002', 3, 20, NULL, 'zh-CN', 'Y', 'Y', 'system', 'system', 'INIT', 1, 'Y'),

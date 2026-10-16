@@ -41,4 +41,7 @@ func TestBodyLayers(t *testing.T) {
 	if AppFileMaxBytes <= MaxBodyBytes {
 		t.Fatal("app file push must exceed management body cap")
 	}
+	if ServerPackMaxBytes <= MaxBodyBytes || ServerPackMaxBytes > AppFileMaxBytes {
+		t.Fatalf("server pack cap %d", ServerPackMaxBytes)
+	}
 }

@@ -133,6 +133,7 @@ useModuleAi(() => ({
         </template>
       </div>
     </div>
+    <div :id="`${moduleId}-layer`" class="fg-layer" />
   </div>
 </template>
 
@@ -184,6 +185,17 @@ useModuleAi(() => ({
 .fg-app-files {
   flex: 1 1 58%;
   min-height: 180px;
+}
+
+.fg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.fg-layer:deep(> *) {
+  pointer-events: auto;
 }
 
 .fg-app-console {

@@ -31,8 +31,10 @@ const (
 // --- 请求体体积 ---
 
 const (
-	// MaxBodyBytes 管理端请求体绝对上限（安装包等）。
+	// MaxBodyBytes 管理端请求体绝对上限。
 	MaxBodyBytes int64 = 200 << 20
+	// ServerPackMaxBytes 中央服务发行包上传上限。插件运行时可能使整包大于管理端默认请求体。
+	ServerPackMaxBytes int64 = 1 << 30
 	// AppFileMaxBytes 应用制品代下（短拨暂存 / 代理出站推送）单文件上限。
 	AppFileMaxBytes int64 = 2 << 30
 	// MaxJSONBytes JSON / urlencoded 进内存上限。

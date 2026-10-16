@@ -26,20 +26,20 @@ func TestFillTomcatCommandDefaults(t *testing.T) {
 	if err := fillCommandDefaults(&rt); err != nil {
 		t.Fatal(err)
 	}
+	if !rt.StatusAuto || !rt.KillAuto {
+		t.Fatalf("tomcat defaults should match by base, %+v", rt)
+	}
+	if !strings.Contains(rt.Status, "-Dcatalina.base=") || !strings.Contains(rt.Kill, "-Dcatalina.base=") {
+		t.Fatalf("%+v", rt)
+	}
 	if runtime.GOOS == "windows" {
-		if !strings.Contains(rt.Start, "startup.bat") || !strings.Contains(rt.Status, "catalina.base=") {
+		if !strings.Contains(rt.Start, "startup.bat") {
 			t.Fatalf("%+v", rt)
 		}
 		return
 	}
 	if !strings.HasSuffix(rt.Start, "startup.sh") || !strings.HasSuffix(rt.Stop, "shutdown.sh") {
 		t.Fatalf("%+v", rt)
-	}
-	if !strings.Contains(rt.Status, "pgrep") || !strings.Contains(rt.Status, "catalina.base=") {
-		t.Fatalf("status %s", rt.Status)
-	}
-	if !strings.Contains(rt.Kill, "pkill") || !strings.Contains(rt.Kill, "catalina.base=") {
-		t.Fatalf("kill %s", rt.Kill)
 	}
 }
 
