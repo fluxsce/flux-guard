@@ -1,4 +1,5 @@
 // Package redis 用 RESP 读取 INFO，并写入 FG_COMPONENT_REDIS_METRIC。
+// 终端通过 Exec 按库 SCAN 键、按类型读取，以及删除和设置过期时间。
 package redis
 
 import (

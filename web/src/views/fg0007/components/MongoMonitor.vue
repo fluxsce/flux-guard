@@ -1,11 +1,55 @@
 <script setup lang="ts">
-import { RsCard, RsTooltip } from '@/ui'
-import type { PointDetail } from '../api'
+import { ref, watch } from 'vue'
+import { getApiMessage, getHttpErrorMessage, isApiSuccess } from '@/api/request'
+import { RsButton, RsCard, RsTooltip, rsConfirm, useRsToast } from '@/ui'
+import { execMongo, type MongoRunning, type PointDetail } from '../api'
 
-defineProps<{
+const props = defineProps<{
   panelCode: string
   detail: PointDetail
+  componentId: string
 }>()
+
+const toast = useRsToast()
+const busy = ref(false)
+const hidden = ref<number[]>([])
+
+watch(
+  () => props.detail.running,
+  (rows) => {
+    const live = new Set((rows ?? []).map((item) => item.opid).filter((id): id is number => id != null && id > 0))
+    hidden.value = hidden.value.filter((id) => live.has(id))
+  },
+)
+
+function visibleRunning(rows: MongoRunning[] | undefined) {
+  return (rows ?? []).filter((item) => item.opid == null || !hidden.value.includes(item.opid))
+}
+
+async function kill(item: MongoRunning) {
+  if (!item.opid || busy.value) return
+  const ok = await rsConfirm.confirm({
+    title: '终止操作',
+    description: `终止 ${item.ns || '这条操作'} 上已运行 ${secsText(item.secs)} 的 ${item.op || '操作'}。`,
+    confirmText: '终止',
+    confirmVariant: 'danger',
+    overlayBlur: 0,
+  })
+  if (!ok) return
+  busy.value = true
+  try {
+    const result = await execMongo(props.componentId, 'killOp', { op: String(item.opid) })
+    if (!isApiSuccess(result)) {
+      throw new Error(getApiMessage(result, '终止失败'))
+    }
+    hidden.value = [...hidden.value, item.opid]
+    toast.success('已发送终止')
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : getHttpErrorMessage(err, '终止失败'))
+  } finally {
+    busy.value = false
+  }
+}
 
 const states: Record<string, string> = {
   PRIMARY: '主节点',
@@ -118,25 +162,31 @@ function secsText(secs: number) {
   </RsCard>
   <RsCard v-else-if="panelCode === 'slow'" class="fg-monitor" title="正在执行" size="sm" :padding="false">
     <template #actions>
-      <RsTooltip icon content="来自 currentOp，只保留已经执行超过 1 秒的操作。这不是 system.profile 里的历史慢日志。" aria-label="慢操作说明" />
+      <RsTooltip icon content="来自 currentOp，只保留已经执行超过 1 秒的操作。可以按编号终止。这不是 system.profile 里的历史慢日志。" aria-label="慢操作说明" />
     </template>
     <p v-if="detail.runningNote" class="fg-note">{{ detail.runningNote }}</p>
-    <p v-if="!detail.running?.length && !detail.runningNote" class="fg-note">没有执行超过 1 秒的操作。</p>
-    <table v-if="detail.running?.length" class="fg-table">
+    <p v-if="!visibleRunning(detail.running).length && !detail.runningNote" class="fg-note">没有执行超过 1 秒的操作。</p>
+    <table v-if="visibleRunning(detail.running).length" class="fg-table">
       <thead>
         <tr>
           <th>操作</th>
           <th>命名空间</th>
           <th class="fg-num">已运行</th>
           <th>客户端</th>
+          <th class="fg-num">编号</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(item, index) in detail.running" :key="`${item.ns}-${index}`">
+        <tr v-for="(item, index) in visibleRunning(detail.running)" :key="`${item.opid ?? item.ns}-${index}`">
           <td>{{ item.op || '—' }}</td>
           <td>{{ item.ns || '—' }}</td>
           <td class="fg-num" :data-level="item.secs >= 5 ? 'alert' : 'watch'">{{ secsText(item.secs) }}</td>
           <td>{{ item.client || '—' }}</td>
+          <td class="fg-num">{{ item.opid || '—' }}</td>
+          <td>
+            <RsButton v-if="item.opid" size="sm" variant="ghost" :disabled="busy" @click="kill(item)">终止</RsButton>
+          </td>
         </tr>
       </tbody>
     </table>

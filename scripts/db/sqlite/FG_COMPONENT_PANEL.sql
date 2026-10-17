@@ -41,7 +41,7 @@ INSERT INTO FG_COMPONENT_PANEL (
 ('default', 'redis:slow', 'redis', 'slow', '慢操作', 40, 'N', 'Y', 'slowlogLen', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '慢操作条数和最近命令。'),
 ('default', 'redis:replica', 'redis', 'replica', '复制', 50, 'N', 'N', NULL, 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '从节点、复制延迟和主链路。'),
 ('default', 'redis:keys', 'redis', 'keys', '键', 60, 'N', 'N', NULL, 'keys', 'Y', 'system', 'system', 'INIT', 1, 'Y', '键数量、淘汰和各库键数量。'),
-('default', 'redis:terminal', 'redis', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'Redis 命令通道，和主机终端不是同一路。'),
+('default', 'redis:terminal', 'redis', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '按库浏览键。可按类型查看，删除，或设置过期时间。'),
 ('default', 'mysql:overview', 'mysql', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色和版本。'),
 ('default', 'mysql:connections', 'mysql', 'connections', '连接', 20, 'N', 'Y', 'threadsConnected', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '连接数和活跃线程。'),
 ('default', 'mysql:slow', 'mysql', 'slow', '慢查询', 30, 'N', 'Y', 'slowQueries', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '缓冲池命中和累计慢查询。'),
@@ -55,12 +55,12 @@ INSERT INTO FG_COMPONENT_PANEL (
 ('default', 'mongo:replica', 'mongo', 'replica', '复制', 60, 'N', 'Y', 'replicaLagSec', 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '复制延迟和成员状态。'),
 ('default', 'mongo:storage', 'mongo', 'storage', '库', 70, 'N', 'N', NULL, 'storage', 'Y', 'system', 'system', 'INIT', 1, 'Y', '各库占用。'),
 ('default', 'mongo:slow', 'mongo', 'slow', '慢操作', 80, 'N', 'Y', 'slowOps', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '正在执行且已超过 1 秒的操作。'),
-('default', 'mongo:terminal', 'mongo', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'MongoDB 命令通道。'),
+('default', 'mongo:terminal', 'mongo', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '库、集合和索引。可查询文档，并看历史慢日志。'),
 ('default', 'kafka:overview', 'kafka', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'Broker、离线分区、未同步分区和日志占用。'),
 ('default', 'kafka:broker', 'kafka', 'broker', 'Broker', 15, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '每台 Broker 的地址、控制器、连通、负责的分区、副本和日志占用。'),
 ('default', 'kafka:topic', 'kafka', 'topic', 'Topic', 20, 'N', 'Y', 'topicCount', NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '分区数、副本因子、离线分区、未同步副本、首选副本偏离、低于最小 ISR，异常分区写在同一行。'),
 ('default', 'kafka:group', 'kafka', 'group', '消费组', 30, 'N', 'Y', 'maxLag', 'consume', 'Y', 'system', 'system', 'INIT', 1, 'Y', '与 kafka-consumer-groups --describe 相同：主题、分区、当前位点、日志末端、延迟、消费者、主机和客户端。'),
-('default', 'kafka:terminal', 'kafka', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'Kafka 主题和消费组操作，不是系统终端。'),
+('default', 'kafka:terminal', 'kafka', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '主题配置、新建、删除、增加分区，以及消费组删除和重置位点。'),
 ('default', 'zk:overview', 'zk', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色和版本。'),
 ('default', 'zk:latency', 'zk', 'latency', '延迟', 20, 'N', 'Y', 'avgLatency', 'latency', 'Y', 'system', 'system', 'INIT', 1, 'Y', '平均延迟和堆积请求。'),
 ('default', 'zk:scale', 'zk', 'scale', '规模', 30, 'N', 'Y', 'znodeCount', 'scale', 'Y', 'system', 'system', 'INIT', 1, 'Y', '节点、跟随者和 Watch。'),
@@ -71,3 +71,6 @@ INSERT INTO FG_COMPONENT_PANEL (
 UPDATE FG_COMPONENT_PANEL SET noteText = '连通、角色、版本和排队。' WHERE tenantId = 'default' AND panelId = 'mongo:overview';
 UPDATE FG_COMPONENT_PANEL SET metricText = 'connectionsCurrent', noteText = '当前连接、可用连接和占用。' WHERE tenantId = 'default' AND panelId = 'mongo:connections';
 UPDATE FG_COMPONENT_PANEL SET panelName = '操作', sortOrder = 40, metricText = 'opsPerSec', sectionText = 'ops', noteText = '两次采集之间的每秒操作。' WHERE tenantId = 'default' AND panelId = 'mongo:ops';
+UPDATE FG_COMPONENT_PANEL SET noteText = '库、集合和索引。可查询文档，并看历史慢日志。' WHERE tenantId = 'default' AND panelId = 'mongo:terminal';
+UPDATE FG_COMPONENT_PANEL SET noteText = '主题配置、新建、删除、增加分区，以及消费组删除和重置位点。' WHERE tenantId = 'default' AND panelId = 'kafka:terminal';
+UPDATE FG_COMPONENT_PANEL SET noteText = '按库浏览键。可按类型查看，删除，或设置过期时间。' WHERE tenantId = 'default' AND panelId = 'redis:terminal';

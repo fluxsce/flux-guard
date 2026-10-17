@@ -20,6 +20,13 @@ export default {
   methodMaintain: '维护',
   methodFilePut: '提交文件',
   methodFileGet: '取回文件',
+  opTopics: '列出主题',
+  opTopicConfig: '查看主题配置',
   opCreateTopic: '创建主题',
   opDeleteTopic: '删除主题',
+  opAddPartitions: '增加分区',
+  opAlterConfig: '修改主题配置',
+  opGroups: '列出消费组',
+  opDeleteGroup: '删除消费组',
+  opResetOffsets: '重置位点',
 }

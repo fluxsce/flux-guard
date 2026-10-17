@@ -51,10 +51,10 @@ export function sectionsFor(panels: Panel[], panelCode: string, sections: BoardS
 
 export function terminalNote(kindCode: string) {
   const notes: Record<string, string> = {
-    redis: 'Redis 终端走命令通道，和主机上的系统终端不是同一路。',
+    redis: '按库浏览键。可按类型查看内容，删除键，或设置和取消过期时间。',
     mysql: 'MySQL 终端是 SQL 客户端。',
-    mongo: 'MongoDB 终端走自己的命令通道。',
-    kafka: 'Kafka 终端看主题和消费组，不是系统终端。',
+    mongo: '按库浏览集合和索引。可新建、删除、重命名，按条件查文档，并看历史慢日志。慢操作页可终止正在执行的操作。',
+    kafka: '看主题的保留时间和清理策略。可新建、删除、增加分区、改配置，也可删除消费组或重置位点。',
     zk: 'ZooKeeper 终端按树浏览节点，可按名称或路径过滤。右键可刷新、新建、复制路径、移动、改权限和删除子树。',
     nacos: 'Nacos 终端走控制台操作。',
   }

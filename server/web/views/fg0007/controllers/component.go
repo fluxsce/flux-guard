@@ -208,12 +208,12 @@ func (c *ComponentController) QueryLatest(g *gin.Context) {
 	httpx.WriteOK(g, item)
 }
 
-// ExecConn 对一条 ZooKeeper 连接执行已登记的目录操作。
+// ExecConn 对一条连接执行已登记的维护操作。ZooKeeper 是目录，MongoDB 是库、集合和索引，Redis 是键。
 func (c *ComponentController) ExecConn(g *gin.Context) {
 	if !c.ready(g) {
 		return
 	}
-	var body zkExec
+	var body componentExec
 	if !request.Bind(g, &body) {
 		return
 	}
@@ -221,25 +221,78 @@ func (c *ComponentController) ExecConn(g *gin.Context) {
 	if !ok {
 		return
 	}
-	if item.KindCode != catalog.ZK {
-		httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有目录操作")
-		return
-	}
 	command := strings.TrimSpace(body.Command)
-	if _, allowed := zkCommands[command]; !allowed {
-		httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
-		return
-	}
 	args := body.Args
 	if args == nil {
 		args = map[string]string{}
 	}
-	if len(args["data"]) > 1<<20 {
-		httpx.WriteErr(g, http.StatusBadRequest, "节点数据超过 1MB")
-		return
-	}
-	if len(args["acl"]) > 64<<10 {
-		httpx.WriteErr(g, http.StatusBadRequest, "权限数据过长")
+	var note string
+	switch item.KindCode {
+	case catalog.ZK:
+		if _, allowed := zkCommands[command]; !allowed {
+			httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
+			return
+		}
+		if len(args["data"]) > 1<<20 {
+			httpx.WriteErr(g, http.StatusBadRequest, "节点数据超过 1MB")
+			return
+		}
+		if len(args["acl"]) > 64<<10 {
+			httpx.WriteErr(g, http.StatusBadRequest, "权限数据过长")
+			return
+		}
+		note = zkAudit(command, args)
+	case catalog.Mongo:
+		if _, allowed := mongoCommands[command]; !allowed {
+			httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
+			return
+		}
+		for key, value := range args {
+			limit := 512
+			if key == "filter" {
+				limit = 8192
+			}
+			if len(value) > limit {
+				httpx.WriteErr(g, http.StatusBadRequest, "操作参数过长")
+				return
+			}
+		}
+		note = mongoAudit(command, args)
+	case catalog.Kafka:
+		if _, allowed := kafkaCommands[command]; !allowed {
+			httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
+			return
+		}
+		for _, value := range args {
+			if len(value) > 200 {
+				httpx.WriteErr(g, http.StatusBadRequest, "操作参数过长")
+				return
+			}
+		}
+		note = kafkaAudit(command, args)
+	case catalog.Redis:
+		if _, allowed := redisCommands[command]; !allowed {
+			httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
+			return
+		}
+		for key, value := range args {
+			limit := 32
+			switch key {
+			case "name":
+				limit = 1024
+			case "match":
+				limit = 256
+			case "cursor":
+				limit = 4096
+			}
+			if len(value) > limit {
+				httpx.WriteErr(g, http.StatusBadRequest, "操作参数过长")
+				return
+			}
+		}
+		note = redisAudit(command, args)
+	default:
+		httpx.WriteErr(g, http.StatusBadRequest, "这种组件没有这项操作")
 		return
 	}
 	principal := middleware.Principal(g)
@@ -248,7 +301,7 @@ func (c *ComponentController) ExecConn(g *gin.Context) {
 		httpx.WriteFail(g, http.StatusBadRequest, err)
 		return
 	}
-	audit.Note(g, "", "COMPONENT", item.ComponentID, item.ComponentName, zkAudit(command, args))
+	audit.Note(g, "", "COMPONENT", item.ComponentID, item.ComponentName, note)
 	output, err := runtime.Exec(g.Request.Context(), open, command, args)
 	if err != nil {
 		httpx.WriteFail(g, http.StatusBadRequest, err)
@@ -319,10 +372,46 @@ func (c *ComponentController) owned(g *gin.Context, componentID string) (models.
 	return item, true
 }
 
-type zkExec struct {
+type componentExec struct {
 	ComponentID string            `json:"componentId"`
 	Command     string            `json:"command"`
 	Args        map[string]string `json:"args"`
+}
+
+func mongoAudit(command string, args map[string]string) string {
+	db := strings.TrimSpace(args["database"])
+	coll := strings.TrimSpace(args["collection"])
+	target := db
+	if coll != "" {
+		target = db + "." + coll
+	}
+	switch command {
+	case "createDatabase":
+		return "新建 MongoDB 库 " + db + "." + coll
+	case "dropDatabase":
+		return "删除 MongoDB 库 " + db
+	case "createCollection":
+		return "新建 MongoDB 集合 " + target
+	case "dropCollection":
+		return "删除 MongoDB 集合 " + target
+	case "renameCollection":
+		return "重命名 MongoDB 集合 " + target + " 为 " + strings.TrimSpace(args["name"])
+	case "createIndex":
+		return "新建 MongoDB 索引 " + target + " " + strings.TrimSpace(args["keys"])
+	case "dropIndex":
+		return "删除 MongoDB 索引 " + target + " " + strings.TrimSpace(args["name"])
+	case "killOp":
+		return "终止 MongoDB 操作 " + strings.TrimSpace(args["op"])
+	case "find", "count", "explain":
+		return "查询 MongoDB 集合 " + target
+	case "profile":
+		return "查看 MongoDB 慢日志 " + db
+	default:
+		if target == "" {
+			return "查看 MongoDB 库"
+		}
+		return "查看 MongoDB " + target
+	}
 }
 
 var zkCommands = map[string]struct{}{
@@ -335,6 +424,92 @@ var zkCommands = map[string]struct{}{
 	"acl":      {},
 	"setacl":   {},
 	"move":     {},
+}
+
+var mongoCommands = map[string]struct{}{
+	"databases":        {},
+	"collections":      {},
+	"stats":            {},
+	"indexes":          {},
+	"createDatabase":   {},
+	"dropDatabase":     {},
+	"createCollection": {},
+	"dropCollection":   {},
+	"renameCollection": {},
+	"createIndex":      {},
+	"dropIndex":        {},
+	"killOp":           {},
+	"find":             {},
+	"count":            {},
+	"explain":          {},
+	"profile":          {},
+}
+
+func kafkaAudit(command string, args map[string]string) string {
+	name := strings.TrimSpace(args["name"])
+	switch command {
+	case "create_topic":
+		return "新建 Kafka 主题 " + name
+	case "delete_topic":
+		return "删除 Kafka 主题 " + name
+	case "add_partitions":
+		return "增加 Kafka 主题分区 " + name
+	case "alter_config":
+		return "修改 Kafka 主题配置 " + name + " " + strings.TrimSpace(args["key"])
+	case "delete_group":
+		return "删除 Kafka 消费组 " + name
+	case "reset_offsets":
+		return "重置 Kafka 消费组位点 " + name + " " + strings.TrimSpace(args["topic"])
+	case "topic_config":
+		return "查看 Kafka 主题配置 " + name
+	case "groups":
+		return "查看 Kafka 消费组"
+	default:
+		return "查看 Kafka 主题"
+	}
+}
+
+func redisAudit(command string, args map[string]string) string {
+	db := strings.TrimSpace(args["database"])
+	if db == "" {
+		db = "0"
+	}
+	name := strings.TrimSpace(args["name"])
+	switch command {
+	case "scan":
+		return "查看 Redis 库 " + db + " 的键"
+	case "key":
+		return "查看 Redis 键 " + db + " " + name
+	case "delete":
+		return "删除 Redis 键 " + db + " " + name
+	case "expire":
+		if strings.TrimSpace(args["seconds"]) == "0" {
+			return "取消 Redis 键过期 " + db + " " + name
+		}
+		return "设置 Redis 键过期 " + db + " " + name
+	default:
+		return "查看 Redis 库"
+	}
+}
+
+var redisCommands = map[string]struct{}{
+	"databases": {},
+	"scan":      {},
+	"key":       {},
+	"delete":    {},
+	"expire":    {},
+}
+
+var kafkaCommands = map[string]struct{}{
+	"topics":         {},
+	"topic_config":   {},
+	"create_topic":   {},
+	"delete_topic":   {},
+	"add_partitions": {},
+	"alter_config":   {},
+	"groups":         {},
+	"delete_group":   {},
+	"reset_offsets":  {},
 }
 
 func (c *ComponentController) allowKind(g *gin.Context, kind string) bool {

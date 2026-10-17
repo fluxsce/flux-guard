@@ -20,6 +20,13 @@ export default {
   methodMaintain: 'Maintain',
   methodFilePut: 'Put file',
   methodFileGet: 'Get file',
+  opTopics: 'List topics',
+  opTopicConfig: 'Show topic config',
   opCreateTopic: 'Create topic',
   opDeleteTopic: 'Delete topic',
+  opAddPartitions: 'Add partitions',
+  opAlterConfig: 'Change topic config',
+  opGroups: 'List consumer groups',
+  opDeleteGroup: 'Delete consumer group',
+  opResetOffsets: 'Reset offsets',
 }

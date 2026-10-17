@@ -2,8 +2,10 @@ package mongo
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"strconv"
 )
 
 func bsonDoc(elems ...[]byte) []byte {
@@ -60,6 +62,14 @@ func bsonSub(name string, doc []byte) []byte {
 	return append(append([]byte{0x03}, cstring(name)...), doc...)
 }
 
+func bsonArray(name string, docs ...[]byte) []byte {
+	elems := make([][]byte, 0, len(docs))
+	for i, doc := range docs {
+		elems = append(elems, bsonSub(strconv.Itoa(i), doc))
+	}
+	return append(append([]byte{0x04}, cstring(name)...), bsonDoc(elems...)...)
+}
+
 func bsonBinary(name string, v []byte) []byte {
 	out := append([]byte{0x05}, cstring(name)...)
 	var n [4]byte
@@ -93,6 +103,8 @@ func decodeDoc(b []byte) (map[string]any, error) {
 
 func decodeElems(b []byte) (map[string]any, error) {
 	out := map[string]any{}
+	// 字段名不能含空字节。用它记下原顺序，索引键要按这个顺序展示。
+	order := make([]string, 0)
 	i := 0
 	for i < len(b) {
 		typ := b[i]
@@ -107,7 +119,11 @@ func decodeElems(b []byte) (map[string]any, error) {
 			return nil, err
 		}
 		out[name] = val
+		order = append(order, name)
 		i += used
+	}
+	if len(order) > 0 {
+		out["\x00"] = order
 	}
 	return out, nil
 }
@@ -162,7 +178,7 @@ func decodeValue(typ byte, b []byte) (any, int, error) {
 		if len(b) < 12 {
 			return nil, 0, fmt.Errorf("MongoDB 应答无效")
 		}
-		return nil, 12, nil
+		return hex.EncodeToString(b[:12]), 12, nil
 	case 0x08:
 		if len(b) < 1 {
 			return nil, 0, fmt.Errorf("MongoDB 应答无效")

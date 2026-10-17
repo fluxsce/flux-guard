@@ -1,4 +1,5 @@
 // Package mongo 读取 serverStatus、复制状态、库占用和正在执行的操作，并写入 FG_COMPONENT_MONGO_METRIC。
+// 终端在同一条连接上浏览和维护库、集合、索引，也可以终止正在执行的操作。
 // 传输可以是明文或 TLS。认证可以不填，或使用 SCRAM、LDAP PLAIN、X.509、AWS IAM、OIDC。
 package mongo
 

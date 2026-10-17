@@ -99,12 +99,12 @@ func TestRunningFiltersSubsecond(t *testing.T) {
 	readRunning(&sample, map[string]any{
 		"ok": float64(1),
 		"inprog": map[string]any{
-			"0": map[string]any{"op": "query", "ns": "app.orders", "secs_running": int32(3), "client": "10.0.0.8:1"},
+			"0": map[string]any{"op": "query", "ns": "app.orders", "secs_running": int32(3), "client": "10.0.0.8:1", "opid": int32(42)},
 			"1": map[string]any{"op": "insert", "ns": "app.orders", "secs_running": float64(0.2)},
 			"2": map[string]any{"op": "update", "ns": "app.orders", "microsecs_running": float64(2_500_000)},
 		},
 	})
-	if sample.SlowOps != 2 || len(sample.Running) != 2 || sample.Running[0].Secs != 3 || sample.Running[1].Op != "update" {
+	if sample.SlowOps != 2 || len(sample.Running) != 2 || sample.Running[0].Secs != 3 || sample.Running[0].OpID != 42 || sample.Running[1].Op != "update" {
 		t.Fatalf("%+v %v", sample.SlowOps, sample.Running)
 	}
 }

@@ -187,6 +187,59 @@ export interface MongoRunning {
   ns: string
   secs: number
   client?: string
+  opid?: number
+}
+
+/** 终端里列出的一个集合。 */
+export interface MongoCollection {
+  name: string
+  type?: string
+}
+
+/** 集合存储统计，来自 collStats。 */
+export interface MongoCollStats {
+  database: string
+  collection: string
+  ns: string
+  count: number
+  size: number
+  avgObjSize: number
+  storageSize: number
+  nindexes: number
+  totalIndexSize: number
+  capped?: boolean
+}
+
+/** 集合上的一个索引。 */
+export interface MongoIndex {
+  name: string
+  key: string
+  unique?: boolean
+  sparse?: boolean
+  hidden?: boolean
+  ttl?: number
+  partial?: boolean
+}
+
+/** 库列表。 */
+export interface MongoDatabaseList {
+  databases?: MongoDatabase[]
+  note?: string
+}
+
+/** 某个库下的集合列表。 */
+export interface MongoCollectionList {
+  database: string
+  collections?: MongoCollection[]
+  note?: string
+}
+
+/** 某个集合的索引列表。 */
+export interface MongoIndexList {
+  database: string
+  collection: string
+  indexes?: MongoIndex[]
+  note?: string
 }
 
 export interface PointDetail {
@@ -295,6 +348,121 @@ export interface ZkChildren {
 /** 对一条 ZooKeeper 连接执行目录操作。写操作由终端按钮控制。 */
 export function execZk(componentId: string, command: string, args: Record<string, string>) {
   return api.post<ZkNodeStat & ZkChildren>('/execConn', { componentId, command, args })
+}
+
+/** 对一条 MongoDB 连接执行库、集合、索引、查询或终止操作。写操作由终端按钮控制。 */
+export function execMongo<T>(componentId: string, command: string, args: Record<string, string>) {
+  return api.post<T>('/execConn', { componentId, command, args })
+}
+
+/** 一次文档查询的结果。documents 里每条是 JSON 文本。 */
+export interface MongoFindResult {
+  documents?: string[]
+  note?: string
+}
+
+/** 带条件的文档计数。 */
+export interface MongoCountResult {
+  count: number
+}
+
+/** explain 的执行摘要。 */
+export interface MongoExplainResult {
+  nReturned: number
+  docsExamined: number
+  keysExamined: number
+  millis: number
+  stage?: string
+  index?: string
+}
+
+/** system.profile 里的一条历史慢操作。 */
+export interface MongoProfileRow {
+  op: string
+  ns: string
+  millis: number
+  client?: string
+  plan?: string
+}
+
+/** 某个库的历史慢日志。 */
+export interface MongoProfileResult {
+  entries?: MongoProfileRow[]
+  note?: string
+}
+
+/** 终端里列出的一个 Kafka 主题。 */
+export interface KafkaTopicLive {
+  name: string
+  partitions: number
+  replicas: number
+  internal?: boolean
+}
+
+/** 主题上可看、可改的几项配置。空字符串表示还是 Broker 默认。 */
+export interface KafkaTopicConfig {
+  name: string
+  retentionMs: string
+  retentionBytes: string
+  cleanup: string
+  minIsr: string
+  maxMessageBytes: string
+}
+
+/** 终端里列出的一个消费组。 */
+export interface KafkaGroupLive {
+  name: string
+  state?: string
+}
+
+/** 对一条 Kafka 连接执行主题和消费组操作。写操作由终端按钮控制。 */
+export function execKafka<T>(componentId: string, command: string, args: Record<string, string>) {
+  return api.post<T>('/execConn', { componentId, command, args })
+}
+
+/** 终端里的一个 Redis 库。 */
+export interface RedisDatabaseLive {
+  name: string
+  keys: number
+  expires: number
+}
+
+/** databases 的返回。集群只有 db0，note 说明查找会走每个主节点。 */
+export interface RedisDatabaseList {
+  databases?: RedisDatabaseLive[]
+  note?: string
+}
+
+/** 一页 SCAN 结果。cursor 为 0 时后面没有了。 */
+export interface RedisScanResult {
+  database: string
+  keys?: string[]
+  cursor: string
+  note?: string
+}
+
+/** 哈希字段或有序集合成员。 */
+export interface RedisField {
+  field: string
+  value?: string
+  score?: string
+}
+
+/** 一个键的类型、过期时间和截断后的内容。 */
+export interface RedisKeyView {
+  name: string
+  type: string
+  ttl: number
+  count?: number
+  text?: string
+  items?: string[]
+  fields?: RedisField[]
+  note?: string
+}
+
+/** 对一条 Redis 连接执行键浏览、删除或过期时间。写操作由终端按钮控制。 */
+export function execRedis<T>(componentId: string, command: string, args: Record<string, string>) {
+  return api.post<T>('/execConn', { componentId, command, args })
 }
 
 export interface SeriesRange {

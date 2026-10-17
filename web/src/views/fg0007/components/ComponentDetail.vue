@@ -5,9 +5,12 @@ import type { FgToolbarButton } from '@/components/toolbar/types'
 import { getApiMessage, isApiSuccess, parseApiData } from '@/api/request'
 import { RsButton, RsDatePicker, RsInputNumber, RsSwitch, RsTabs, useRsToast, type RsDatePickerShortcut, type RsTabItem } from '@/ui'
 import { useSessionStore } from '@/stores/session'
+import KafkaBrowser from './KafkaBrowser.vue'
 import KafkaMonitor from './KafkaMonitor.vue'
 import MetricSections from './MetricSections.vue'
+import MongoBrowser from './MongoBrowser.vue'
 import MongoMonitor from './MongoMonitor.vue'
+import RedisBrowser from './RedisBrowser.vue'
 import RedisMonitor from './RedisMonitor.vue'
 import TerminalPane from './TerminalPane.vue'
 import ZkBrowser from './ZkBrowser.vue'
@@ -291,6 +294,9 @@ onUnmounted(() => {
         </span>
       </div>
       <ZkBrowser v-if="terminal && conn.kindCode === 'zk'" :component-id="conn.componentId" />
+      <MongoBrowser v-else-if="terminal && conn.kindCode === 'mongo'" :component-id="conn.componentId" />
+      <KafkaBrowser v-else-if="terminal && conn.kindCode === 'kafka'" :component-id="conn.componentId" />
+      <RedisBrowser v-else-if="terminal && conn.kindCode === 'redis'" :component-id="conn.componentId" />
       <TerminalPane v-else-if="terminal" :kind-code="conn.kindCode" :kind-name="conn.kindName || conn.kindCode" />
       <template v-else>
         <MetricSections
@@ -301,7 +307,7 @@ onUnmounted(() => {
         />
         <RedisMonitor v-if="conn.kindCode === 'redis'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <KafkaMonitor v-else-if="conn.kindCode === 'kafka'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
-        <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
+        <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" :component-id="conn.componentId" />
         <ZkMonitor v-else-if="conn.kindCode === 'zk'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
       </template>
     </div>

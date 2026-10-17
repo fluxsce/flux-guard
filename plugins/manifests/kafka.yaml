@@ -1,35 +1,49 @@
-id: com.fluxguard.kafka
-name: Kafka
-version: 1.0.0
-bridge:
-  namespace: kafka
-  connection_kind: kafka
-session:
-  inject_credentials: true
-  credential_methods:
-    - probe
-    - maintain
-runtime:
-  executable: kafka/dist/kafka-probe/kafka-probe.exe
-  executable_windows: kafka/dist/kafka-probe/kafka-probe.exe
-  executable_unix: kafka/dist/kafka-probe/kafka-probe
-  lang: java
-ipc:
-  transport: named_pipe
-  transport_windows: named_pipe
-  transport_unix: unix_socket
-  address: '\\.\pipe\fluxguard.kafka'
-  address_windows: '\\.\pipe\fluxguard.kafka'
-  address_unix: kafka/dist/kafka-probe/kafka.sock
-  protocol: length_prefixed_json
-lifecycle:
-  startup: lazy
-permissions: []
-methods:
-  - name: probe
-  - name: maintain
-    ops:
-      - name: create_topic
-        args: [name, partitions, replication_factor]
-      - name: delete_topic
+id: com.fluxguard.kafka
+name: Kafka
+version: 1.0.0
+bridge:
+  namespace: kafka
+  connection_kind: kafka
+session:
+  inject_credentials: true
+  credential_methods:
+    - probe
+    - maintain
+runtime:
+  executable: kafka/dist/kafka-probe/kafka-probe.exe
+  executable_windows: kafka/dist/kafka-probe/kafka-probe.exe
+  executable_unix: kafka/dist/kafka-probe/kafka-probe
+  lang: java
+ipc:
+  transport: named_pipe
+  transport_windows: named_pipe
+  transport_unix: unix_socket
+  address: '\\.\pipe\fluxguard.kafka'
+  address_windows: '\\.\pipe\fluxguard.kafka'
+  address_unix: kafka/dist/kafka-probe/kafka.sock
+  protocol: length_prefixed_json
+lifecycle:
+  startup: lazy
+permissions: []
+methods:
+  - name: probe
+  - name: maintain
+    ops:
+      - name: topics
+        args: []
+      - name: topic_config
         args: [name]
+      - name: create_topic
+        args: [name, partitions, replication_factor]
+      - name: delete_topic
+        args: [name]
+      - name: add_partitions
+        args: [name, partitions]
+      - name: alter_config
+        args: [name, key, value]
+      - name: groups
+        args: []
+      - name: delete_group
+        args: [name]
+      - name: reset_offsets
+        args: [name, topic, to]

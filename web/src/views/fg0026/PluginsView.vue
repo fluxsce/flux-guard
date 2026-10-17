@@ -80,8 +80,15 @@ function methodText(name: string) {
 }
 
 function opText(name: string) {
+  if (name === 'topics') return t('opTopics')
+  if (name === 'topic_config') return t('opTopicConfig')
   if (name === 'create_topic') return t('opCreateTopic')
   if (name === 'delete_topic') return t('opDeleteTopic')
+  if (name === 'add_partitions') return t('opAddPartitions')
+  if (name === 'alter_config') return t('opAlterConfig')
+  if (name === 'groups') return t('opGroups')
+  if (name === 'delete_group') return t('opDeleteGroup')
+  if (name === 'reset_offsets') return t('opResetOffsets')
   return name
 }
 

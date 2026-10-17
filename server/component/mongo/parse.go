@@ -38,6 +38,7 @@ type Running struct {
 	NS     string  `json:"ns"`
 	Secs   float64 `json:"secs"`
 	Client string  `json:"client,omitempty"`
+	OpID   int64   `json:"opid,omitempty"`
 }
 
 // Sample 是一轮 MongoDB 采集。未知的数值保持 -1，避免把没读到写成 0。
@@ -428,9 +429,10 @@ func readRunning(sample *Sample, doc map[string]any) {
 		if op == "" {
 			op = "—"
 		}
+		opid, _ := intOf(dig(raw, "opid"))
 		out = append(out, Running{
 			Op: row.Cut(op, 24), NS: row.Cut(text(dig(raw, "ns")), 80), Secs: secs,
-			Client: row.Cut(text(dig(raw, "client")), 64),
+			Client: row.Cut(text(dig(raw, "client")), 64), OpID: opid,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Secs > out[j].Secs })
