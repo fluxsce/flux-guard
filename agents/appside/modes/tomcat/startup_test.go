@@ -39,7 +39,7 @@ func TestListRuntimeLogs(t *testing.T) {
 func TestJudgeTomcatStartup(t *testing.T) {
 	okText := "INFO Server startup in [1234] milliseconds"
 	v, ok := judgeTomcatStartup(okText, true)
-	if !ok || !strings.Contains(v, "启动成功") {
+	if !ok || !strings.Contains(v, "已启动") {
 		t.Fatalf("%s %v", v, ok)
 	}
 	bad := "SEVERE: Failed to initialize connector\nLifecycleException: service"
@@ -50,6 +50,31 @@ func TestJudgeTomcatStartup(t *testing.T) {
 	v, ok = judgeTomcatStartup("", true)
 	if !ok || !strings.Contains(v, "尚无新日志") {
 		t.Fatalf("empty %s %v", v, ok)
+	}
+	zh := "17-Oct-2026 19:57:13.482 信息 [main] org.apache.catalina.startup.Catalina.start [151429]毫秒后服务器启动"
+	if !earlyReady(zh) {
+		t.Fatal("chinese catalina start line should end the probe early")
+	}
+	v, ok = judgeTomcatStartup(zh, true)
+	if !ok || !strings.Contains(v, "已启动") {
+		t.Fatalf("zh %s %v", v, ok)
+	}
+	// 只有来源、没有已知译文时，仍然是 Catalina.start 的完成行。
+	if !earlyReady("信息 [main] org.apache.catalina.startup.Catalina.start [9] ms") {
+		t.Fatal("source line should be enough")
+	}
+	stack := "at org.apache.catalina.startup.Catalina.start(Catalina.java:800)"
+	if earlyReady(stack) {
+		t.Fatal("stack frame is not a startup line")
+	}
+	severe := "17-Oct-2026 19:57:13.400 严重 [main] org.apache.catalina.core.StandardContext.startInternal 启动失败"
+	v, ok = judgeTomcatStartup(severe+"\n"+zh, true)
+	if !ok || !strings.Contains(v, "严重错误") {
+		t.Fatalf("severe with startup %s %v", v, ok)
+	}
+	v, ok = judgeTomcatStartup(severe, false)
+	if ok || !strings.Contains(v, "启动失败") {
+		t.Fatalf("zh severe %s %v", v, ok)
 	}
 }
 

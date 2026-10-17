@@ -283,7 +283,7 @@ onUnmounted(() => {
       <RsButton size="sm" variant="secondary" icon="rotate-ccw" @click="emit('refresh')">刷新</RsButton>
     </header>
     <RsTabs v-if="tabItems.length" v-model="panel" class="fg-panels" :items="tabItems" size="sm" panelless />
-    <div class="fg-detail-body" :class="{ 'fg-detail-body--desk': kafkaDesk }">
+    <div class="fg-detail-body" :class="{ 'fg-detail-body--desk': kafkaDesk || terminal }">
       <p v-if="board.finding && !terminal" class="fg-finding" :data-level="board.level">{{ board.finding }}</p>
       <p v-else-if="!points.length && !terminal" class="fg-note">还没有采集点。保存后会按间隔拨号，也可以在列表里立即采集。</p>
       <p v-if="error && !terminal" class="fg-finding" data-level="alert">{{ error }}</p>
@@ -432,7 +432,11 @@ onUnmounted(() => {
 .fg-detail-body--desk > * {
   flex: none;
 }
-.fg-detail-body--desk .fg-kafka {
+.fg-detail-body--desk .fg-kafka,
+.fg-detail-body--desk .fg-mongo,
+.fg-detail-body--desk .fg-kafka-desk,
+.fg-detail-body--desk .fg-redis-desk,
+.fg-detail-body--desk .fg-zk {
   flex: 1 1 auto;
   min-height: 0;
 }

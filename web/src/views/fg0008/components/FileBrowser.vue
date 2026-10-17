@@ -7,6 +7,7 @@ import type { FgToolbarButton } from '@/components/toolbar/types'
 import { RsBreadcrumb, RsTag, useRsToast } from '@/ui'
 import type { AppInstance, AppSite, DownloadProgress } from '../api'
 import { breadcrumbOf, entriesInDir, relativeToBase, type FileEntry } from '../composables/fileTree'
+import { startupLogOf } from '../composables/startupLog'
 import { fileTypePreview, kindLabel, modeLabel, moduleId } from '../composables/useAppWorkbench'
 import LogViewDialog from './LogViewDialog.vue'
 import UploadDialog, { type UploadMode } from './UploadDialog.vue'
@@ -135,22 +136,7 @@ const menuItems = computed<FgGridMenuItem[]>(() => [
 ])
 
 /** 优先 catalina.out，否则 logs 下常见启动日志。 */
-const startupLogRow = computed(() => {
-  const logs = props.files.filter((row) => {
-    if (row.onlineFlag !== 'Y') return false
-    const kind = String(row.artifactKind || '').toLowerCase()
-    const path = (row.artifactPath || '').replace(/\\/g, '/').toLowerCase()
-    const name = (row.appCode || path.split('/').pop() || '').toLowerCase()
-    if (kind === 'log') return path.includes('/logs/') || name.endsWith('.log') || name.endsWith('.out')
-    return name.endsWith('.log') || name.endsWith('.out') || name.endsWith('.txt')
-  })
-  if (!logs.length) return null
-  const catalina = logs.find((row) => {
-    const path = (row.artifactPath || '').replace(/\\/g, '/').toLowerCase()
-    return path.endsWith('/catalina.out') || path.includes('/catalina.')
-  })
-  return catalina || logs[0]
-})
+const startupLogRow = computed(() => startupLogOf(props.files))
 
 function openStartupLog() {
   const row = startupLogRow.value

@@ -190,10 +190,11 @@ export interface MongoRunning {
   opid?: number
 }
 
-/** 终端里列出的一个集合。 */
+/** 终端里列出的一个集合。bytes 是存储占用。 */
 export interface MongoCollection {
   name: string
   type?: string
+  bytes: number
 }
 
 /** 集合存储统计，来自 collStats。 */

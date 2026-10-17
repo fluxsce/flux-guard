@@ -156,6 +156,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		steps = append(steps, protocol.CommandStep{
 			Name: "rollback", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
+			Detail: "把备份移回目标路径",
 		})
 		if !appside.NeedsRestart(rt, call.Kind) {
 			return protocol.CommandOutcome{Message: "已回滚文件", Steps: steps}, nil
@@ -164,7 +165,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: appside.DescribeLifecycle(rt, "restart")})
 		return finishWithStartup(ctx, rt, mark, steps, "已回滚并重启 "+rt.Instance)
 	}
 
@@ -173,7 +174,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		return fail("download", "", "", err)
 	}
 	defer os.Remove(file)
-	steps = append(steps, protocol.CommandStep{Name: "download", Status: "done"})
+	steps = append(steps, protocol.CommandStep{Name: "download", Status: "done", Detail: "从中央拉取制品并校验 SHA256"})
 
 	switch call.Action {
 	case protocol.ActionAppReplace:
@@ -183,6 +184,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		steps = append(steps, protocol.CommandStep{
 			Name: "replace", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
+			Detail: replaceDetail(call.Kind),
 		})
 		if !appside.NeedsRestart(rt, call.Kind) {
 			msg := "文件已替换"
@@ -195,7 +197,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: appside.DescribeLifecycle(rt, "restart")})
 		return finishWithStartup(ctx, rt, mark, steps, "已替换并重启 "+rt.Instance)
 	default:
 		report, err := appside.UpgradeRuntime(rt, file)
@@ -204,12 +206,13 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		steps = append(steps, protocol.CommandStep{
 			Name: "replace", Status: "done", TargetPath: report.TargetPath, BackupPath: report.BackupPath,
+			Detail: "用发行包替换 Tomcat 程序目录，配置保留",
 		})
 		mark := appside.MarkStartupLog(rt)
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", report.TargetPath, report.BackupPath, err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: appside.DescribeLifecycle(rt, "restart")})
 		return finishWithStartup(ctx, rt, mark, steps, "运行时已升级并重启 "+rt.Instance)
 	}
 }
@@ -226,21 +229,21 @@ func runLifecycle(
 		if err := appside.Stop(ctx, rt); err != nil {
 			return fail("stop", rt.Base, "", err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "stop", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "stop", Status: "done", Detail: appside.DescribeLifecycle(rt, "stop")})
 		return protocol.CommandOutcome{Message: "已停止 " + rt.Instance, Steps: steps}, nil
 	case protocol.ActionAppStart:
 		mark := appside.MarkStartupLog(rt)
 		if err := appside.Start(ctx, rt); err != nil {
 			return fail("start", rt.Base, "", err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "start", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "start", Status: "done", Detail: appside.DescribeLifecycle(rt, "start")})
 		return finishWithStartup(ctx, rt, mark, steps, "已启动 "+rt.Instance)
 	case protocol.ActionAppRestart:
 		mark := appside.MarkStartupLog(rt)
 		if err := appside.Restart(ctx, rt); err != nil {
 			return fail("restart", rt.Base, "", err)
 		}
-		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: rt.Instance})
+		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: appside.DescribeLifecycle(rt, "restart")})
 		return finishWithStartup(ctx, rt, mark, steps, "已重启 "+rt.Instance)
 	default:
 		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", action)
@@ -262,6 +265,19 @@ func finishWithStartup(ctx context.Context, rt appside.Runtime, mark appside.Log
 		msg = msg + "；" + line
 	}
 	return protocol.CommandOutcome{Message: msg, Steps: steps}, nil
+}
+
+func replaceDetail(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "war":
+		return "覆盖 webapps 中的 WAR，旧包已备份，并清掉已展开目录"
+	case "jar":
+		return "覆盖 JAR，旧文件已备份"
+	case "static":
+		return "写入静态文件，旧文件已备份"
+	default:
+		return "写入目标文件，旧文件已备份"
+	}
 }
 
 func firstLine(text string) string {

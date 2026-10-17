@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -391,6 +392,70 @@ func (s *Service) finish(ctx context.Context, commandID, flag, message string, s
 		return models.ErrCommandGone
 	}
 	return nil
+}
+
+// ListLifecycle 返回一套运行时最近的启动、停止、重启。步骤在点开单条时再读。
+func (s *Service) ListLifecycle(ctx context.Context, tenantID, agentID, instance string, limit int) ([]models.View, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	agentID = strings.TrimSpace(agentID)
+	instance = strings.TrimSpace(instance)
+	if s == nil || tenantID == "" || agentID == "" || instance == "" {
+		return []models.View{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	var rows []struct {
+		CommandID  string `db:"commandId"`
+		AgentID    string `db:"agentId"`
+		Action     string `db:"actionName"`
+		StatusFlag string `db:"statusFlag"`
+		Message    string `db:"resultText"`
+		AddTime    string `db:"addTime"`
+		Ext        string `db:"extProperty"`
+	}
+	if err := s.db.Select(ctx, &rows, `
+		SELECT commandId, agentId, actionName, statusFlag,
+		       COALESCE(resultText, '') AS resultText,
+		       COALESCE(addTime, '') AS addTime,
+		       COALESCE(extProperty, '') AS extProperty
+		FROM FG_COMMAND
+		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
+		  AND actionName IN (@start, @stop, @restart)
+		ORDER BY addTime DESC, commandId DESC
+		LIMIT `+strconv.Itoa(limit*4), dbx.Args{
+		"tenantId": tenantID, "agentId": agentID,
+		"start": protocol.ActionAppStart, "stop": protocol.ActionAppStop, "restart": protocol.ActionAppRestart,
+	}); err != nil {
+		return nil, err
+	}
+	out := make([]models.View, 0, limit)
+	for _, row := range rows {
+		if !lifecycleInstance(row.Ext, instance) {
+			continue
+		}
+		out = append(out, models.View{
+			CommandID: row.CommandID,
+			AgentID:   row.AgentID,
+			Action:    row.Action,
+			Status:    models.StatusName(row.StatusFlag),
+			Message:   row.Message,
+			AddTime:   row.AddTime,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// lifecycleInstance 判断命令扩展里的实例名是不是这一套运行时。
+func lifecycleInstance(ext, instance string) bool {
+	var call protocol.CommandCall
+	if json.Unmarshal([]byte(ext), &call) != nil {
+		return false
+	}
+	return strings.TrimSpace(call.Instance) == instance
 }
 
 // decodeSteps 从 noteText 还原步骤。旧回执或截断的 JSON 没有步骤。

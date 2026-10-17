@@ -157,6 +157,7 @@ export interface RuntimeCommand {
   status: string
   message?: string
   steps?: ReleaseStep[]
+  addTime?: string
 }
 
 /** 下发启动 / 停止 / 重启。 */
@@ -167,6 +168,11 @@ export function runtimeControl(agentId: string, instanceName: string, op: 'start
 /** 查询一条命令进度。 */
 export function queryCommand(commandId: string) {
   return fg0008.get('/queryCommand', { commandId })
+}
+
+/** 查询一套运行时最近的启动、停止、重启。 */
+export function queryRuntimeCommands(agentId: string, instanceName: string) {
+  return fg0008.get<RuntimeCommand[]>('/queryRuntimeCommands', { agentId, instanceName }, { showLoading: false })
 }
 
 /** 代下任务。 */

@@ -29,6 +29,7 @@ var (
 	Stop              = core.Stop
 	Restart           = core.Restart
 	Rollback          = core.Rollback
+	DescribeLifecycle = core.DescribeLifecycle
 )
 
 // ProbeStartup 与 core.ProbeStartup 相同，仅保持对外包路径稳定。

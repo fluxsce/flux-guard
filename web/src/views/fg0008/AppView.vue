@@ -22,6 +22,11 @@ const {
   releasing,
   continueBusy,
   logLines,
+  lifecycle,
+  runtimeHistory,
+  tailText,
+  tailName,
+  tailLive,
   canRelease,
   releaseKind,
   releaseAppCode,
@@ -44,6 +49,7 @@ const {
   continueBatch,
   submitRollback,
   openRelease,
+  openRuntimeCommand,
   siteKey,
 } = useAppWorkbench()
 
@@ -120,6 +126,11 @@ useModuleAi(() => ({
           <OpConsole
             class="fg-app-console"
             :log-lines="logLines"
+            :lifecycle="lifecycle"
+            :runtime-history="runtimeHistory"
+            :tail-text="tailText"
+            :tail-name="tailName"
+            :tail-live="tailLive"
             :releasing="releasing"
             :releases="releases"
             :files="files"
@@ -129,6 +140,7 @@ useModuleAi(() => ({
             @continue="continueBatch"
             @rollback="submitRollback"
             @open-release="openRelease"
+            @open-runtime="openRuntimeCommand"
           />
         </template>
       </div>

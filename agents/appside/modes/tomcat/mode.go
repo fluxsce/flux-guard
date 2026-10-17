@@ -160,10 +160,53 @@ func (tomcatMode) ProbeStartup(ctx context.Context, rt core.Runtime, mark core.L
 }
 
 func earlyReady(snippet string) bool {
-	if strings.Contains(snippet, "Server startup in") {
+	return catalinaStarted(snippet)
+}
+
+// catalinaStarted 判断本次新增日志里 Tomcat 容器是否已写完启动。
+// JULI 单行格式在 Server.start() 返回后打出 org.apache.catalina.startup.Catalina.start，
+// 这句话的正文随语言变化，类名和方法名不变。堆栈里的 Catalina.start( 不算。
+// 没有方法名的格式再退回英文资源句和常见中文译文。
+func catalinaStarted(snippet string) bool {
+	if snippet == "" {
+		return false
+	}
+	for _, line := range strings.Split(snippet, "\n") {
+		if catalinaStartLine(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func catalinaStartLine(line string) bool {
+	const mark = "org.apache.catalina.startup.Catalina.start"
+	if i := strings.Index(line, mark); i >= 0 {
+		rest := line[i+len(mark):]
+		if (rest == "" || rest[0] == ' ' || rest[0] == '\t') && !lineSevere(line) {
+			return true
+		}
+	}
+	if strings.Contains(line, "Server startup in") || strings.Contains(strings.ToLower(line), "server startup [") {
 		return true
 	}
-	return strings.Contains(strings.ToLower(snippet), "server startup [")
+	return strings.Contains(line, "毫秒后服务器启动") || strings.Contains(line, "毫秒内启动")
+}
+
+// lineSevere 识别 JULI 的严重级别和端口绑定失败。中文级别名是「严重」，不是 SEVERE。
+func lineSevere(line string) bool {
+	if strings.Contains(line, "SEVERE:") || strings.Contains(line, "SEVERE [") || strings.Contains(line, "FATAL [") {
+		return true
+	}
+	if strings.Contains(line, " 严重 ") || strings.Contains(line, "严重 [") || strings.Contains(line, "致命 [") {
+		return true
+	}
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "lifecycleexception") ||
+		strings.Contains(lower, "address already in use") ||
+		strings.Contains(lower, "error listening on") ||
+		strings.Contains(line, "BindException") ||
+		strings.Contains(line, "地址已在使用")
 }
 
 // ReplaceWar 用新包替换 webapps 里同 AppCode 的 WAR（含 order##2.4.1.war），并清掉已展开目录。
@@ -428,26 +471,26 @@ func judgeTomcatStartup(snippet string, running bool) (verdict string, ok bool) 
 		}
 		return "重启后进程未运行，且无新日志", false
 	}
-	lower := strings.ToLower(snippet)
-	hasOK := strings.Contains(snippet, "Server startup in") ||
-		strings.Contains(lower, "server startup [")
-	hasBad := strings.Contains(snippet, "SEVERE:") ||
-		strings.Contains(lower, "lifecycleexception") ||
-		strings.Contains(lower, "address already in use") ||
-		strings.Contains(lower, "error listening on") ||
-		strings.Contains(lower, "catalina.start:")
+	hasOK := catalinaStarted(snippet)
+	hasBad := false
+	for _, line := range strings.Split(snippet, "\n") {
+		if lineSevere(line) {
+			hasBad = true
+			break
+		}
+	}
 
 	switch {
 	case hasOK && !hasBad:
-		return "启动成功（日志含 Server startup）", true
+		return "Tomcat 已启动（Catalina.start 已完成，仅表示容器起来）", true
 	case hasOK && hasBad:
-		return "日志同时出现启动完成与严重错误，请人工核对", true
+		return "容器已启动，但本次日志含严重错误，请核对应用是否部署成功", true
 	case hasBad:
-		return "启动失败（日志含 SEVERE / LifecycleException 等）", false
+		return "启动失败（日志含严重错误或端口绑定失败）", false
 	case running:
-		return "进程已在运行；日志未见 Server startup，请人工核对", true
+		return "进程已在运行；日志未见 Catalina.start，请人工核对", true
 	default:
-		return "重启后进程未运行，且日志未见启动完成", false
+		return "重启后进程未运行，且日志未见 Catalina.start", false
 	}
 }
 

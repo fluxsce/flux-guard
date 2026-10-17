@@ -18,8 +18,6 @@ import (
 const (
 	opTimeout      = 20 * time.Second
 	opArgLimit     = 512
-	dbListLimit    = 500
-	collListLimit  = 500
 	indexListLimit = 64
 )
 
@@ -51,7 +49,7 @@ func (probe) Exec(ctx context.Context, target conn.Open, command string, args ma
 			return "", err
 		}
 	}
-	body, err := runMongoOp(raw, command, args)
+	body, err := runMongoOp(ctx, raw, command, args)
 	if err != nil {
 		return "", err
 	}
@@ -229,12 +227,12 @@ func setOf(keys ...string) map[string]struct{} {
 	return out
 }
 
-func runMongoOp(raw net.Conn, command string, args map[string]string) (any, error) {
+func runMongoOp(ctx context.Context, raw net.Conn, command string, args map[string]string) (any, error) {
 	switch command {
 	case "databases":
 		return opDatabases(raw)
 	case "collections":
-		return opCollections(raw, strings.TrimSpace(args["database"]))
+		return opCollections(ctx, raw, strings.TrimSpace(args["database"]))
 	case "stats":
 		return opStats(raw, strings.TrimSpace(args["database"]), strings.TrimSpace(args["collection"]))
 	case "indexes":
@@ -308,20 +306,16 @@ func opDatabases(raw net.Conn) (mongoDatabases, error) {
 		}
 		return out[i].Bytes > out[j].Bytes
 	})
-	note := ""
-	if len(out) > dbListLimit {
-		note = fmt.Sprintf("库共 %d 个，这里列出占用最高的前 %d 个。", len(out), dbListLimit)
-		out = out[:dbListLimit]
-	}
 	if out == nil {
 		out = []mongoDBRow{}
 	}
-	return mongoDatabases{Databases: out, Note: note}, nil
+	return mongoDatabases{Databases: out}, nil
 }
 
 type mongoCollRow struct {
-	Name string `json:"name"`
-	Type string `json:"type,omitempty"`
+	Name  string `json:"name"`
+	Type  string `json:"type,omitempty"`
+	Bytes int64  `json:"bytes"`
 }
 
 type mongoCollections struct {
@@ -330,12 +324,12 @@ type mongoCollections struct {
 	Note        string         `json:"note,omitempty"`
 }
 
-func opCollections(raw net.Conn, db string) (mongoCollections, error) {
+func opCollections(ctx context.Context, raw net.Conn, db string) (mongoCollections, error) {
 	doc, err := command(raw, bsonDoc(bsonInt32("listCollections", 1), bsonBool("nameOnly", false), bsonString("$db", db)))
 	if err != nil {
 		return mongoCollections{}, err
 	}
-	batch, truncated, err := readBatches(raw, doc, db, "$cmd.listCollections", collListLimit)
+	batch, _, err := readBatches(ctx, raw, doc, db, "$cmd.listCollections", 0)
 	if err != nil {
 		return mongoCollections{}, err
 	}
@@ -349,17 +343,33 @@ func opCollections(raw net.Conn, db string) (mongoCollections, error) {
 		if kind == "" {
 			kind = "collection"
 		}
-		out = append(out, mongoCollRow{Name: row.Cut(name, 200), Type: kind})
+		out = append(out, mongoCollRow{Name: name, Type: kind})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	note := ""
-	if truncated {
-		note = fmt.Sprintf("集合很多，这里只列出前 %d 个。", collListLimit)
+	for i := range out {
+		if !ctxAlive(ctx) {
+			note = "有些集合的占用还没读完。"
+			break
+		}
+		stats, err := command(raw, bsonDoc(bsonString("collStats", out[i].Name), bsonInt32("scale", 1), bsonString("$db", db)))
+		if err != nil {
+			continue
+		}
+		out[i].Bytes = int64(num(dig(stats, "storageSize")))
 	}
 	if out == nil {
 		out = []mongoCollRow{}
 	}
 	return mongoCollections{Database: db, Collections: out, Note: note}, nil
+}
+
+func ctxAlive(ctx context.Context) bool {
+	if err := ctx.Err(); err != nil {
+		return false
+	}
+	deadline, ok := ctx.Deadline()
+	return !ok || time.Until(deadline) > 300*time.Millisecond
 }
 
 type mongoStats struct {
@@ -411,7 +421,7 @@ func opIndexes(raw net.Conn, db, coll string) (mongoIndexes, error) {
 	if err != nil {
 		return mongoIndexes{}, err
 	}
-	batch, truncated, err := readBatches(raw, doc, db, coll, indexListLimit)
+	batch, truncated, err := readBatches(context.Background(), raw, doc, db, coll, indexListLimit)
 	if err != nil {
 		return mongoIndexes{}, err
 	}
@@ -583,13 +593,16 @@ func opFail(doc map[string]any) error {
 	return fmt.Errorf("%s", row.Cut(msg, 200))
 }
 
-func readBatches(raw net.Conn, doc map[string]any, db, fallback string, limit int) ([]map[string]any, bool, error) {
+func readBatches(ctx context.Context, raw net.Conn, doc map[string]any, db, fallback string, limit int) ([]map[string]any, bool, error) {
 	if dig(doc, "cursor") == nil {
 		return nil, false, fmt.Errorf("MongoDB 应答无效")
 	}
 	var out []map[string]any
 	truncated := false
-	for round := 0; round < 30; round++ {
+	for round := 0; ; round++ {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		field := "firstBatch"
 		if round > 0 {
 			field = "nextBatch"
@@ -599,7 +612,7 @@ func readBatches(raw net.Conn, doc map[string]any, db, fallback string, limit in
 			if !ok {
 				continue
 			}
-			if len(out) >= limit {
+			if limit > 0 && len(out) >= limit {
 				truncated = true
 				break
 			}
@@ -614,14 +627,13 @@ func readBatches(raw net.Conn, doc map[string]any, db, fallback string, limit in
 		doc, err = command(raw, bsonDoc(
 			bsonInt64("getMore", id),
 			bsonString("collection", coll),
-			bsonInt32("batchSize", 100),
+			bsonInt32("batchSize", 500),
 			bsonString("$db", db),
 		))
 		if err != nil {
 			return nil, false, err
 		}
 	}
-	return out, true, nil
 }
 
 func cursorCollection(ns, fallback string) string {

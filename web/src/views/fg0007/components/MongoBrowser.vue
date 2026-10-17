@@ -193,6 +193,7 @@ async function loadDatabases() {
     return {
       key,
       label: item.name,
+      sizeText: bytes(item.bytes),
       isLeaf: false,
       children: previous?.children ?? [],
     }
@@ -211,7 +212,7 @@ async function fill(treeNode: RsTreeNode, key: string) {
   treeNode.children = rows.map((item) => {
     const child = collKey(parsed.database, item.name)
     types[child] = item.type || 'collection'
-    return { key: child, label: item.name, isLeaf: true }
+    return { key: child, label: item.name, sizeText: bytes(item.bytes), isLeaf: true }
   })
   treeNode.isLeaf = rows.length === 0
   collType.value = types
@@ -707,7 +708,14 @@ onMounted(async () => {
           aria-label="MongoDB 库和集合"
           @node-click="(_node, key) => open(key)"
           @node-contextmenu="onNodeMenu"
-        />
+        >
+          <template #title="{ node }">
+            <span class="fg-mongo-node">
+              <span class="fg-mongo-node-name">{{ node.label }}</span>
+              <span v-if="node.sizeText" class="fg-mongo-node-size">{{ node.sizeText }}</span>
+            </span>
+          </template>
+        </RsTree>
         <RsContextMenu ref="nodeMenu" :items="menuItems" aria-label="MongoDB 对象操作" @select="onMenuSelect" />
       </div>
       <div class="fg-mongo-detail">
@@ -832,8 +840,11 @@ onMounted(async () => {
 <style scoped>
 .fg-mongo {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
   background: var(--rs-surface);
 }
@@ -881,15 +892,58 @@ onMounted(async () => {
 }
 .fg-mongo-body {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
-  flex: 1;
+  grid-template-columns: minmax(280px, 42%) minmax(0, 1fr);
+  flex: 1 1 auto;
   min-height: 0;
 }
 .fg-mongo-tree {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
-  overflow: auto;
+  height: 100%;
+  overflow: hidden;
   padding: 8px;
   border-right: 1px solid var(--fg-panel-border, var(--rs-border));
+}
+.fg-mongo-tree :deep(.rs-tree) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.fg-mongo-tree :deep(.rs-tree__label) {
+  overflow: visible;
+  flex: 1 0 auto;
+  min-width: max-content;
+}
+.fg-mongo-tree :deep(.rs-tree__list),
+.fg-mongo-tree :deep(.rs-tree__row) {
+  width: max-content;
+  min-width: 100%;
+}
+.fg-mongo-node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
+}
+.fg-mongo-node-name {
+  white-space: nowrap;
+}
+.fg-mongo-node-size {
+  position: sticky;
+  right: 0;
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--rs-text-secondary, #4d647c);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--rs-surface);
+}
+.fg-mongo-tree :deep(.rs-tree__row--selected) .fg-mongo-node-size {
+  background: var(--rs-tree-selected-bg, var(--rs-surface-2, rgba(0, 0, 0, 0.04)));
 }
 .fg-mongo-filter {
   position: sticky;
@@ -919,6 +973,7 @@ onMounted(async () => {
 }
 .fg-mongo-stat dd {
   margin: 0;
+  white-space: nowrap;
 }
 .fg-mongo-index-bar {
   margin: 4px 0 8px;

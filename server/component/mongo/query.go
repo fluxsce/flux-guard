@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -53,7 +54,7 @@ func opFind(raw net.Conn, db, coll, filter string, limit int32) (mongoFind, erro
 	if err != nil {
 		return mongoFind{}, err
 	}
-	batch, truncated, err := readBatches(raw, doc, db, coll, int(limit))
+	batch, truncated, err := readBatches(context.Background(), raw, doc, db, coll, int(limit))
 	if err != nil {
 		return mongoFind{}, err
 	}
@@ -169,7 +170,7 @@ func opProfile(raw net.Conn, db string) (mongoProfile, error) {
 		}
 		return mongoProfile{}, err
 	}
-	batch, _, err := readBatches(raw, resp, db, "system.profile", 20)
+	batch, _, err := readBatches(context.Background(), raw, resp, db, "system.profile", 20)
 	if err != nil {
 		return mongoProfile{}, err
 	}

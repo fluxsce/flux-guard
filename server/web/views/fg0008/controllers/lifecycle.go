@@ -98,3 +98,28 @@ func (c *AppController) QueryCommand(g *gin.Context) {
 	}
 	httpx.WriteOK(g, view)
 }
+
+// QueryRuntimeCommands 返回这一套运行时最近的启动、停止、重启。
+func (c *AppController) QueryRuntimeCommands(g *gin.Context) {
+	p := middleware.Principal(g)
+	agentID := strings.TrimSpace(request.Param(g, "agentId"))
+	instance := strings.TrimSpace(request.Param(g, "instanceName"))
+	if agentID == "" || instance == "" {
+		httpx.WriteErr(g, http.StatusBadRequest, "缺少运行时")
+		return
+	}
+	svc := command.Current()
+	if svc == nil {
+		httpx.WriteErr(g, http.StatusBadRequest, "命令通道未启用")
+		return
+	}
+	list, err := svc.ListLifecycle(g.Request.Context(), p.TenantID, agentID, instance, 20)
+	if err != nil {
+		httpx.WriteErr(g, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list == nil {
+		list = []cmdmodels.View{}
+	}
+	httpx.WriteOK(g, list)
+}

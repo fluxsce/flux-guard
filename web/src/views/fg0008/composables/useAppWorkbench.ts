@@ -5,6 +5,7 @@ import { rsConfirm, useRsToast } from '@/ui'
 import {
   continueRelease,
   queryCommand,
+  queryRuntimeCommands,
   queryFileFetch,
   triggerFileFetchDownload,
   queryRelease,
@@ -22,6 +23,8 @@ import {
   type FileFetchJob,
   type RuntimeCommand,
 } from '../api'
+import { startupLogOf } from './startupLog'
+import { useLogFollow } from './useLogFollow'
 import { canRollbackRelease, kindLabel, moduleId, statusText, statusVariant, stepLabel } from './useAppCatalog'
 
 export { kindLabel, moduleId, statusText, statusVariant, stepLabel, canRollbackRelease }
@@ -131,6 +134,9 @@ export function useAppWorkbench() {
   const downloadBusy = ref(false)
   const downloadProgress = ref<DownloadProgress | null>(null)
   const logLines = ref<string[]>([])
+  const follow = useLogFollow()
+  const lifecycle = ref<RuntimeCommand | null>(null)
+  const runtimeHistory = ref<RuntimeCommand[]>([])
   /** 页面卸载后停止代下轮询与发布 poll，避免空跑请求。 */
   let pageAlive = true
   let downloadAbort: AbortController | null = null
@@ -236,8 +242,12 @@ export function useAppWorkbench() {
     releasing.value = null
     version.value = ''
     file.value = null
+    void follow.stop()
+    lifecycle.value = null
+    runtimeHistory.value = []
     pushLog(`打开运行时 ${row.instanceName}（${modeLabel(row.modeCode)}）`)
     await refreshFiles()
+    await loadRuntimeHistory()
   }
 
   function onSiteNoteSaved(row: AppSite) {
@@ -559,6 +569,7 @@ export function useAppWorkbench() {
         left > 0 ? `已下发首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : `已下发更新 ${releaseAppCode.value}`
       toast.success(msg)
       pushLog(msg)
+      pushLog('处理顺序：上传到中央 → 代理下载并校验 → 写入目标并备份 → 需要时重启 → 启动探测')
       void poll()
       const relRes = await queryReleases(releaseAppCode.value)
       if (isApiSuccess(relRes)) releases.value = parseApiData<AppRelease[]>(relRes) ?? []
@@ -599,6 +610,13 @@ export function useAppWorkbench() {
       }
       pushLog(`已下发${label} ${site.instanceName}`)
       toast.success(`已下发${label}`)
+      lifecycle.value = {
+        commandId: cmd.commandId,
+        agentId: site.agentId,
+        action: op === 'start' ? 'app.runtime.start' : op === 'stop' ? 'app.runtime.stop' : 'app.runtime.restart',
+        status: 'running',
+      }
+      if (op !== 'stop') void followStartupLog(site.instanceName)
       void pollCommand(cmd.commandId, label)
     } catch (err) {
       toast.error(getHttpErrorMessage(err, `${label}失败`))
@@ -612,12 +630,20 @@ export function useAppWorkbench() {
     if (!pageAlive || !isApiSuccess(res)) return
     const cmd = parseApiData<RuntimeCommand>(res)
     if (!cmd) return
+    lifecycle.value = cmd
     if (cmd.status === 'done' || cmd.status === 'failed') {
       pushLog(`${label} · ${statusText(cmd.status)}${cmd.message ? ` · ${cmd.message}` : ''}`)
       const startup = (cmd.steps ?? []).find((step) => step.name === 'startup')
-      const excerpt = startupExcerpt(startup?.detail)
-      if (excerpt) pushLog(excerpt)
+      const verdict = (startup?.detail || '').split('\n')[0]?.trim()
+      if (verdict) pushLog(verdict)
+      // 右侧已在跟读原文时，不再把同一段日志贴进左侧事件。
+      if (!follow.text.value) {
+        const excerpt = startupExcerpt(startup?.detail)
+        if (excerpt) pushLog(excerpt)
+      }
+      follow.releaseSoon()
       if (cmd.status === 'done') void refreshFiles()
+      void loadRuntimeHistory()
       return
     }
     window.setTimeout(() => void pollCommand(commandId, label), 2000)
@@ -664,6 +690,7 @@ export function useAppWorkbench() {
       const msg = `已下发新增 ${appCode}`
       toast.success(msg)
       pushLog(msg)
+      pushLog('处理顺序：上传到中央 → 代理下载并校验 → 写入目标 → 需要时重启 → 启动探测')
       void poll()
       const relRes = await queryReleases(appCode)
       if (isApiSuccess(relRes)) releases.value = parseApiData<AppRelease[]>(relRes) ?? []
@@ -723,6 +750,7 @@ export function useAppWorkbench() {
       const msg = left > 0 ? `已回滚首批 ${(next.items ?? []).length} 台，待继续 ${left} 台` : '已下发回滚'
       toast.success(msg)
       pushLog(msg)
+      pushLog('处理顺序：把备份移回目标 → 需要时重启 → 启动探测')
       void poll()
     } catch (err) {
       toast.error(getHttpErrorMessage(err, '回滚失败'))
@@ -730,6 +758,27 @@ export function useAppWorkbench() {
   }
 
   const loggedCommands = new Set<string>()
+  let releaseFollowId = ''
+
+  function logReleaseSteps(label: string, item: { steps?: { name: string; status: string; detail?: string; targetPath?: string; backupPath?: string }[] }) {
+    for (const step of item.steps ?? []) {
+      const lead = (step.detail || '').split('\n')[0]?.trim()
+      const paths = [
+        step.targetPath ? `目标 ${step.targetPath}` : '',
+        step.backupPath ? `备份 ${step.backupPath}` : '',
+      ].filter(Boolean)
+      const text = [stepLabel(step.name), statusText(step.status), lead, ...paths].filter(Boolean).join(' · ')
+      pushLog(`${label} · ${text}`)
+    }
+  }
+
+  function followReleaseLogs(releaseId: string) {
+    if (releaseFollowId === releaseId) return
+    const mode = current.value?.modeCode || ''
+    if (mode === '' || mode === 'files' || mode === 'static') return
+    releaseFollowId = releaseId
+    if (current.value) void followStartupLog(current.value.instanceName)
+  }
 
   async function poll() {
     if (!pageAlive) return
@@ -745,19 +794,17 @@ export function useAppWorkbench() {
         loggedCommands.add(item.commandId)
         const label = files.value.find((f) => f.instId === item.instId)?.appCode || item.instId
         pushLog(`${label} · ${statusText(item.status)}${item.message ? ` · ${item.message}` : ''}`)
-        const startup = (item.steps ?? []).find((step) => step.name === 'startup')
-        if (startup?.detail) {
-          const line = startup.detail.split('\n')[0]?.trim()
-          if (line) pushLog(`${label} · 启动探测 · ${line}`)
-        }
+        logReleaseSteps(label, item)
       }
     }
     const pending = (next.items ?? []).some(
       (item) => item.status === 'waiting' || item.status === 'dialing' || item.status === 'running',
     )
     if (pending) {
+      followReleaseLogs(id)
       window.setTimeout(() => void poll(), 2000)
     } else {
+      if (releaseFollowId === id) follow.releaseSoon()
       void refreshFiles()
     }
   }
@@ -766,6 +813,60 @@ export function useAppWorkbench() {
     releasing.value = row
     pushLog(`查看发布 ${row.versionText}（${row.releaseId}）`)
     void poll()
+  }
+
+  async function loadRuntimeHistory() {
+    const site = current.value
+    if (!site) {
+      runtimeHistory.value = []
+      return
+    }
+    try {
+      const res = await queryRuntimeCommands(site.agentId, site.instanceName)
+      if (!isApiSuccess(res)) return
+      runtimeHistory.value = parseApiData<RuntimeCommand[]>(res) ?? []
+    } catch {
+      // 历史列表失败不挡住当前操作
+    }
+  }
+
+  async function openRuntimeCommand(row: RuntimeCommand) {
+    try {
+      const res = await queryCommand(row.commandId)
+      if (!isApiSuccess(res)) {
+        toast.error(getApiMessage(res, '加载启停记录失败'))
+        return
+      }
+      const cmd = parseApiData<RuntimeCommand>(res)
+      if (!cmd) return
+      lifecycle.value = cmd
+      const name = lifecycleName(cmd.action)
+      pushLog(`查看${name} ${cmd.addTime || row.addTime || ''}`)
+      if (!loggedCommands.has(cmd.commandId)) {
+        loggedCommands.add(cmd.commandId)
+        logReleaseSteps(name, cmd)
+      }
+    } catch (err) {
+      toast.error(getHttpErrorMessage(err, '加载启停记录失败'))
+    }
+  }
+
+  function lifecycleName(action: string) {
+    if (action.endsWith('stop')) return '停止'
+    if (action.endsWith('restart')) return '重启'
+    if (action.endsWith('start')) return '启动'
+    return '启停'
+  }
+
+  function followStartupLog(instanceName: string) {
+    const row = startupLogOf(files.value)
+    if (!row) {
+      pushLog(`${instanceName} 文件列表里没有 catalina 日志，完成后只显示探测结论`)
+      return
+    }
+    const name = fileNameOf(row)
+    pushLog(`跟读启动日志 ${name}`)
+    void follow.start(row.instId, name)
   }
 
   function siteKey(row: AppSite) {
@@ -797,6 +898,11 @@ export function useAppWorkbench() {
     downloadBusy,
     downloadProgress,
     logLines,
+    lifecycle,
+    runtimeHistory,
+    tailText: follow.text,
+    tailName: follow.fileName,
+    tailLive: follow.live,
     canRelease,
     canLifecycle,
     selectedFiles,
@@ -818,6 +924,7 @@ export function useAppWorkbench() {
     continueBatch,
     submitRollback,
     openRelease,
+    openRuntimeCommand,
     siteKey,
     fileNameOf,
     fileTypePreview,

@@ -44,4 +44,5 @@ func Init(router *gin.Engine, db *dbx.DB) {
 	router.POST(APIPrefix+"/rollback", middleware.RequireButton("fg0008:release", ctrl.Rollback))
 	router.POST(APIPrefix+"/runtimeControl", middleware.RequireButton("fg0008:release", ctrl.RuntimeControl))
 	router.GET(APIPrefix+"/queryCommand", middleware.RequireButton("fg0008:view", ctrl.QueryCommand))
+	router.GET(APIPrefix+"/queryRuntimeCommands", middleware.RequireButton("fg0008:view", ctrl.QueryRuntimeCommands))
 }
