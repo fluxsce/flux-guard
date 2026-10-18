@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release-main
@@ -85,11 +86,24 @@ jobs:
           cp -a plugins/zk/dist/zk-probe "${stage}/zk/dist/"
           cp -a plugins/manifests/kafka.yaml "${stage}/manifests/"
           cp -a plugins/manifests/zk.yaml "${stage}/manifests/"
+      - name: Drop previous plugin artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" \
+            | while read -r id; do
+                [ -n "${id}" ] || continue
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
+              done
       - uses: actions/upload-artifact@v4
         with:
           name: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ runner.temp }}/plugin-stage
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: kafka-plugin
