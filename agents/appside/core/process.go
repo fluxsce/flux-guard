@@ -78,14 +78,21 @@ func stopGrace(rt Runtime) time.Duration {
 }
 
 // StartupProbeWait 启动探测最长等待：配置优先，否则用 fallback（Tomcat 等 mode 传入更长默认）。
+// 回执要等探测结束才发出，所以这里有上限，避免把命令一直留在执行中。
 func StartupProbeWait(rt Runtime, fallback time.Duration) time.Duration {
+	d := StartupWait
 	if rt.StartupWaitSec > 0 {
-		return time.Duration(rt.StartupWaitSec) * time.Second
+		d = time.Duration(rt.StartupWaitSec) * time.Second
+	} else if fallback > 0 {
+		d = fallback
 	}
-	if fallback > 0 {
-		return fallback
+	if d > startupProbeCap {
+		return startupProbeCap
 	}
-	return StartupWait
+	if d <= 0 {
+		return StartupWait
+	}
+	return d
 }
 
 // Running 查看这一套是否在跑。服务名或命令来自本机配置，不来自中央命令。

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { RsButton, RsEmpty, RsTag } from '@/ui'
 import type { AppInstance, AppRelease, ReleaseStep, RuntimeCommand } from '../api'
 import { catalinaStarted } from '../composables/startupLog'
+import LogScreen from './LogScreen.vue'
 import {
   canRollbackRelease,
   kindLabel,
@@ -22,7 +23,6 @@ const props = defineProps<{
   tailText?: string
   tailName?: string
   tailLive?: boolean
-  lifecycle?: RuntimeCommand | null
   runtimeHistory?: RuntimeCommand[]
 }>()
 
@@ -36,32 +36,7 @@ const emit = defineEmits<{
 const showContinue = computed(() => (props.releasing?.pendingCount ?? 0) > 0)
 const showRollback = computed(() => canRollbackRelease(props.releasing))
 const showTail = computed(() => !!props.tailLive || !!props.tailText)
-const lifecycleAction = computed(() => {
-  const action = props.lifecycle?.action || ''
-  if (action.endsWith('stop')) return '停止'
-  if (action.endsWith('start')) return '启动'
-  if (action.endsWith('restart')) return '重启'
-  return '启停'
-})
 const logStarted = computed(() => catalinaStarted(props.tailText || ''))
-const tailRef = ref<HTMLPreElement | null>(null)
-const stickTail = ref(true)
-
-watch(
-  () => props.tailText,
-  async () => {
-    await nextTick()
-    const el = tailRef.value
-    if (!stickTail.value || !el) return
-    el.scrollTop = el.scrollHeight
-  },
-)
-
-function onTailScroll() {
-  const el = tailRef.value
-  if (!el) return
-  stickTail.value = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-}
 
 function stepLead(detail?: string) {
   return (detail || '').split('\n')[0]?.trim() || ''
@@ -125,27 +100,12 @@ function stepRest(step: ReleaseStep) {
           <span v-else-if="tailLive" class="msg">滚动跟读</span>
           <span v-else class="msg">跟读已停</span>
         </h4>
-        <pre ref="tailRef" @scroll="onTailScroll">{{ tailText || (tailLive ? '正在接入…' : '') }}</pre>
-      </div>
-
-      <div v-if="lifecycle" class="fg-op-progress">
-        <h4>本次{{ lifecycleAction }} · {{ statusText(lifecycle.status) }}</h4>
-        <p v-if="!lifecycle.steps?.length" class="fg-wait">
-          <template v-if="lifecycleAction === '停止'">应用代理正在停止，做完才返回这一步的说明。</template>
-          <template v-else>
-            停止、启动和启动探测在应用代理上做完才一次返回。右侧是 catalina 原文，出现 Catalina.start 表示容器已写完启动。
-          </template>
-        </p>
-        <p v-else-if="lifecycle.message" class="fg-wait">{{ lifecycle.message }}</p>
-        <ol v-if="lifecycle.steps?.length">
-          <li v-for="(step, index) in lifecycle.steps" :key="`${lifecycle.commandId}-${index}`">
-            <div class="fg-step-line">
-              <RsTag size="sm" :variant="statusVariant(step.status)">{{ stepLabel(step.name) }}</RsTag>
-              <span class="paths">{{ stepLead(step.detail) || '—' }}</span>
-            </div>
-            <pre v-if="stepRest(step)" class="fg-step-detail">{{ stepRest(step) }}</pre>
-          </li>
-        </ol>
+        <LogScreen
+          class="fg-op-term"
+          :text="tailText || ''"
+          :placeholder="tailLive ? '正在接入…' : ''"
+          :aria-label="tailName || '启动日志'"
+        />
       </div>
 
       <div v-if="releasing?.items?.length" class="fg-op-progress">
@@ -194,6 +154,7 @@ function stepRest(step: ReleaseStep) {
             <li v-for="item in runtimeHistory" :key="item.commandId">
               <button type="button" @click="emit('open-runtime', item)">
                 {{ item.addTime || '—' }} · {{ runtimeAction(item.action) }} · {{ statusText(item.status) }}
+                <template v-if="item.message"> · {{ item.message }}</template>
               </button>
             </li>
           </ul>
@@ -278,8 +239,7 @@ function stepRest(step: ReleaseStep) {
   padding: 8px 0;
 }
 
-.fg-op-log pre,
-.fg-op-tail pre {
+.fg-op-log pre {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
@@ -288,10 +248,9 @@ function stepRest(step: ReleaseStep) {
   word-break: break-word;
 }
 
-.fg-op-tail pre {
+.fg-op-term {
   flex: 1;
-  min-height: 0;
-  overflow: auto;
+  min-height: 120px;
 }
 
 .fg-op-tail h4 {

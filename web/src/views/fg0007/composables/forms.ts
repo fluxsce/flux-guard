@@ -214,7 +214,7 @@ export function connFormFields(kindOptions: FlagOption[]): FgFormField[] {
           { field: 'secretSet', label: '口令', type: 'select', options: secretOptions, disabled: true, modes: ['view'] },
           { field: 'databaseName', label: '库名', placeholder: '可空，只读账号即可' },
         ],
-        { tips: '页面会标出复制延迟和缓冲池命中。复制延迟没有数据时表示当前看不出主从。', show: kindIs('mysql') },
+        { tips: '页面标出连接占用、两次采集之间的语句速率、缓冲池命中、慢查询和复制线程。看不出主从时，复制延迟没有数。', show: kindIs('mysql') },
       ),
       fieldset(
         'mongoGroup',

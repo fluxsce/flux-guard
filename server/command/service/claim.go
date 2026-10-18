@@ -69,7 +69,7 @@ func (s *Service) ListCommandMeta(ctx context.Context, tenantID, agentID, comman
 	return instance, nil
 }
 
-// FinishOwned 把代理回执写回本代理名下的执行中命令。
+// FinishOwned 把代理回执写回本代理名下仍在执行的命令。状态只由这一份回执决定。
 func (s *Service) FinishOwned(ctx context.Context, tenantID, agentID string, result protocol.CommandResult) error {
 	var owner, flag string
 	err := store.Scan(ctx, s.db, `

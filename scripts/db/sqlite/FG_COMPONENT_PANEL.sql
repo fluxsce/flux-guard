@@ -43,9 +43,12 @@ INSERT INTO FG_COMPONENT_PANEL (
 ('default', 'redis:keys', 'redis', 'keys', '键', 60, 'N', 'N', NULL, 'keys', 'Y', 'system', 'system', 'INIT', 1, 'Y', '键数量、淘汰和各库键数量。'),
 ('default', 'redis:terminal', 'redis', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '按库浏览键。可按类型查看，删除，或设置过期时间。'),
 ('default', 'mysql:overview', 'mysql', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色和版本。'),
-('default', 'mysql:connections', 'mysql', 'connections', '连接', 20, 'N', 'Y', 'threadsConnected', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '连接数和活跃线程。'),
-('default', 'mysql:slow', 'mysql', 'slow', '慢查询', 30, 'N', 'Y', 'slowQueries', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '缓冲池命中和累计慢查询。'),
-('default', 'mysql:replica', 'mysql', 'replica', '复制', 40, 'N', 'Y', 'replicaLagSec', 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '复制延迟。'),
+('default', 'mysql:connections', 'mysql', 'connections', '连接', 20, 'N', 'Y', 'threadsConnected,connUsagePercent', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '连接数、上限占用和活跃线程。'),
+('default', 'mysql:ops', 'mysql', 'ops', '吞吐', 30, 'N', 'Y', 'questionsPerSec', 'throughput', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的每秒语句。'),
+('default', 'mysql:traffic', 'mysql', 'traffic', '流量', 35, 'N', 'N', NULL, 'traffic', 'Y', 'system', 'system', 'INIT', 1, 'Y', '入站和出站。'),
+('default', 'mysql:innodb', 'mysql', 'innodb', '缓冲池', 40, 'N', 'N', NULL, 'innodb', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的缓冲池命中、脏页和磁盘临时表。'),
+('default', 'mysql:slow', 'mysql', 'slow', '慢查询', 50, 'N', 'Y', 'slowPerSec', 'slow', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的慢查询，以及正在执行的语句。'),
+('default', 'mysql:replica', 'mysql', 'replica', '复制', 60, 'N', 'Y', 'replicaLagSec', 'replica', 'Y', 'system', 'system', 'INIT', 1, 'Y', '复制延迟和复制线程。'),
 ('default', 'mysql:terminal', 'mysql', 'terminal', '终端', 90, 'Y', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', 'MySQL SQL 客户端。'),
 ('default', 'mongo:overview', 'mongo', 'overview', '概览', 10, 'N', 'N', NULL, NULL, 'Y', 'system', 'system', 'INIT', 1, 'Y', '连通、角色、版本和排队。'),
 ('default', 'mongo:connections', 'mongo', 'connections', '连接', 20, 'N', 'Y', 'connectionsCurrent', 'connections', 'Y', 'system', 'system', 'INIT', 1, 'Y', '当前连接、可用连接和占用。'),
@@ -74,3 +77,14 @@ UPDATE FG_COMPONENT_PANEL SET panelName = '操作', sortOrder = 40, metricText =
 UPDATE FG_COMPONENT_PANEL SET noteText = '库、集合和索引。可查询文档，并看历史慢日志。' WHERE tenantId = 'default' AND panelId = 'mongo:terminal';
 UPDATE FG_COMPONENT_PANEL SET noteText = '主题配置、新建、删除、增加分区，以及消费组删除和重置位点。' WHERE tenantId = 'default' AND panelId = 'kafka:terminal';
 UPDATE FG_COMPONENT_PANEL SET noteText = '按库浏览键。可按类型查看，删除，或设置过期时间。' WHERE tenantId = 'default' AND panelId = 'redis:terminal';
+UPDATE FG_COMPONENT_PANEL SET metricText = 'threadsConnected,connUsagePercent', noteText = '连接数、上限占用和活跃线程。' WHERE tenantId = 'default' AND panelId = 'mysql:connections';
+UPDATE FG_COMPONENT_PANEL SET sortOrder = 50, metricText = 'slowPerSec', noteText = '两次采集之间的慢查询，以及正在执行的语句。' WHERE tenantId = 'default' AND panelId = 'mysql:slow';
+UPDATE FG_COMPONENT_PANEL SET sortOrder = 60, noteText = '复制延迟和复制线程。' WHERE tenantId = 'default' AND panelId = 'mysql:replica';
+INSERT INTO FG_COMPONENT_PANEL (
+  tenantId, panelId, kindCode, panelCode, panelName, sortOrder,
+  terminalFlag, listFlag, metricText, sectionText, statusFlag,
+  addWho, editWho, oprSeqFlag, currentVersion, activeFlag, noteText
+) VALUES
+('default', 'mysql:ops', 'mysql', 'ops', '吞吐', 30, 'N', 'Y', 'questionsPerSec', 'throughput', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的每秒语句。'),
+('default', 'mysql:traffic', 'mysql', 'traffic', '流量', 35, 'N', 'N', NULL, 'traffic', 'Y', 'system', 'system', 'INIT', 1, 'Y', '入站和出站。'),
+('default', 'mysql:innodb', 'mysql', 'innodb', '缓冲池', 40, 'N', 'N', NULL, 'innodb', 'Y', 'system', 'system', 'INIT', 1, 'Y', '两次采集之间的缓冲池命中、脏页和磁盘临时表。');

@@ -336,6 +336,45 @@ function aofText(value: number | null) {
   return value > 0 ? '成功' : '失败'
 }
 
+function mysqlRole(code: string) {
+  if (code === 'replica') return '从库'
+  if (code === 'standalone') return '单机'
+  return code || '—'
+}
+
+function highLevel(value: number | null, watchAt: number, alertAt: number): BoardCard['level'] {
+  if (value == null || value < 0) return 'ok'
+  if (value >= alertAt) return 'alert'
+  if (value >= watchAt) return 'watch'
+  return 'ok'
+}
+
+function lowLevel(value: number | null, watchAt: number, alertAt: number): BoardCard['level'] {
+  if (value == null || value < 0) return 'ok'
+  if (value < alertAt) return 'alert'
+  if (value < watchAt) return 'watch'
+  return 'ok'
+}
+
+function raise(problem: (text: string, level: Board['level']) => void, text: string, level: BoardCard['level']) {
+  if (level !== 'ok') problem(text, level)
+}
+
+function threadText(value: number | null, raw: string | undefined) {
+  if (raw === 'Yes') return '运行'
+  if (raw === 'No') return '停止'
+  if (raw === 'Connecting') return '连接中'
+  if (value == null || value < 0) return '—'
+  return value > 0 ? '运行' : '停止'
+}
+
+function threadLevel(value: number | null, raw: string | undefined, replica: boolean): BoardCard['level'] {
+  if (!replica) return 'ok'
+  if (raw === 'No' || value === 0) return 'alert'
+  if (raw === 'Connecting') return 'watch'
+  return 'ok'
+}
+
 function mysqlBoard(
   up: BoardCard,
   role: BoardCard,
@@ -343,54 +382,137 @@ function mysqlBoard(
   point: Point | null,
   problem: (text: string, level: Board['level']) => void,
 ): BoardSection[] {
+  const replica = point?.roleName === 'replica'
+  const copy = point?.detail?.mysqlReplica
+  const usage = num(point, 'connUsagePercent')
+  const usageLevel = highLevel(usage, 80, 90)
+  raise(problem, `连接已用到上限的 ${usage?.toFixed(1) ?? ''}%`, usageLevel)
+  const aborted = num(point, 'abortedPerSec')
+  const abortedLevel = highLevel(aborted, 0.0001, 1)
+  raise(problem, `失败连接 ${aborted?.toFixed(2) ?? ''} 次/秒`, abortedLevel)
+  const slowRate = num(point, 'slowPerSec')
+  const slowLevel = highLevel(slowRate, 0.0001, 1)
+  raise(problem, `慢查询 ${slowRate?.toFixed(2) ?? ''} 次/秒`, slowLevel)
+  const locks = num(point, 'lockWaitsPerSec')
+  const lockLevel = highLevel(locks, 0.0001, 1)
+  raise(problem, `行锁等待 ${locks?.toFixed(2) ?? ''} 次/秒`, lockLevel)
+  const hit = num(point, 'bufferPoolHitRate')
+  const hitLevel = lowLevel(hit, 95, 90)
+  raise(problem, `缓冲池命中率 ${hit?.toFixed(1) ?? ''}%`, hitLevel)
+  const dirty = num(point, 'bufferPoolDirtyPercent')
+  const dirtyLevel = highLevel(dirty, 70, 90)
+  raise(problem, `脏页占缓冲池的 ${dirty?.toFixed(1) ?? ''}%`, dirtyLevel)
+  const tmp = num(point, 'tmpDiskPercent')
+  const tmpLevel = highLevel(tmp, 25, 50)
+  raise(problem, `磁盘临时表占 ${tmp?.toFixed(1) ?? ''}%`, tmpLevel)
   const lag = num(point, 'replicaLagSec')
   let lagLevel: BoardCard['level'] = 'ok'
-  let lagText = '无主从数据'
+  let lagText = replica ? '—' : '无主从'
   if (lag != null && lag >= 0) {
     lagText = `${Math.round(lag)} 秒`
-    if (lag >= 60) {
-      lagLevel = 'alert'
-      problem(`复制延迟 ${Math.round(lag)} 秒`, 'alert')
-    } else if (lag >= 10) {
-      lagLevel = 'watch'
-      problem(`复制延迟 ${Math.round(lag)} 秒`, 'watch')
-    }
+    lagLevel = highLevel(lag, 10, 60)
+    raise(problem, `复制延迟 ${Math.round(lag)} 秒`, lagLevel)
   }
-  const hit = num(point, 'bufferPoolHitRate')
-  let hitLevel: BoardCard['level'] = 'ok'
-  if (hit != null && hit >= 0 && hit < 95) {
-    hitLevel = 'watch'
-    problem(`缓冲池命中率 ${hit.toFixed(1)}%`, 'watch')
-  }
-  const slow = num(point, 'slowQueries')
+  const io = num(point, 'replicaIo')
+  const sql = num(point, 'replicaSql')
+  const ioLevel = threadLevel(io, copy?.io, replica)
+  const sqlLevel = threadLevel(sql, copy?.sql, replica)
+  if (ioLevel === 'alert') problem('复制 IO 线程已停止', 'alert')
+  if (ioLevel === 'watch') problem('复制 IO 线程正在连接', 'watch')
+  if (sqlLevel === 'alert') problem('复制 SQL 线程已停止', 'alert')
+  if (sqlLevel === 'watch') problem('复制 SQL 线程正在连接', 'watch')
   return [
-    { code: 'availability', title: '可用性', cards: [up, role, version], metrics: [] },
+    {
+      code: 'availability',
+      title: '可用性',
+      cards: [up, card('角色', mysqlRole(point?.roleName || role.value)), version, card('运行', textOf('s', num(point, 'uptimeSec')))],
+      metrics: [{ code: 'uptimeSec', name: '运行', unit: 's' }],
+    },
     {
       code: 'connections',
       title: '连接',
       cards: [
         card('连接数', textOf('', num(point, 'threadsConnected'))),
+        card('上限', textOf('', num(point, 'maxConnections')), 'ok', 'max_connections。读不到变量时不显示。'),
+        card('占用', textOf('%', usage), usageLevel, '当前连接占 max_connections 的比例。'),
         card('活跃线程', textOf('', num(point, 'threadsRunning')), 'ok', '正在执行语句的线程，不是全部连接。'),
+        card('失败连接', textOf('/s', aborted), abortedLevel, '两次采集之间，每秒握手失败的连接。没有上一拍时不显示。'),
       ],
       metrics: [
         { code: 'threadsConnected', name: '连接数' },
         { code: 'threadsRunning', name: '活跃线程' },
+        { code: 'connUsagePercent', name: '占用', unit: '%' },
+        { code: 'abortedPerSec', name: '失败连接', unit: '/s' },
+      ],
+    },
+    {
+      code: 'throughput',
+      title: '吞吐',
+      cards: [
+        card('语句', textOf('/s', num(point, 'questionsPerSec')), 'ok', '两次采集之间 Questions 的增量。含查询和写入。'),
+        card('查询', textOf('/s', num(point, 'selectPerSec'))),
+        card('插入', textOf('/s', num(point, 'insertPerSec'))),
+        card('更新', textOf('/s', num(point, 'updatePerSec'))),
+        card('删除', textOf('/s', num(point, 'deletePerSec'))),
+      ],
+      metrics: [
+        { code: 'questionsPerSec', name: '语句', unit: '/s' },
+        { code: 'selectPerSec', name: '查询', unit: '/s' },
+        { code: 'insertPerSec', name: '插入', unit: '/s' },
+        { code: 'updatePerSec', name: '更新', unit: '/s' },
+        { code: 'deletePerSec', name: '删除', unit: '/s' },
+      ],
+    },
+    {
+      code: 'traffic',
+      title: '流量',
+      cards: [
+        card('入站', textOf('KB/s', num(point, 'netInKbps'))),
+        card('出站', textOf('KB/s', num(point, 'netOutKbps'))),
+      ],
+      metrics: [
+        { code: 'netInKbps', name: '入站', unit: 'KB/s' },
+        { code: 'netOutKbps', name: '出站', unit: 'KB/s' },
+      ],
+    },
+    {
+      code: 'innodb',
+      title: '缓冲池',
+      cards: [
+        card('命中', textOf('%', hit), hitLevel, '两次采集之间，缓冲池读请求里没有落到磁盘的比例。区间内没有读请求时不显示。'),
+        card('脏页', textOf('%', dirty), dirtyLevel, '脏页占缓冲池页数的比例。'),
+        card('磁盘临时表', textOf('%', tmp), tmpLevel, '两次采集之间，新建临时表里落到磁盘的比例。'),
+        card('行锁等待', textOf('/s', locks), lockLevel, '两次采集之间，每秒新增的 InnoDB 行锁等待。'),
+      ],
+      metrics: [
+        { code: 'bufferPoolHitRate', name: '命中', unit: '%' },
+        { code: 'bufferPoolDirtyPercent', name: '脏页', unit: '%' },
+        { code: 'tmpDiskPercent', name: '磁盘临时表', unit: '%' },
+        { code: 'lockWaitsPerSec', name: '行锁等待', unit: '/s' },
       ],
     },
     {
       code: 'slow',
-      title: '缓冲池与慢查询',
+      title: '慢查询',
       cards: [
-        card('缓冲池命中', textOf('%', hit), hitLevel, '数据页从缓冲池读到的比例。偏低说明磁盘读变多。'),
-        card('累计慢查询', textOf('', slow), 'ok', '从启动到现在超过慢查询阈值的语句次数，不是当前还在跑的慢语句。'),
+        card('每秒', textOf('/s', slowRate), slowLevel, '两次采集之间超过 long_query_time 的语句。没有上一拍时不显示。'),
+        card('累计', textOf('', num(point, 'slowQueries')), 'ok', '从启动到现在的慢查询次数，不是当前还在跑的语句。'),
       ],
-      metrics: [{ code: 'bufferPoolHitRate', name: '缓冲池命中', unit: '%' }],
+      metrics: [{ code: 'slowPerSec', name: '每秒慢查询', unit: '/s' }],
     },
     {
       code: 'replica',
       title: '复制',
-      cards: [card('延迟', lagText, lagLevel, '从库落后主库的秒数。看不出主从时显示无主从数据。')],
-      metrics: [{ code: 'replicaLagSec', name: '复制延迟', unit: 's' }],
+      cards: [
+        card('延迟', lagText, lagLevel, '从库 Seconds_Behind_Source。没有复制位点时显示无主从；位点在但秒数为空时不显示数字。'),
+        card('IO 线程', threadText(io, copy?.io), ioLevel, '把主库事件拉到中继日志的线程。'),
+        card('SQL 线程', threadText(sql, copy?.sql), sqlLevel, '把中继日志应用到本库的线程。'),
+      ],
+      metrics: [
+        { code: 'replicaLagSec', name: '复制延迟', unit: 's' },
+        { code: 'replicaIo', name: 'IO 线程' },
+        { code: 'replicaSql', name: 'SQL 线程' },
+      ],
     },
   ]
 }

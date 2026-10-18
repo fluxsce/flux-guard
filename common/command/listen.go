@@ -145,6 +145,8 @@ func allowKey(header, key string) bool {
 }
 
 func writeReply(w http.ResponseWriter, status int, reply protocol.ExecReply) {
+	reply.Message = strings.ToValidUTF8(reply.Message, "\uFFFD")
+	reply.Steps = scrubSteps(reply.Steps)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(reply)

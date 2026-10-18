@@ -615,6 +615,7 @@ export function useAppWorkbench() {
         agentId: site.agentId,
         action: op === 'start' ? 'app.runtime.start' : op === 'stop' ? 'app.runtime.stop' : 'app.runtime.restart',
         status: 'running',
+        addTime: cmd.addTime || new Date().toISOString(),
       }
       if (op !== 'stop') void followStartupLog(site.instanceName)
       void pollCommand(cmd.commandId, label)
@@ -815,6 +816,21 @@ export function useAppWorkbench() {
     void poll()
   }
 
+  let historyTimer = 0
+
+  function scheduleHistoryRefresh() {
+    if (historyTimer || !pageAlive) return
+    const pending = runtimeHistory.value.some(
+      (row) => row.status === 'running' || row.status === 'waiting' || row.status === 'dialing',
+    )
+    if (!pending) return
+    historyTimer = window.setTimeout(() => {
+      historyTimer = 0
+      if (!pageAlive) return
+      void loadRuntimeHistory()
+    }, 3000)
+  }
+
   async function loadRuntimeHistory() {
     const site = current.value
     if (!site) {
@@ -825,6 +841,7 @@ export function useAppWorkbench() {
       const res = await queryRuntimeCommands(site.agentId, site.instanceName)
       if (!isApiSuccess(res)) return
       runtimeHistory.value = parseApiData<RuntimeCommand[]>(res) ?? []
+      scheduleHistoryRefresh()
     } catch {
       // 历史列表失败不挡住当前操作
     }
@@ -839,7 +856,6 @@ export function useAppWorkbench() {
       }
       const cmd = parseApiData<RuntimeCommand>(res)
       if (!cmd) return
-      lifecycle.value = cmd
       const name = lifecycleName(cmd.action)
       pushLog(`查看${name} ${cmd.addTime || row.addTime || ''}`)
       if (!loggedCommands.has(cmd.commandId)) {
@@ -876,6 +892,7 @@ export function useAppWorkbench() {
   onMounted(() => void loadSites())
   onUnmounted(() => {
     pageAlive = false
+    if (historyTimer) window.clearTimeout(historyTimer)
     downloadAbort?.abort()
     downloadAbort = null
   })

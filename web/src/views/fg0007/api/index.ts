@@ -243,6 +243,27 @@ export interface MongoIndexList {
   note?: string
 }
 
+/** 从库复制线程。不是从库时没有这一项。 */
+export interface MysqlReplica {
+  io?: string
+  sql?: string
+  source?: string
+  ioError?: string
+  sqlError?: string
+}
+
+/** 已执行至少 1 秒、且不是 Sleep 的会话。 */
+export interface MysqlSession {
+  id: number
+  user?: string
+  host?: string
+  db?: string
+  command?: string
+  time: number
+  state?: string
+  info?: string
+}
+
 export interface PointDetail {
   dbs?: RedisDb[]
   slow?: RedisSlow[]
@@ -269,6 +290,10 @@ export interface PointDetail {
   received?: number
   sent?: number
   zxid?: string
+  mysqlReplica?: MysqlReplica
+  mysqlSessions?: MysqlSession[]
+  mysqlSessionNote?: string
+  mysqlPoolBytes?: number
 }
 
 export interface Point {

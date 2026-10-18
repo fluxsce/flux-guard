@@ -142,6 +142,9 @@ func WaitStartup(ctx context.Context, d time.Duration) error {
 // StartupWait 无专用日志 mode 的默认启动探测等待。
 var StartupWait = 30 * time.Second
 
+// startupProbeCap 是启动探测的硬上限。配置再大，到点也要结束并把回执送回。
+const startupProbeCap = 5 * time.Minute
+
 // TomcatStartupWait Tomcat 默认启动探测上限（大应用常远超数秒）。
 var TomcatStartupWait = 180 * time.Second
 

@@ -23,6 +23,7 @@ const panelIcons: Record<string, string> = {
   broker: 'server',
   group: 'users',
   ops: 'activity',
+  innodb: 'database',
   storage: 'database',
   latency: 'gauge',
   scale: 'boxes',

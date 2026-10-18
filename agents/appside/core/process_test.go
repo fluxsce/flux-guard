@@ -210,3 +210,10 @@ func TestRunningCommandUsesStatus(t *testing.T) {
 		t.Fatal("expected down")
 	}
 }
+
+func TestStartupProbeWaitCapsLongConfig(t *testing.T) {
+	got := StartupProbeWait(Runtime{StartupWaitSec: 86400}, time.Minute)
+	if got != startupProbeCap {
+		t.Fatalf("got %s", got)
+	}
+}

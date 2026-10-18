@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { getApiMessage, isApiSuccess, parseApiData } from '@/api/request'
 import { RsButton, RsDialog, useRsToast } from '@/ui'
 import {
@@ -10,6 +10,7 @@ import {
   type LogViewChunk,
   type LogViewSession,
 } from '../api'
+import LogScreen from './LogScreen.vue'
 
 const open = defineModel<boolean>('open', { default: false })
 const props = defineProps<{
@@ -23,9 +24,7 @@ const session = ref<LogViewSession | null>(null)
 const text = ref('')
 const offset = ref(0)
 const busy = ref(false)
-const follow = ref(true)
 const closed = ref(false)
-const preRef = ref<HTMLPreElement | null>(null)
 let pollTimer = 0
 let touchTimer = 0
 let alive = false
@@ -47,7 +46,6 @@ async function start() {
   text.value = ''
   offset.value = 0
   closed.value = false
-  follow.value = true
   session.value = null
   busy.value = true
   try {
@@ -134,8 +132,6 @@ async function poll() {
         text.value = text.value.slice(text.value.length - 500_000)
       }
       offset.value = chunk.offset
-      await nextTick()
-      stickBottom()
     } else {
       offset.value = chunk.offset
     }
@@ -145,18 +141,6 @@ async function poll() {
     }
   }
   schedulePoll()
-}
-
-function stickBottom() {
-  if (!follow.value || !preRef.value) return
-  preRef.value.scrollTop = preRef.value.scrollHeight
-}
-
-function onScroll() {
-  const el = preRef.value
-  if (!el) return
-  const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-  follow.value = dist < 48
 }
 
 const title = computed(() => session.value?.fileName || props.fileName || '日志')
@@ -172,13 +156,13 @@ const title = computed(() => session.value?.fileName || props.fileName || '日�
     :teleport-to="`#${moduleId}-layer`"
   >
     <p class="hint">
-      经中央会话隧道跟读；默认显示末尾并持续追加。上滚暂停跟底，回到底部继续。
+      经中央会话隧道跟读。贴在底部时持续追加，上滚后停在原处；Ctrl+F 搜索。
       <template v-if="closed"> · 已结束</template>
       <template v-else-if="busy"> · 连接中…</template>
-      <template v-else-if="follow"> · 跟底</template>
-      <template v-else> · 已暂停跟底</template>
     </p>
-    <pre ref="preRef" class="log-body" @scroll="onScroll">{{ text || (busy ? '正在接入…' : '暂无输出') }}</pre>
+    <div class="log-frame">
+      <LogScreen :text="text" :placeholder="busy ? '正在接入…' : '暂无输出'" :aria-label="title" />
+    </div>
     <template #footer>
       <RsButton size="sm" variant="ghost" @click="open = false">关闭</RsButton>
     </template>
@@ -192,19 +176,8 @@ const title = computed(() => session.value?.fileName || props.fileName || '日�
   color: var(--rs-text-secondary, #667);
   line-height: 1.45;
 }
-.log-body {
-  margin: 0;
+.log-frame {
+  height: min(70vh, 560px);
   min-height: 360px;
-  max-height: min(70vh, 560px);
-  overflow: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--rs-border, #ddd);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--rs-text) 4%, transparent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 </style>

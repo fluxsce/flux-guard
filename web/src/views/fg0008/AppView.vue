@@ -22,7 +22,6 @@ const {
   releasing,
   continueBusy,
   logLines,
-  lifecycle,
   runtimeHistory,
   tailText,
   tailName,
@@ -126,7 +125,6 @@ useModuleAi(() => ({
           <OpConsole
             class="fg-app-console"
             :log-lines="logLines"
-            :lifecycle="lifecycle"
             :runtime-history="runtimeHistory"
             :tail-text="tailText"
             :tail-name="tailName"

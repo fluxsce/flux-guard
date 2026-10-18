@@ -8,6 +8,7 @@ import { useSessionStore } from '@/stores/session'
 import KafkaBrowser from './KafkaBrowser.vue'
 import KafkaMonitor from './KafkaMonitor.vue'
 import MetricSections from './MetricSections.vue'
+import MysqlMonitor from './MysqlMonitor.vue'
 import MongoBrowser from './MongoBrowser.vue'
 import MongoMonitor from './MongoMonitor.vue'
 import RedisBrowser from './RedisBrowser.vue'
@@ -54,7 +55,7 @@ const detail = computed<PointDetail>(() => latest.value?.detail ?? {})
 const layout = computed(() => layoutOf(props.conn.kindCode, props.conn.optionText, props.conn.userName, props.conn.secretSet).label)
 const ranged = computed(() => {
   const kind = props.conn.kindCode
-  return kind === 'redis' || kind === 'mongo' || kind === 'kafka' || kind === 'zk'
+  return kind === 'redis' || kind === 'mysql' || kind === 'mongo' || kind === 'kafka' || kind === 'zk'
 })
 const kafkaSignals = ['Broker', '离线分区', '未同步分区', '低于最小 ISR', '最大分区延迟', '再均衡']
 const signalCards = computed(() => {
@@ -306,6 +307,7 @@ onUnmounted(() => {
           :show-cards="conn.kindCode !== 'kafka'"
         />
         <RedisMonitor v-if="conn.kindCode === 'redis'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
+        <MysqlMonitor v-else-if="conn.kindCode === 'mysql'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <KafkaMonitor v-else-if="conn.kindCode === 'kafka'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
         <MongoMonitor v-else-if="conn.kindCode === 'mongo'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" :component-id="conn.componentId" />
         <ZkMonitor v-else-if="conn.kindCode === 'zk'" :panel-code="activePanel?.panelCode ?? ''" :detail="detail" />
