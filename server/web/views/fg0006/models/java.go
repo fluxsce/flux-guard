@@ -14,6 +14,7 @@ type JavaRow struct {
 	HeapUsedBytes    int64    `json:"heapUsedBytes"`
 	HeapMaxBytes     int64    `json:"heapMaxBytes"`
 	NonHeapUsedBytes int64    `json:"nonHeapUsedBytes"`
+	RSSBytes         int64    `json:"rssBytes"`
 	ThreadCount      int64    `json:"threadCount"`
 	DaemonCount      int64    `json:"daemonCount"`
 	CollectionCount  int64    `json:"collectionCount"`

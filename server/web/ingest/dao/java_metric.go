@@ -18,7 +18,7 @@ import (
 // 停顿：jvm.gc.pause.count / max.ms / time.ms / p50.ms / p99.ms，同一回收器，值为这一拍的区间。
 // 开销 jvm.gc.pause.overhead.percent 未知为 -1。周期 jvm.gc.cycle.* 不计入停顿。死锁 jvm.thread.deadlock.count，未知不写。
 // 内存池：jvm.memory.pool.used.bytes / committed.bytes，标签 pool 只接受分代、代码缓存和堆外。
-// 运行时：jvm.cpu.process.percent、jvm.class.loaded、jvm.class.unloaded。
+// 运行时：jvm.cpu.process.percent、jvm.class.loaded、jvm.class.unloaded、jvm.process.rss.bytes。读不到常驻内存时不报，库里记 -1。
 // 线程：jvm.thread.count、jvm.thread.daemon.count、jvm.thread.peak.count。
 // 状态：jvm.thread.runnable.count、blocked.count、waiting.count。不带栈。
 // 上限：jvm.memory.pool.max.bytes，标签 pool=direct 时写入直接内存上限。
@@ -63,9 +63,11 @@ type stateSnap struct {
 type runtimeSnap struct {
 	cpu               float64
 	loaded, unloaded  int64
+	rss               int64
 	overhead          float64
 	hasCPU, hasLoaded bool
 	hasUnloaded       bool
+	hasRSS            bool
 	hasOverhead       bool
 	at                time.Time
 }
@@ -205,6 +207,11 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			runtime.hasCPU = true
 			runtime.at = at
 			hasRuntime = true
+		case "jvm.process.rss.bytes":
+			runtime.rss = asInt(sample.MetricValue)
+			runtime.hasRSS = runtime.rss > 0
+			runtime.at = at
+			hasRuntime = true
 		case "jvm.class.loaded":
 			runtime.loaded = asInt(sample.MetricValue)
 			runtime.hasLoaded = true
@@ -317,11 +324,11 @@ func SaveJavaMetrics(ctx context.Context, tx *dbx.DB, batch protocol.Batch) erro
 			return err
 		}
 	}
-	return touchJavaCurrent(ctx, tx, batch, hasHeap, heap, hasThread, threads, hasGC, gcs)
+	return touchJavaCurrent(ctx, tx, batch, hasHeap, heap, hasThread, threads, hasGC, gcs, hasRuntime, runtime)
 }
 
-// touchJavaCurrent 把本批堆、线程和回收累计写回身份行。没到的指标保持上一行。
-func touchJavaCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, hasHeap bool, heap heapSnap, hasThread bool, threads threadSnap, hasGC bool, gcs map[string]*gcSnap) error {
+// touchJavaCurrent 把本批堆、线程、常驻内存和回收累计写回身份行。没到的指标保持上一行。
+func touchJavaCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, hasHeap bool, heap heapSnap, hasThread bool, threads threadSnap, hasGC bool, gcs map[string]*gcSnap, hasRuntime bool, runtime runtimeSnap) error {
 	sets := make([]string, 0, 6)
 	args := dbx.Args{"tenantId": batch.TenantID, "agentId": batch.AgentID}
 	if hasHeap {
@@ -335,6 +342,10 @@ func touchJavaCurrent(ctx context.Context, tx *dbx.DB, batch protocol.Batch, has
 		sets = append(sets, "threadCount = @threadCount", "daemonCount = @daemonCount")
 		args["threadCount"] = threads.count
 		args["daemonCount"] = threads.daemon
+	}
+	if hasRuntime && runtime.hasRSS {
+		sets = append(sets, "rssBytes = @rssBytes")
+		args["rssBytes"] = runtime.rss
 	}
 	if hasGC {
 		var count, elapsed int64
@@ -553,18 +564,22 @@ func writeJavaRuntime(ctx context.Context, tx *dbx.DB, batch protocol.Batch, row
 	if row.hasOverhead {
 		overhead = row.overhead
 	}
+	rss := int64(-1)
+	if row.hasRSS {
+		rss = row.rss
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO FG_JAVA_RUNTIME (
-		  pointId, batchId, agentId, tenantId, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent, observedTime,
+		  pointId, batchId, agentId, tenantId, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent, rssBytes, observedTime,
 		  addWho, editWho, oprSeqFlag, currentVersion, activeFlag
 		) VALUES (
-		  @pointId, @batchId, @agentId, @tenantId, @processCpuPercent, @loadedClassCount, @unloadedClassCount, @pauseOverheadPercent, @observedTime,
+		  @pointId, @batchId, @agentId, @tenantId, @processCpuPercent, @loadedClassCount, @unloadedClassCount, @pauseOverheadPercent, @rssBytes, @observedTime,
 		  @addWho, 'system', 'INGEST', 1, 'Y'
 		)`, javaPoint(batch, dbx.Args{
 		"agentId": batch.AgentID, "tenantId": batch.TenantID,
 		"processCpuPercent": cpu, "loadedClassCount": row.loaded, "unloadedClassCount": row.unloaded,
-		"pauseOverheadPercent": overhead,
-		"observedTime":         store.FormatTime(row.at), "addWho": batch.AgentID,
+		"pauseOverheadPercent": overhead, "rssBytes": rss,
+		"observedTime": store.FormatTime(row.at), "addWho": batch.AgentID,
 	}))
 	return err
 }

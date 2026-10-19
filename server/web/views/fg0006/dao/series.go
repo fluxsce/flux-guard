@@ -21,7 +21,7 @@ const (
 	gcSQL    = `SELECT observedTime, collectorName, collectionCount, collectionTimeMs FROM FG_JAVA_GC WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	thrSQL   = `SELECT observedTime, threadCount, daemonCount, peakCount FROM FG_JAVA_THREAD WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	poolSQL  = `SELECT observedTime, poolName, usedBytes FROM FG_JAVA_POOL WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
-	runSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
+	runSQL   = `SELECT observedTime, processCpuPercent, loadedClassCount, unloadedClassCount, pauseOverheadPercent, rssBytes FROM FG_JAVA_RUNTIME WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	pauseSQL = `SELECT observedTime, collectorName, pauseCount, pauseMaxMs, pauseTotalMs, pauseP99Ms, cycleTimeMs FROM FG_JAVA_GC_PAUSE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	stateSQL = `SELECT observedTime, runnableCount, blockedCount, waitingCount, deadlockCount FROM FG_JAVA_THREAD_STATE WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
 	maxSQL   = `SELECT observedTime, poolName, maxBytes FROM FG_JAVA_POOL_MAX WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y' ORDER BY observedTime DESC, pointId DESC`
@@ -106,7 +106,7 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 			build.add("直接内存上限", "bytes", "", row[0], asFloat(row[2]))
 		}
 	}
-	for _, row := range queryWide(db, applySpan(runSQL, clause), args, limit, 5) {
+	for _, row := range queryWide(db, applySpan(runSQL, clause), args, limit, 6) {
 		if cpu := asFloat(row[1]); cpu >= 0 {
 			build.add("进程 CPU", "percent", "", row[0], cpu)
 		}
@@ -114,6 +114,9 @@ func Series(db *dbx.DB, tenantID, agentID string, span SeriesSpan) models.JavaSe
 		build.add("已卸载类", "count", "", row[0], asFloat(row[3]))
 		if overhead := asFloat(row[4]); overhead >= 0 {
 			build.add("停顿开销", "percent", "GC 开销", row[0], overhead)
+		}
+		if rss := asFloat(row[5]); rss > 0 {
+			build.add("常驻内存", "bytes", "", row[0], rss)
 		}
 	}
 	for _, row := range queryWide(db, applySpan(pauseSQL, clause), args, limit*8, 7) {

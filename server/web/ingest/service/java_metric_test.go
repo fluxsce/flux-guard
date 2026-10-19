@@ -36,6 +36,7 @@ func TestJavaMetricsStaySplit(t *testing.T) {
 			{MetricName: "jvm.memory.pool.max.bytes", MetricValue: 4096, Labels: map[string]string{"pool": "direct"}},
 			{MetricName: "jvm.memory.pool.used.bytes", MetricValue: 900, Labels: map[string]string{"pool": "mystery"}},
 			{MetricName: "jvm.cpu.process.percent", MetricValue: 12.5},
+			{MetricName: "jvm.process.rss.bytes", MetricValue: 5_000_000},
 			{MetricName: "jvm.class.loaded", MetricValue: 4100},
 			{MetricName: "jvm.class.unloaded", MetricValue: 7},
 			{MetricName: "jvm.gc.pause.count", MetricValue: 2, Labels: map[string]string{"collector": "G1 Young"}},
@@ -109,14 +110,23 @@ func TestJavaMetricsStaySplit(t *testing.T) {
 		t.Fatalf("pool %s used=%d", poolName, poolUsed)
 	}
 	var cpu float64
-	var loaded int64
+	var loaded, rss int64
 	if err := store.Scan(context.Background(), svc.db, `
-		SELECT processCpuPercent, loadedClassCount FROM FG_JAVA_RUNTIME WHERE tenantId = 'default' AND agentId = 'java-order'`,
-		nil, &cpu, &loaded); err != nil {
+		SELECT processCpuPercent, loadedClassCount, rssBytes FROM FG_JAVA_RUNTIME WHERE tenantId = 'default' AND agentId = 'java-order'`,
+		nil, &cpu, &loaded, &rss); err != nil {
 		t.Fatal(err)
 	}
-	if cpu != 12.5 || loaded != 4100 {
-		t.Fatalf("cpu=%v loaded=%d", cpu, loaded)
+	if cpu != 12.5 || loaded != 4100 || rss != 5_000_000 {
+		t.Fatalf("cpu=%v loaded=%d rss=%d", cpu, loaded, rss)
+	}
+	var currentRSS int64
+	if err := store.Scan(context.Background(), svc.db, `
+		SELECT rssBytes FROM FG_AGENT_JAVA WHERE tenantId = 'default' AND agentId = 'java-order'`,
+		nil, &currentRSS); err != nil {
+		t.Fatal(err)
+	}
+	if currentRSS != 5_000_000 {
+		t.Fatalf("current rss=%d", currentRSS)
 	}
 	var pauseMax int64
 	if err := store.Scan(context.Background(), svc.db, `

@@ -3,7 +3,7 @@ package fluxguard.agent;
 import java.lang.instrument.Instrumentation;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-// Agent 挂进目标 JVM，按间隔采集堆、GC 和线程并上报。
+// Agent 挂进目标 JVM，按间隔采集堆、常驻内存、GC 和线程并上报。
 // 也可以用 java -jar 在当前进程里跑同一套采集。
 public final class Agent {
     private static final AtomicBoolean STARTED = new AtomicBoolean();

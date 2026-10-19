@@ -94,6 +94,10 @@ final class Collect {
         if (cpu >= 0) {
             add(samples, "jvm.cpu.process.percent", Math.round(cpu * 1000.0) / 1000.0, null, at);
         }
+        long rss = Resident.bytes(pid);
+        if (rss > 0) {
+            add(samples, "jvm.process.rss.bytes", rss, null, at);
+        }
         ClassLoadingMXBean classes = ManagementFactory.getClassLoadingMXBean();
         add(samples, "jvm.class.loaded", classes.getLoadedClassCount(), null, at);
         add(samples, "jvm.class.unloaded", classes.getUnloadedClassCount(), null, at);

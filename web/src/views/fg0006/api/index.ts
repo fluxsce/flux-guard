@@ -17,6 +17,7 @@ export interface JavaApp {
   heapUsedBytes: number
   heapMaxBytes: number
   nonHeapUsedBytes: number
+  rssBytes: number
   threadCount: number
   daemonCount: number
   collectionCount: number

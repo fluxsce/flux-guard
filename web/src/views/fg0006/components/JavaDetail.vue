@@ -153,6 +153,8 @@ const heapCaption = computed(() => {
   return `${bytes(props.app.heapUsedBytes)} / ${bytes(props.app.heapMaxBytes)}`
 })
 
+const rssText = computed(() => (props.app.rssBytes > 0 ? bytes(props.app.rssBytes) : '—'))
+
 const gauges = computed(() => [
   { option: gaugeOption('堆', props.app.heapUsedPercent, heapCaption.value) },
 ])
@@ -244,6 +246,7 @@ const gcColumns: RsTableColumn<JavaCollector>[] = [
       <p class="fg-note">
         {{ app.onlineFlag === 'Y' ? '在线' : '离线' }} · {{ app.javaVersion || '—' }} · {{ app.mainClass || '—' }} · 进程 {{ app.processId || '—' }}
         · {{ app.hostName || '—' }} {{ app.ipAddress || '' }}
+        · 常驻 {{ rssText }}
         · 启动 {{ clock(app.startTime) }}
         · {{ clock(app.reportedTime) }}
       </p>

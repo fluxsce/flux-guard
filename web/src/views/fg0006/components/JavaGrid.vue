@@ -60,6 +60,7 @@ function findingText(row: JavaApp) {
     <template #heapUsedPercent="{ row }">
       {{ appOf(row).heapUsedPercent < 0 ? '—' : percent(appOf(row).heapUsedPercent) }}
       <span v-if="appOf(row).heapMaxBytes > 0" class="fg-sub">{{ bytes(appOf(row).heapUsedBytes) }}</span>
+      <span v-if="appOf(row).rssBytes > 0" class="fg-sub">常驻 {{ bytes(appOf(row).rssBytes) }}</span>
     </template>
     <template #threadCount="{ row }">{{ count(appOf(row).threadCount) }}</template>
     <template #collectionCount="{ row }">

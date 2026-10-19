@@ -36,3 +36,4 @@ CREATE TABLE IF NOT EXISTS `FG_AGENT_JAVA` (
   KEY `IDX_FG_AGENT_JAVA_NAME` (`tenantId`, `appName`),
   KEY `IDX_FG_AGENT_JAVA_ADD` (`tenantId`, `addTime`)
 ) ENGINE=InnoDB COMMENT='Java代理身份表';
+ALTER TABLE `FG_AGENT_JAVA` ADD COLUMN `rssBytes` BIGINT NOT NULL DEFAULT -1 COMMENT '当前进程常驻内存，字节；读不到为 -1';

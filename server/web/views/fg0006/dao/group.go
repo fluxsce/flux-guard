@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/store"
+	"fluxguard/server/utils/const/limits"
 	"fluxguard/server/web/views/fg0006/models"
 	dbx "github.com/fluxsce/dbx/db"
 )
@@ -28,7 +28,7 @@ func listInstances(db *dbx.DB, tenantID string, filter JavaFilter) ([]models.Jav
 		       COALESCE(j.javaVersion, '') AS javaVersion, j.startTime, COALESCE(j.hostName, '') AS hostName,
 		       COALESCE(j.ipAddress, '') AS ipAddress,
 		       COALESCE(j.heapUsedPercent, 0) AS heapUsedPercent, COALESCE(j.heapUsedBytes, 0), COALESCE(j.heapMaxBytes, 0),
-		       COALESCE(j.nonHeapUsedBytes, 0),
+		       COALESCE(j.nonHeapUsedBytes, 0), COALESCE(j.rssBytes, -1),
 		       COALESCE(j.threadCount, 0) AS threadCount, COALESCE(j.daemonCount, 0),
 		       COALESCE(j.collectionCount, 0) AS collectionCount, COALESCE(j.collectionTimeMs, 0),
 		       j.reportedTime AS reportedTime, COALESCE(a.machineId, '')
@@ -42,10 +42,10 @@ func listInstances(db *dbx.DB, tenantID string, filter JavaFilter) ([]models.Jav
 	var scanned []scannedInstance
 	for rows.Next() {
 		var item scannedInstance
-		var start, heapPct, heapUsed, heapMax, nonUsed, threads, daemon, gcCount, gcTime, reported any
+		var start, heapPct, heapUsed, heapMax, nonUsed, rss, threads, daemon, gcCount, gcTime, reported any
 		if err := rows.Scan(
 			&item.row.AgentID, &item.row.AppName, &item.row.MainClass, &item.row.ProcessID, &item.row.JavaVersion, &start,
-			&item.row.HostName, &item.row.IPAddress, &heapPct, &heapUsed, &heapMax, &nonUsed,
+			&item.row.HostName, &item.row.IPAddress, &heapPct, &heapUsed, &heapMax, &nonUsed, &rss,
 			&threads, &daemon, &gcCount, &gcTime, &reported, &item.machineID,
 		); err != nil {
 			return nil, err
@@ -58,6 +58,7 @@ func listInstances(db *dbx.DB, tenantID string, filter JavaFilter) ([]models.Jav
 		item.row.HeapUsedBytes = asInt64(heapUsed)
 		item.row.HeapMaxBytes = asInt64(heapMax)
 		item.row.NonHeapUsedBytes = asInt64(nonUsed)
+		item.row.RSSBytes = asInt64(rss)
 		item.row.ThreadCount = asInt64(threads)
 		item.row.DaemonCount = asInt64(daemon)
 		item.row.CollectionCount = asInt64(gcCount)

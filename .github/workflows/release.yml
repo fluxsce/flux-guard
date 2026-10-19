@@ -8,12 +8,25 @@ permissions:
   contents: write
   actions: write
 
+  
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 jobs:
+  clean-storage:
+    if: ${{ !contains(github.event.head_commit.message, '[release notes]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Free Actions storage and open plugin handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/free_actions_storage.sh
+
   kafka-plugin:
+    needs: clean-storage
     if: ${{ !contains(github.event.head_commit.message, '[release notes]') }}
     strategy:
       fail-fast: false
@@ -86,24 +99,45 @@ jobs:
           cp -a plugins/zk/dist/zk-probe "${stage}/zk/dist/"
           cp -a plugins/manifests/kafka.yaml "${stage}/manifests/"
           cp -a plugins/manifests/zk.yaml "${stage}/manifests/"
-      - name: Drop previous plugin artifact
+      - name: Upload plugin image
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT_NAME: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
-            --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id" \
-            | while read -r id; do
-                [ -n "${id}" ] || continue
-                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
-              done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ runner.temp }}/plugin-stage
-          if-no-files-found: error
-          retention-days: 1
+          name="kafka-probe-${{ matrix.goos }}-${{ matrix.goarch }}"
+          stage="${RUNNER_TEMP}/plugin-stage"
+          archive="${RUNNER_TEMP}/${name}.tar.gz"
+          upload_path="${archive}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            # RUNNER_TEMP is D:\...; Git Bash tar treats "D:" as a remote host.
+            unix_temp="$(cygpath -u "${RUNNER_TEMP}")"
+            stage="${unix_temp}/plugin-stage"
+            archive="${unix_temp}/${name}.tar.gz"
+            upload_path="$(cygpath -w "${archive}")"
+          fi
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            test -f "${stage}/kafka/dist/kafka-probe/kafka-probe.exe"
+            test -f "${stage}/zk/dist/zk-probe/zk-probe.exe"
+          else
+            test -f "${stage}/kafka/dist/kafka-probe/kafka-probe"
+            test -f "${stage}/zk/dist/zk-probe/zk-probe"
+          fi
+          test -f "${stage}/manifests/kafka.yaml"
+          test -f "${stage}/manifests/zk.yaml"
+          tar -C "${stage}" -czf "${archive}" .
+          test -s "${archive}"
+          uploaded=0
+          for attempt in 1 2 3 4 5 6; do
+            if gh release upload "build-${GITHUB_RUN_ID}" "${upload_path}" --clobber; then
+              uploaded=1
+              break
+            fi
+            echo "upload attempt ${attempt} failed; retrying"
+            sleep $((attempt * 3 + RANDOM % 3))
+          done
+          test "${uploaded}" = "1"
 
   publish:
     needs: kafka-plugin
@@ -130,10 +164,30 @@ jobs:
           java-version: "17"
       - name: Use checked-out dbx
         run: go mod edit -replace github.com/fluxsce/dbx=./.ci/dbx
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: kafka-probe-*
-          path: .ci/plugins
+      - name: Download plugin images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          dest=".ci/plugin-archives"
+          rm -rf "${dest}" .ci/plugins
+          mkdir -p "${dest}"
+          gh release download "build-${GITHUB_RUN_ID}" --dir "${dest}" --pattern "kafka-probe-*.tar.gz"
+          found=0
+          for archive in "${dest}"/kafka-probe-*.tar.gz; do
+            [ -f "${archive}" ] || continue
+            found=1
+            name=$(basename "${archive}" .tar.gz)
+            mkdir -p ".ci/plugins/${name}"
+            tar -xzf "${archive}" -C ".ci/plugins/${name}"
+          done
+          test "${found}" = "1"
+          test -d .ci/plugins/kafka-probe-linux-amd64/kafka/dist/kafka-probe
+          test -d .ci/plugins/kafka-probe-windows-amd64/kafka/dist/kafka-probe
+          test -d .ci/plugins/kafka-probe-darwin-arm64/kafka/dist/kafka-probe
+          test -f .ci/plugins/kafka-probe-linux-amd64/manifests/kafka.yaml
+          test -f .ci/plugins/kafka-probe-linux-amd64/manifests/zk.yaml
       - name: Test
         run: go test -count=1 ./...
       - name: Publish changelog version
@@ -257,3 +311,11 @@ jobs:
           git tag -a "v${VERSION}" -m "v${VERSION}"
           git push origin "v${VERSION}"
           gh release create "v${VERSION}" --title "v${VERSION}" --notes-file release-notes.md dist/*.tar.gz dist/SHA256SUMS.txt
+      - name: Delete plugin handoff release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release delete "build-${GITHUB_RUN_ID}" --yes --cleanup-tag
