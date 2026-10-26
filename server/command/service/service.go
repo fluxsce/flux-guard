@@ -68,7 +68,7 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 		if strings.TrimSpace(in.Instance) == "" {
 			return models.View{}, models.ErrBadRelease
 		}
-	} else if in.Action == protocol.ActionAppStart || in.Action == protocol.ActionAppStop || in.Action == protocol.ActionAppRestart {
+	} else if protocol.AppLongAction(in.Action) {
 		if strings.TrimSpace(in.Instance) == "" {
 			return models.View{}, models.ErrBadRelease
 		}
@@ -109,11 +109,11 @@ func (s *Service) Dispatch(ctx context.Context, tenantID, user string, in models
 			return models.View{}, models.ErrNotUpdatable
 		}
 	}
-	// 自更新、出站推文件、启停/重启：超过短拨时限或专供隔离网，只走长轮询。
+	// 自更新、出站推文件、启停/重启、Tomcat 堆栈与堆转储：超过短拨时限或专供隔离网，只走长轮询。
 	primary, list, addr := s.targetAddress(ctx, tenantID, agentID, in.Action)
 	token := setting.IngestPlain(tenantID)
 	canDial := !protocol.AgentAction(in.Action) && !protocol.FilePushAction(in.Action) &&
-		!protocol.AppLifecycleAction(in.Action) &&
+		!protocol.AppLongAction(in.Action) &&
 		addr != "" && token != "" && allowedTarget(addr, primary, list)
 	commandID := id.New()
 	statusFlag := models.StatusWaiting
@@ -394,7 +394,7 @@ func (s *Service) finish(ctx context.Context, commandID, flag, message string, s
 	return nil
 }
 
-// ListLifecycle 返回一套运行时最近的启动、停止、重启。步骤在点开单条时再读。
+// ListLifecycle 返回一套运行时最近的启动、停止、重启，以及 Tomcat 线程堆栈和堆转储。步骤在点开单条时再读。
 func (s *Service) ListLifecycle(ctx context.Context, tenantID, agentID, instance string, limit int) ([]models.View, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	agentID = strings.TrimSpace(agentID)
@@ -421,11 +421,12 @@ func (s *Service) ListLifecycle(ctx context.Context, tenantID, agentID, instance
 		       COALESCE(extProperty, '') AS extProperty
 		FROM FG_COMMAND
 		WHERE tenantId = @tenantId AND agentId = @agentId AND activeFlag = 'Y'
-		  AND actionName IN (@start, @stop, @restart)
+		  AND actionName IN (@start, @stop, @restart, @threaddump, @heapdump)
 		ORDER BY addTime DESC, commandId DESC
 		LIMIT `+strconv.Itoa(limit*4), dbx.Args{
 		"tenantId": tenantID, "agentId": agentID,
 		"start": protocol.ActionAppStart, "stop": protocol.ActionAppStop, "restart": protocol.ActionAppRestart,
+		"threaddump": protocol.ActionAppThreadDump, "heapdump": protocol.ActionAppHeapDump,
 	}); err != nil {
 		return nil, err
 	}

@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-10-20
+
+### 新增
+- `fg0008` 对 Tomcat 可打印线程堆栈和生成堆转储。堆栈用这一套 JDK 的 `jcmd Thread.print` 写到 `logs`，可在线查看；没有 `jcmd` 时 Linux 改发 SIGQUIT，堆栈打进 catalina。堆转储写 `logs/flux-guard-heap-*.hprof`（只含可达对象，会短暂停顿），可下载。
+- 安装中央服务时一并登记本机主机代理。安装脚本解开 `agents/flux-guard-agent-host.tar.gz`，按中央监听地址写好 `server_url`，再调用该目录自己的安装脚本。采集仍在独立进程里。卸载中央服务时取消这个开机项，不删除已解开的目录和配置。
+
 ## [1.2.6] - 2026-10-19
 
 ### 新增

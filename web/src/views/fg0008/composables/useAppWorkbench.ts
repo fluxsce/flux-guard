@@ -57,6 +57,7 @@ export function fileTypePreview(row: AppInstance): { badge: string; label: strin
   const kind = row.artifactKind
   const ext = fileExtOf(row)
   if (kind === 'dir') return { badge: 'DIR', label: '目录' }
+  if (ext === 'hprof') return { badge: 'DMP', label: '堆转储' }
   if (kind === 'log' || ext === 'log' || ext === 'txt' || ext === 'out') return { badge: 'LOG', label: '日志 / 文本' }
   if (kind === 'war' || ext === 'war') return { badge: 'WAR', label: 'Web 应用包' }
   if (kind === 'jar' || ext === 'jar') return { badge: 'JAR', label: 'Java 包' }
@@ -585,14 +586,29 @@ export function useAppWorkbench() {
     return mode !== '' && mode !== 'files' && mode !== 'static'
   })
 
-  async function submitLifecycle(op: 'start' | 'stop' | 'restart') {
-    if (!current.value || !canRelease.value || !canLifecycle.value) return
+  /** 当前站点是否为 Tomcat，可打印线程堆栈和生成堆转储。 */
+  const canDiagnose = computed(() => current.value?.modeCode === 'tomcat')
+
+  async function submitLifecycle(op: 'start' | 'stop' | 'restart' | 'threaddump' | 'heapdump') {
+    if (!current.value || !canRelease.value) return
+    if (op === 'threaddump' || op === 'heapdump') {
+      if (!canDiagnose.value) return
+    } else if (!canLifecycle.value) {
+      return
+    }
     const site = current.value
-    const label = op === 'start' ? '启动' : op === 'stop' ? '停止' : '重启'
+    const label =
+      op === 'start' ? '启动' : op === 'stop' ? '停止' : op === 'restart' ? '重启' : op === 'threaddump' ? '打印线程堆栈' : '生成堆转储'
+    const description =
+      op === 'threaddump'
+        ? `将对「${site.instanceName}」执行 jcmd Thread.print，把各线程堆栈写到 logs，不重启。没有 jcmd 时，Linux 会向进程发 SIGQUIT，堆栈打进 catalina。`
+        : op === 'heapdump'
+          ? `将对「${site.instanceName}」执行 jcmd GC.heap_dump。JVM 会短暂停顿，文件写在 logs 下，可能很大。不重启进程。`
+          : `将对「${site.instanceName}」执行${label}（按代理本机 systemd / Windows 服务 / docker / 命令配置）。`
     const ok = await rsConfirm.confirm({
-      title: `${label}运行时`,
-      description: `将对「${site.instanceName}」执行${label}（按代理本机 systemd / Windows 服务 / docker / 命令配置）。`,
-      confirmText: label,
+      title: op === 'threaddump' || op === 'heapdump' ? label : `${label}运行时`,
+      description,
+      confirmText: op === 'threaddump' ? '打印' : op === 'heapdump' ? '生成' : label,
       teleportTo: `#${moduleId}`,
     })
     if (!ok) return
@@ -613,11 +629,20 @@ export function useAppWorkbench() {
       lifecycle.value = {
         commandId: cmd.commandId,
         agentId: site.agentId,
-        action: op === 'start' ? 'app.runtime.start' : op === 'stop' ? 'app.runtime.stop' : 'app.runtime.restart',
+        action:
+          op === 'start'
+            ? 'app.runtime.start'
+            : op === 'stop'
+              ? 'app.runtime.stop'
+              : op === 'restart'
+                ? 'app.runtime.restart'
+                : op === 'threaddump'
+                  ? 'app.runtime.threaddump'
+                  : 'app.runtime.heapdump',
         status: 'running',
         addTime: cmd.addTime || new Date().toISOString(),
       }
-      if (op !== 'stop') void followStartupLog(site.instanceName)
+      if (op === 'start' || op === 'restart') void followStartupLog(site.instanceName)
       void pollCommand(cmd.commandId, label)
     } catch (err) {
       toast.error(getHttpErrorMessage(err, `${label}失败`))
@@ -637,6 +662,9 @@ export function useAppWorkbench() {
       const startup = (cmd.steps ?? []).find((step) => step.name === 'startup')
       const verdict = (startup?.detail || '').split('\n')[0]?.trim()
       if (verdict) pushLog(verdict)
+      const dump = (cmd.steps ?? []).find((step) => step.name === 'threaddump' || step.name === 'heapdump')
+      if (dump?.targetPath) pushLog(`文件 ${dump.targetPath}`)
+      if ((dump?.detail || '').includes('SIGQUIT') && current.value) void followStartupLog(current.value.instanceName)
       // 右侧已在跟读原文时，不再把同一段日志贴进左侧事件。
       if (!follow.text.value) {
         const excerpt = startupExcerpt(startup?.detail)
@@ -868,6 +896,8 @@ export function useAppWorkbench() {
   }
 
   function lifecycleName(action: string) {
+    if (action.endsWith('threaddump')) return '线程堆栈'
+    if (action.endsWith('heapdump')) return '堆转储'
     if (action.endsWith('stop')) return '停止'
     if (action.endsWith('restart')) return '重启'
     if (action.endsWith('start')) return '启动'
@@ -922,6 +952,7 @@ export function useAppWorkbench() {
     tailLive: follow.live,
     canRelease,
     canLifecycle,
+    canDiagnose,
     selectedFiles,
     releaseKind,
     releaseAppCode,

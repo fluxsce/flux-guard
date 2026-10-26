@@ -45,6 +45,7 @@ const {
   submitCreate,
   submitLifecycle,
   canLifecycle,
+  canDiagnose,
   continueBatch,
   submitRollback,
   openRelease,
@@ -105,6 +106,7 @@ useModuleAi(() => ({
             :download-progress="downloadProgress"
             :can-release="canRelease"
             :can-lifecycle="canLifecycle"
+            :can-diagnose="canDiagnose"
             :version="version"
             :canary-count="canaryCount"
             :release-kind="releaseKind"

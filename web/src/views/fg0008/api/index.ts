@@ -160,8 +160,12 @@ export interface RuntimeCommand {
   addTime?: string
 }
 
-/** 下发启动 / 停止 / 重启。 */
-export function runtimeControl(agentId: string, instanceName: string, op: 'start' | 'stop' | 'restart') {
+/** 下发启动 / 停止 / 重启，或 Tomcat 线程堆栈 / 堆转储。 */
+export function runtimeControl(
+  agentId: string,
+  instanceName: string,
+  op: 'start' | 'stop' | 'restart' | 'threaddump' | 'heapdump',
+) {
   return fg0008.post('/runtimeControl', { agentId, instanceName, op })
 }
 

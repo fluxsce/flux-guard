@@ -36,6 +36,10 @@ const (
 	ActionAppFilePush = "app.file.push"
 	// ActionAppFileList 让应用侧代理扫描 files 目录并把清单出站推到中央（隔离网列目录用）。
 	ActionAppFileList = "app.file.list"
+	// ActionAppThreadDump 让应用侧代理对正在运行的 Tomcat 打印线程堆栈并写入 logs。
+	ActionAppThreadDump = "app.runtime.threaddump"
+	// ActionAppHeapDump 让应用侧代理对正在运行的 Tomcat 生成可达对象堆转储并写入 logs。
+	ActionAppHeapDump = "app.runtime.heapdump"
 	// ActionAgentUpdate 让代理从中央拉取自身安装包并替换后重启。
 	// 首次部署仍手工安装；后续版本由中央登记制品并下发本动作。
 	ActionAgentUpdate = "agent.self.update"
@@ -56,6 +60,7 @@ func KnownAction(action string) bool {
 	switch action {
 	case ActionCollectNow, ActionIntervalSet, ActionAppReplace, ActionAppUpgrade,
 		ActionAppStart, ActionAppStop, ActionAppRestart,
+		ActionAppThreadDump, ActionAppHeapDump,
 		ActionAppRollback, ActionAppFilePush, ActionAppFileList, ActionAgentUpdate:
 		return true
 	default:
@@ -93,6 +98,7 @@ func HostAction(action string) bool {
 func AppAction(action string) bool {
 	return action == ActionAppReplace || action == ActionAppUpgrade ||
 		action == ActionAppStart || action == ActionAppStop || action == ActionAppRestart ||
+		action == ActionAppThreadDump || action == ActionAppHeapDump ||
 		action == ActionAppRollback || action == ActionAppFilePush || action == ActionAppFileList
 }
 
@@ -104,6 +110,11 @@ func FilePushAction(action string) bool {
 // AppLifecycleAction 启停/重启可能超过短拨总时限（Tomcat shutdown 等），只走长轮询回执。
 func AppLifecycleAction(action string) bool {
 	return action == ActionAppStart || action == ActionAppStop || action == ActionAppRestart
+}
+
+// AppLongAction 执行时间可能超过短拨 12s，只走长轮询回执。含启停和 Tomcat 堆栈/堆转储。
+func AppLongAction(action string) bool {
+	return AppLifecycleAction(action) || action == ActionAppThreadDump || action == ActionAppHeapDump
 }
 
 // AgentAction 判断动作是否为代理自身升级。

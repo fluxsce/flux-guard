@@ -21,6 +21,7 @@ const props = defineProps<{
   downloadProgress?: DownloadProgress | null
   canRelease: boolean
   canLifecycle?: boolean
+  canDiagnose?: boolean
   version: string
   canaryCount: number
   releaseKind: string
@@ -39,7 +40,7 @@ const emit = defineEmits<{
   'pick-file': [file: File | null]
   release: []
   create: [payload: { appCode: string; kind: string }]
-  lifecycle: [op: 'start' | 'stop' | 'restart']
+  lifecycle: [op: 'start' | 'stop' | 'restart' | 'threaddump' | 'heapdump']
 }>()
 
 const toast = useRsToast()
@@ -106,6 +107,8 @@ const columns: FgGridColumn[] = [
 function canPreviewLog(row: FileEntry) {
   if (row.kind !== 'file' || !row.row || row.row.onlineFlag !== 'Y') return false
   const kind = String(row.row.artifactKind || '').toLowerCase()
+  const raw = (row.name || row.row.artifactPath || '').toLowerCase()
+  if (raw.endsWith('.hprof')) return false
   if (kind === 'log') return true
   const name = (row.name || row.row.artifactPath || '').toLowerCase()
   return name.endsWith('.log') || name.endsWith('.txt') || name.endsWith('.out')
@@ -199,6 +202,24 @@ const toolbarButtons = computed<FgToolbarButton[]>(() => [
     aiRisk: 'write',
     show: !!props.canRelease && !!props.canLifecycle,
     onClick: () => emit('lifecycle', 'restart'),
+  },
+  {
+    key: 'threaddump',
+    label: '线程堆栈',
+    icon: 'bug',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: !!props.canRelease && !!props.canDiagnose,
+    onClick: () => emit('lifecycle', 'threaddump'),
+  },
+  {
+    key: 'heapdump',
+    label: '堆转储',
+    icon: 'archive',
+    code: 'fg0008:release',
+    aiRisk: 'write',
+    show: !!props.canRelease && !!props.canDiagnose,
+    onClick: () => emit('lifecycle', 'heapdump'),
   },
   {
     key: 'startup-log',

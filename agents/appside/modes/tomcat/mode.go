@@ -323,7 +323,9 @@ func ListRuntimeLogs(logsDir string) ([]core.Artifact, error) {
 		if name == "" || strings.HasPrefix(name, ".") {
 			continue
 		}
-		if core.FileKind(filepath.Ext(name)) != "log" {
+		ext := filepath.Ext(name)
+		heap := strings.HasPrefix(name, "flux-guard-heap-") && strings.EqualFold(ext, ".hprof")
+		if core.FileKind(ext) != "log" && !heap {
 			continue
 		}
 		info, err := entry.Info()

@@ -43,6 +43,8 @@ function stepLead(detail?: string) {
 }
 
 function runtimeAction(action: string) {
+  if (action.endsWith('threaddump')) return '线程堆栈'
+  if (action.endsWith('heapdump')) return '堆转储'
   if (action.endsWith('stop')) return '停止'
   if (action.endsWith('restart')) return '重启'
   if (action.endsWith('start')) return '启动'
@@ -149,7 +151,7 @@ function stepRest(step: ReleaseStep) {
 
       <div v-if="runtimeHistory?.length || releases.length" class="fg-op-history">
         <template v-if="runtimeHistory?.length">
-          <h4>最近启停</h4>
+          <h4>最近操作</h4>
           <ul>
             <li v-for="item in runtimeHistory" :key="item.commandId">
               <button type="button" @click="emit('open-runtime', item)">

@@ -15,7 +15,7 @@ func TestListRuntimeLogs(t *testing.T) {
 	if err := os.Mkdir(logs, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"catalina.out", "localhost.log", "readme.md"} {
+	for _, name := range []string{"catalina.out", "localhost.log", "readme.md", "flux-guard-heap-20261019-180000.hprof", "other.hprof"} {
 		if err := os.WriteFile(filepath.Join(logs, name), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -33,6 +33,12 @@ func TestListRuntimeLogs(t *testing.T) {
 	}
 	if _, ok := byName["logs/readme"]; ok {
 		t.Fatal("md should not be listed")
+	}
+	if byName["logs/flux-guard-heap-20261019-180000"].Kind != "log" {
+		t.Fatal("heap dump should be listed")
+	}
+	if _, ok := byName["logs/other"]; ok {
+		t.Fatal("unrelated hprof should not be listed")
 	}
 }
 

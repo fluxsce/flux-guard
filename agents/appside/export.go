@@ -30,6 +30,8 @@ var (
 	Restart           = core.Restart
 	Rollback          = core.Rollback
 	DescribeLifecycle = core.DescribeLifecycle
+	ThreadDump        = core.ThreadDump
+	HeapDump          = core.HeapDump
 )
 
 // ProbeStartup 与 core.ProbeStartup 相同，仅保持对外包路径稳定。

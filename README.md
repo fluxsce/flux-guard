@@ -78,17 +78,16 @@
 
 ### 本地开发
 
-数据库组件放在本仓库的同级目录。`go.mod` 使用 `../dbx`。控制台依赖 npm 上的 [`ensis-ui`](https://www.npmjs.com/package/ensis-ui)。
+数据库组件按 `go.mod` 里的 `github.com/fluxsce/dbx` 版本从模块代理拉取，开发不必另克隆一份。要改 dbx 本身、或用上尚未发布的提交时，再把仓库放在同级目录，执行 `go mod edit -replace github.com/fluxsce/dbx=../dbx`。控制台依赖 npm 上的 [`ensis-ui`](https://www.npmjs.com/package/ensis-ui)。
 
 | 组件 | 来源 |
 |------|------|
-| dbx | https://github.com/fluxsce/dbx |
+| dbx | https://github.com/fluxsce/dbx （`go.mod` 当前为 v1.0.3） |
 | ensis-ui | https://www.npmjs.com/package/ensis-ui |
 
 在 `flux-guard` 根目录执行：
 
 ```bash
-git clone https://github.com/fluxsce/dbx.git ../dbx
 cp -n configs/server.yaml.example configs/server.yaml
 pnpm --dir web install
 pnpm dev
@@ -120,6 +119,8 @@ if (-not (Test-Path configs\server.yaml)) { Copy-Item configs\server.yaml.exampl
 主机代理、Go 运行时代理和应用代理的目录里有程序、配置示例和启动停止脚本。Java 代理目录里有 `flux-guard-agent-java.jar` 和配置示例，挂载方式写在 `configs/java.yaml.example` 的注释里。第一次启动时，若还没有本机 `configs/*.yaml`，这些启动脚本会从示例复制一份。Java 代理没有启动脚本，把示例复制为 `configs/java.yaml` 后再改。程序只读这份 yaml，不读 example。本机配置留在机器上，不要提交。
 
 中央服务、主机代理、Go 运行时代理和应用代理要在机器重启后自动起来，在各自目录执行一次 `scripts/run/install.sh`（Windows 用管理员执行 `install.ps1`）。这会登记成系统服务并立即启动：Linux 是 systemd，macOS 是 launchd，Windows 是开机任务。服务不把程序输出送进系统日志，日志仍写在安装目录的 `logs/` 里并按大小轮转。重启用同目录的 `restart.sh` 或 `restart.ps1`。取消开机启动用 `uninstall.sh` 或 `uninstall.ps1`。Java 代理不登记。
+
+在中央目录执行这次安装时，会把同包的 `agents/flux-guard-agent-host.tar.gz` 解到 `agents/flux-guard-agent-host/`，再调用该目录自己的安装脚本。主机指标仍由这个独立进程采集，中央进程不读本机 CPU、内存和磁盘。`configs/host.yaml` 的 `server_url` 按中央 `listen` 写成这台机器能访问到的地址：监听所有网卡时用 `127.0.0.1`，绑了具体地址时用那个地址。初次令牌与开发种子 `agt_dev_local` 相同。在环境设置里更换上报令牌后，要同步改这份 `agent_token`。再次安装会按当前 `listen` 改 `server_url`，不改已有令牌和显示名。卸载中央服务时一并取消这个主机代理的开机启动，不删除已解开的目录和配置。其它机器上的代理仍各自拷包安装。安装包里没有这只主机包时，中央服务会装上，本机主机代理不会装，安装脚本以失败结束。
 
 安装包带有控制台页面。浏览器打开 `http://主机:listen端口/fluxguard/`，例如 `listen` 为 `:8080` 时是 `http://127.0.0.1:8080/fluxguard/`。根路径会转到这个地址。
 

@@ -20,10 +20,10 @@ import (
 type runtimeOpBody struct {
 	AgentID      string `json:"agentId"`
 	InstanceName string `json:"instanceName"`
-	Op           string `json:"op"` // start | stop | restart
+	Op           string `json:"op"` // start | stop | restart | threaddump | heapdump
 }
 
-// RuntimeControl 对一套运行时下发启动 / 停止 / 重启（Control 面，不经 Session）。
+// RuntimeControl 对一套运行时下发启动 / 停止 / 重启，或对 Tomcat 打印线程堆栈、生成堆转储。
 func (c *AppController) RuntimeControl(g *gin.Context) {
 	p := middleware.Principal(g)
 	var body runtimeOpBody
@@ -38,6 +38,7 @@ func (c *AppController) RuntimeControl(g *gin.Context) {
 		return
 	}
 	var action string
+	diag := false
 	switch op {
 	case "start":
 		action = protocol.ActionAppStart
@@ -45,8 +46,14 @@ func (c *AppController) RuntimeControl(g *gin.Context) {
 		action = protocol.ActionAppStop
 	case "restart":
 		action = protocol.ActionAppRestart
+	case "threaddump":
+		action = protocol.ActionAppThreadDump
+		diag = true
+	case "heapdump":
+		action = protocol.ActionAppHeapDump
+		diag = true
 	default:
-		httpx.WriteErr(g, http.StatusBadRequest, "操作无效，须为 start / stop / restart")
+		httpx.WriteErr(g, http.StatusBadRequest, "操作无效")
 		return
 	}
 	mode, err := dao.SiteMode(g.Request.Context(), c.db, p.TenantID, agentID, instance)
@@ -54,7 +61,12 @@ func (c *AppController) RuntimeControl(g *gin.Context) {
 		writeMissing(g, err, "找不到运行时")
 		return
 	}
-	if mode == "files" || mode == "static" {
+	if diag {
+		if mode != "tomcat" {
+			httpx.WriteErr(g, http.StatusBadRequest, "只有 Tomcat 支持线程堆栈和堆转储")
+			return
+		}
+	} else if mode == "files" || mode == "static" {
 		httpx.WriteErr(g, http.StatusBadRequest, "当前模式无进程启停")
 		return
 	}
@@ -63,7 +75,14 @@ func (c *AppController) RuntimeControl(g *gin.Context) {
 		httpx.WriteErr(g, http.StatusBadRequest, "命令通道未启用")
 		return
 	}
-	audit.Note(g, "", "APP", instance, instance, "运行时"+op+" "+instance)
+	note := "运行时" + op + " " + instance
+	switch op {
+	case "threaddump":
+		note = "线程堆栈 " + instance
+	case "heapdump":
+		note = "堆转储 " + instance
+	}
+	audit.Note(g, "", "APP", instance, instance, note)
 	view, err := svc.Dispatch(g.Request.Context(), p.TenantID, p.UserID, command.DispatchInput{
 		AgentID: agentID, Action: action, Instance: instance,
 	})
@@ -99,7 +118,7 @@ func (c *AppController) QueryCommand(g *gin.Context) {
 	httpx.WriteOK(g, view)
 }
 
-// QueryRuntimeCommands 返回这一套运行时最近的启动、停止、重启。
+// QueryRuntimeCommands 返回这一套运行时最近的启动、停止、重启、线程堆栈和堆转储。
 func (c *AppController) QueryRuntimeCommands(g *gin.Context) {
 	p := middleware.Principal(g)
 	agentID := strings.TrimSpace(request.Param(g, "agentId"))

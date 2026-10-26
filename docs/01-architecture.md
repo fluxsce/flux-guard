@@ -1,6 +1,6 @@
 # Flux Guard 架构
 
-运行时中央只部署一份 server。每台被监控机器按种类安装代理：主机代理采 CPU、内存、磁盘容量、磁盘 IO、网卡流量和进程内存；Go 运行时代理只上报自己这个进程；Java 代理挂在 JVM 里采堆和 GC；应用代理一台机器一份，配置里列出这台机器上的各套 Tomcat、JAR 和静态目录并负责换包。一台机器可以同时跑多个种类的代理。代理各自安装、升级和停机，只把批次上报给 server，代理之间不通信。server 不启动代理，也不把代理编进自己的进程。
+运行时中央只部署一份 server。每台被监控机器按种类安装代理：主机代理采 CPU、内存、磁盘容量、磁盘 IO、网卡流量和进程内存；Go 运行时代理只上报自己这个进程；Java 代理挂在 JVM 里采堆和 GC；应用代理一台机器一份，配置里列出这台机器上的各套 Tomcat、JAR 和静态目录并负责换包。一台机器可以同时跑多个种类的代理。代理各自安装、升级和停机，只把批次上报给 server，代理之间不通信。server 不启动代理，也不把代理编进自己的进程。安装中央包时，`scripts/run/server-companion` 把同包里的主机代理解开并登记成另一个服务，采集仍由那个进程完成。
 
 对齐两边的是通讯协议，不是实现语言。协议放在 `protocol`，规定路径、鉴权头、JSON 正文和应答。Java、Python 或其它语言自己实现一个代理，按这份协议上报即可。协议不是进程。
 
@@ -55,7 +55,7 @@ flowchart TB
 
 同一台机器上的代理互不通信。指标走 Telemetry 短连接；终端 / 日志跟读等**连续交互**走 Session 出站 WebSocket；换包等名单动作走 Control。控制台只连中央 `/fluxguard`，不直连代理。
 
-开发时可以在同一台电脑上起 server、host、goruntime 进程，配置里的 `server_url` 指向本机。正式环境中央只跑 server，把需要的代理装到被监控的机器上。
+开发时可以在同一台电脑上起 server、host、goruntime 进程，配置里的 `server_url` 指向本机。正式环境中央进程只跑 server。安装中央服务时，同一台机器会再登记一份主机代理，`server_url` 指向本机中央。其它被监控机器仍单独安装对应的代理包。
 
 ## 三层，加一个共享工具层
 
@@ -115,7 +115,7 @@ flowchart LR
 
 **后续凡「长连接、连续交互」一律走 Session WS**（同一条隧道多路 `channel`）。不上第二条平行长连接，不新开 REST 长轮询会话。Telemetry / Control / 大文件仍用 HTTPS。
 
-列目录、换包、新增制品、运行时启停仍走 **Control**（短拨或 `app.file.list` / `app.runtime.start|stop|restart`），不进 Session。控制台点刷新时中央向代理拉实时清单并写库（含注销已删文件）；Session 解决不了「磁盘删了还不知道」，除非再加代理侧目录监听推送。启动日志跟读仍走 Session `apptail`。
+列目录、换包、新增制品、运行时启停仍走 **Control**（短拨或 `app.file.list` / `app.runtime.start|stop|restart`），不进 Session。Tomcat 线程堆栈和堆转储是 `app.runtime.threaddump` / `app.runtime.heapdump`，同样只走长轮询回执。控制台点刷新时中央向代理拉实时清单并写库（含注销已删文件）；Session 解决不了「磁盘删了还不知道」，除非再加代理侧目录监听推送。启动日志跟读仍走 Session `apptail`。
 
 浏览器只连中央。令牌、口令、环境变量值不进隧道帧与跟读正文审计。
 
@@ -268,7 +268,7 @@ common/shellrun     Go 主机代理的交互终端：主动连中央，本机拉
 common/buildinfo    产品版本。本地读取仓库根 package.json，发行构建用 ldflags 覆盖
 web/                控制台，由 server 托管
 configs/            示例配置 *.yaml.example。本机 *.yaml 由启动脚本复制，不提交
-scripts/run         当前目录里那个程序的启动与停止。发行包里代理在 agents/*.tar.gz，解开后各自成目录
+scripts/run         当前目录里那个程序的启动与停止。发行包里代理在 agents/*.tar.gz，解开后各自成目录。server-companion 只属于中央安装：解开本机主机代理并调用它自己的安装脚本
 scripts/db/mysql    中央库表，MySQL
 scripts/db/sqlite   同一套表的 SQLite 脚本，不含部门
 ```

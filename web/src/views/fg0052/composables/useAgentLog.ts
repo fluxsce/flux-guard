@@ -27,6 +27,8 @@ export const eventOptions: FlagOption[] = [
   { label: '启动运行时', value: 'app.runtime.start' },
   { label: '停止运行时', value: 'app.runtime.stop' },
   { label: '重启运行时', value: 'app.runtime.restart' },
+  { label: '打印线程堆栈', value: 'app.runtime.threaddump' },
+  { label: '生成堆转储', value: 'app.runtime.heapdump' },
   { label: '回滚应用文件', value: 'app.file.rollback' },
   { label: '推送文件到中央', value: 'app.file.push' },
   { label: '列出目录清单', value: 'app.file.list' },

@@ -98,6 +98,7 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 	switch call.Action {
 	case protocol.ActionAppReplace, protocol.ActionAppUpgrade, protocol.ActionAppRollback,
 		protocol.ActionAppStart, protocol.ActionAppStop, protocol.ActionAppRestart,
+		protocol.ActionAppThreadDump, protocol.ActionAppHeapDump,
 		protocol.ActionAppFilePush, protocol.ActionAppFileList:
 	default:
 		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", call.Action)
@@ -116,6 +117,9 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 
 	if call.Action == protocol.ActionAppStart || call.Action == protocol.ActionAppStop || call.Action == protocol.ActionAppRestart {
 		return runLifecycle(ctx, rt, call.Action, steps, fail)
+	}
+	if call.Action == protocol.ActionAppThreadDump || call.Action == protocol.ActionAppHeapDump {
+		return runDiag(ctx, rt, call.Action, steps, fail)
 	}
 
 	if call.Action == protocol.ActionAppFileList {
@@ -214,6 +218,37 @@ func runCommand(ctx context.Context, cfg report.Config, list []appside.Runtime, 
 		}
 		steps = append(steps, protocol.CommandStep{Name: "restart", Status: "done", Detail: appside.DescribeLifecycle(rt, "restart")})
 		return finishWithStartup(ctx, rt, mark, steps, "运行时已升级并重启 "+rt.Instance)
+	}
+}
+
+func runDiag(
+	ctx context.Context,
+	rt appside.Runtime,
+	action string,
+	steps []protocol.CommandStep,
+	fail func(name, target, backup string, err error) (protocol.CommandOutcome, error),
+) (protocol.CommandOutcome, error) {
+	switch action {
+	case protocol.ActionAppThreadDump:
+		got, err := appside.ThreadDump(ctx, rt)
+		if err != nil {
+			return fail("threaddump", rt.Base, "", err)
+		}
+		steps = append(steps, protocol.CommandStep{
+			Name: "threaddump", Status: "done", TargetPath: got.Path, Detail: got.Detail,
+		})
+		return protocol.CommandOutcome{Message: got.Message, Steps: steps}, nil
+	case protocol.ActionAppHeapDump:
+		got, err := appside.HeapDump(ctx, rt)
+		if err != nil {
+			return fail("heapdump", rt.Base, "", err)
+		}
+		steps = append(steps, protocol.CommandStep{
+			Name: "heapdump", Status: "done", TargetPath: got.Path, Detail: got.Detail,
+		})
+		return protocol.CommandOutcome{Message: got.Message, Steps: steps}, nil
+	default:
+		return protocol.CommandOutcome{}, fmt.Errorf("不支持的动作 %s", action)
 	}
 }
 

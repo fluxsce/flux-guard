@@ -103,6 +103,8 @@ export function stepLabel(name: string) {
     start: '启动实例',
     stop: '停止实例',
     startup: '启动探测',
+    threaddump: '线程堆栈',
+    heapdump: '堆转储',
     list: '列出目录',
     push: '推送文件',
   }
